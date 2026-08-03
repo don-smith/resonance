@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApp } from '../src/server.ts';
+import { createApp, startServer } from '../src/server.ts';
 
 const fixtureRoot = new URL('./fixtures/repository/', import.meta.url);
 
@@ -15,6 +15,20 @@ async function withServer(run) {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 }
+
+test('starts on the next port when the requested port is already in use', async () => {
+  const occupiedServer = createApp({ root: fixtureRoot });
+  await new Promise((resolve) => occupiedServer.listen(0, '127.0.0.1', resolve));
+  const occupiedPort = occupiedServer.address().port;
+  const fallbackServer = await startServer({ root: fixtureRoot, port: occupiedPort, maxPortAttempts: 3 });
+
+  try {
+    assert.equal(fallbackServer.address().port, occupiedPort + 1);
+  } finally {
+    await new Promise((resolve, reject) => fallbackServer.close((error) => error ? reject(error) : resolve()));
+    await new Promise((resolve, reject) => occupiedServer.close((error) => error ? reject(error) : resolve()));
+  }
+});
 
 test('serves the Markdown tree for the current repository', async () => {
   await withServer(async (baseUrl) => {

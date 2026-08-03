@@ -4,12 +4,33 @@ import { mkdtemp, readFile, readlink, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { run } from '../bin/theview';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 const projectRoot = new URL('../', import.meta.url);
 const projectPath = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 
+
+test('opens the browser at the actual server port after startup', async () => {
+  const logs = [];
+  const openedUrls = [];
+  const fakeServer = { address: () => ({ port: 4318 }) };
+
+  await run(['--port', '4317'], {
+    root: '/tmp/example-repository',
+    startServerFn: async (options) => {
+      assert.equal(options.root, '/tmp/example-repository');
+      assert.equal(options.port, 4317);
+      return fakeServer;
+    },
+    openBrowserFn: (url) => openedUrls.push(url),
+    log: (message) => logs.push(message),
+  });
+
+  assert.deepEqual(openedUrls, ['http://127.0.0.1:4318']);
+  assert.ok(logs.includes('http://127.0.0.1:4318'));
+});
 
 test('the package exposes a global CLI entry point', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));

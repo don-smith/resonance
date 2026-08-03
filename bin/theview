@@ -1,10 +1,11 @@
 #!/usr/bin/env bun
 
 import process from 'node:process';
+import { openBrowser } from '../src/browser.ts';
 import { startServer } from '../src/server.ts';
 
-function printHelp() {
-  console.log(`theview — local cockpit for repository Markdown
+function printHelp(log = console.log) {
+  log(`theview — local cockpit for repository Markdown
 
 Usage:
   theview [options]
@@ -16,7 +17,7 @@ Options:
 `);
 }
 
-function parseArgs(argumentsList) {
+export function parseArgs(argumentsList) {
   const options = { port: Number(process.env.THEVIEW_PORT || 4317), host: process.env.THEVIEW_HOST || '127.0.0.1' };
 
   for (let index = 0; index < argumentsList.length; index += 1) {
@@ -39,19 +40,32 @@ function parseArgs(argumentsList) {
   return options;
 }
 
+export async function run(argumentsList, {
+  root = process.cwd(),
+  startServerFn = startServer,
+  openBrowserFn = openBrowser,
+  log = console.log,
+} = {}) {
+  const options = parseArgs(argumentsList);
+  if (options.help) {
+    printHelp(log);
+    return null;
+  }
+
+  const server = await startServerFn({ root, ...options });
+  const address = server.address();
+  const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
+  const url = `http://${visibleHost}:${address.port}`;
+  log(`theview serving ${root}`);
+  log(url);
+  openBrowserFn(url);
+  return server;
+}
+
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/theview')) {
   try {
-    const options = parseArgs(process.argv.slice(2));
-    if (options.help) {
-      printHelp();
-      process.exit(0);
-    }
-
-    const server = await startServer({ root: process.cwd(), ...options });
-    const address = server.address();
-    const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
-    console.log(`theview serving ${process.cwd()}`);
-    console.log(`http://${visibleHost}:${address.port}`);
+    const server = await run(process.argv.slice(2));
+    if (!server) process.exit(0);
 
     const shutdown = () => server.close(() => process.exit(0));
     process.once('SIGINT', shutdown);

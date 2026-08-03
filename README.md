@@ -25,7 +25,7 @@ cd /path/to/another/repository
 theview
 ```
 
-Open the URL printed by the command. The server reads Markdown from the directory where the command was run.
+Theview starts at port 4317, moves to the next available port if needed, and opens the selected URL in your default browser. The server reads Markdown from the directory where the command was run.
 
 ## Develop theview
 

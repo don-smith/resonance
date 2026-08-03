@@ -108,11 +108,31 @@ export function createApp({ root = process.cwd(), appRoot = projectRoot } = {}) 
   });
 }
 
-export async function startServer({ root = process.cwd(), appRoot = projectRoot, host = '127.0.0.1', port = 4317 } = {}) {
-  const server = createApp({ root, appRoot });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, host, resolve);
-  });
-  return server;
+export async function startServer({
+  root = process.cwd(),
+  appRoot = projectRoot,
+  host = '127.0.0.1',
+  port = 4317,
+  maxPortAttempts = 100,
+} = {}) {
+  const attempts = port === 0 ? 1 : maxPortAttempts;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const candidatePort = port + attempt;
+    const server = createApp({ root, appRoot });
+
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(candidatePort, host, resolve);
+      });
+      return server;
+    } catch (error) {
+      if (error.code !== 'EADDRINUSE' || port === 0 || candidatePort >= 65535 || attempt === attempts - 1) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error('Unable to find an available port.');
 }

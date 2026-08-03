@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, readlink, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const exec = promisify(execFile);
+const projectRoot = new URL('../', import.meta.url);
+const projectPath = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
+
+
+test('the package exposes a global CLI entry point', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(packageJson.bin.theview, 'bin/theview');
+  assert.equal(packageJson.scripts.test, 'bun test');
+  assert.equal(packageJson.packageManager, 'bun@1.3.13');
+
+  const cli = await readFile(new URL('../bin/theview', import.meta.url), 'utf8');
+  assert.match(cli, /^#!\/usr\/bin\/env bun/);
+});
+
+test('the local installer symlinks the checkout and adds its bin directory to the shell path', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'theview-home-'));
+  const binDirectory = path.join(home, '.local', 'bin');
+  const shellConfig = path.join(home, '.zshrc');
+
+  await exec('bash', [new URL('../scripts/install-local.sh', import.meta.url).pathname], {
+    cwd: projectPath,
+    env: { ...process.env, HOME: home, THEVIEW_BIN_DIR: binDirectory, THEVIEW_SHELL_RC: shellConfig },
+  });
+
+  assert.equal(await realpath(path.join(binDirectory, 'theview')), await realpath(new URL('../bin/theview', import.meta.url)));
+  assert.match(await readFile(shellConfig, 'utf8'), new RegExp(`PATH=.*${binDirectory.replaceAll('/', '\\/')}`));
+});

@@ -1,0 +1,63 @@
+#!/usr/bin/env bun
+
+import process from 'node:process';
+import { startServer } from '../src/server.ts';
+
+function printHelp() {
+  console.log(`theview — local cockpit for repository Markdown
+
+Usage:
+  theview [options]
+
+Options:
+  --port <number>  Port to listen on (default: 4317)
+  --host <host>    Host to bind (default: 127.0.0.1)
+  --help           Show this help
+`);
+}
+
+function parseArgs(argumentsList) {
+  const options = { port: Number(process.env.THEVIEW_PORT || 4317), host: process.env.THEVIEW_HOST || '127.0.0.1' };
+
+  for (let index = 0; index < argumentsList.length; index += 1) {
+    const argument = argumentsList[index];
+    if (argument === '--help' || argument === '-h') return { help: true };
+    if (argument === '--port') {
+      options.port = Number(argumentsList[++index]);
+    } else if (argument === '--host') {
+      options.host = argumentsList[++index];
+    } else if (argument.startsWith('--')) {
+      throw new Error(`Unknown option: ${argument}`);
+    } else {
+      throw new Error(`Unexpected argument: ${argument}`);
+    }
+  }
+
+  if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535) {
+    throw new Error('Port must be an integer between 0 and 65535.');
+  }
+  return options;
+}
+
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/theview')) {
+  try {
+    const options = parseArgs(process.argv.slice(2));
+    if (options.help) {
+      printHelp();
+      process.exit(0);
+    }
+
+    const server = await startServer({ root: process.cwd(), ...options });
+    const address = server.address();
+    const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
+    console.log(`theview serving ${process.cwd()}`);
+    console.log(`http://${visibleHost}:${address.port}`);
+
+    const shutdown = () => server.close(() => process.exit(0));
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
+  } catch (error) {
+    console.error(`theview: ${error.message}`);
+    process.exit(1);
+  }
+}

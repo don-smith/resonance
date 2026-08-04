@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { readMarkdown } from '../content.ts';
 import { createMarkdownRenderer } from '../markdown.ts';
@@ -7,16 +8,17 @@ const metadata = { id: 'home', version: '1.0.0', hostVersion: '1', label: 'Home'
 
 export function homeInput(input: PackageInput) {
   const source = input.source === undefined ? 'README.md' : input.source;
-  if (typeof source !== 'string' || !source || path.posix.isAbsolute(source) || /\\/.test(source)) {
+  if (typeof source !== 'string' || !source || path.posix.isAbsolute(source) || path.win32.isAbsolute(source) || /\\/.test(source)) {
     throw new Error('Home source must be a non-empty relative path.');
   }
-  if (!/\.(md|markdown)$/i.test(source)) throw new Error('Home source must be a Markdown file.');
+  if (!/\.(md|markdown|html|htm)$/i.test(source)) throw new Error('Home source must be a Markdown file or an HTML file.');
   return { source };
 }
 
 function createHomeHandler(input: PackageInput) {
   const { source } = homeInput(input);
   const renderer = createMarkdownRenderer();
+  const isHtml = /\.(html|htm)$/i.test(source);
   return async (_request, response, context: HostContext) => {
     const relativePath = context.resolveRepositoryPath(source);
     if (!relativePath) {
@@ -24,11 +26,13 @@ function createHomeHandler(input: PackageInput) {
       return;
     }
     try {
-      const content = await readMarkdown(context.repositoryRoot, relativePath);
+      const content = isHtml
+        ? await readFile(path.join(context.repositoryRoot, relativePath), 'utf8')
+        : await readMarkdown(context.repositoryRoot, relativePath);
       context.sendJson(response, 200, {
         path: relativePath.split(path.sep).join('/'),
         content,
-        html: renderer.render(content),
+        html: isHtml ? content : renderer.render(content),
       });
     } catch {
       context.sendJson(response, 404, { error: 'Home source not found' });

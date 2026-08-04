@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "packages": {
+    "home": { "source": ".theview/home.html" },
+    "docs": {
+      "extensions": [".md", ".markdown"],
+      "ignoredDirectories": [".git", "node_modules"]
+    }
+  }
+}

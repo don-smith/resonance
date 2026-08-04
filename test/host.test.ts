@@ -75,6 +75,11 @@ test('assembles the fixed package order and final namespaced assets', () => {
   assert.equal(registry.manifest.packages.find((item) => item.id === 'docs').entry, '/assets/docs/docs.js');
 });
 
+test('accepts repository-owned HTML Home sources', () => {
+  assert.equal(homeInput({ source: 'home.html' }).source, 'home.html');
+  assert.equal(homeInput({ source: 'home.htm' }).source, 'home.htm');
+});
+
 test('validates Home inputs while host containment rejects traversal', () => {
   assert.equal(homeInput({ source: 'README.md' }).source, 'README.md');
   assert.throws(() => homeInput({ source: '' }), /non-empty relative path/);

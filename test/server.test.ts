@@ -85,6 +85,18 @@ test('serves the configured Home source with safe rendered HTML', async () => {
   }, { config: await loadRepositoryConfig(fixtureRoot) });
 });
 
+test('serves repository-owned HTML Home sources without Markdown transformation', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/home`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      path: 'home.html',
+      content: '<section class="repository-home"><h1>Fixture HTML Home</h1><p>Repository-owned markup.</p></section>\n',
+      html: '<section class="repository-home"><h1>Fixture HTML Home</h1><p>Repository-owned markup.</p></section>\n',
+    });
+  }, { config: { version: 1, packages: { home: { source: 'home.html' } } } });
+});
+
 test('returns the Home 404 shape for missing and traversal sources', async () => {
   for (const source of ['missing.md', '../README.md']) {
     await withServer(async (baseUrl) => {

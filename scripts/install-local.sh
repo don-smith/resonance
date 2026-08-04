@@ -2,9 +2,11 @@
 set -euo pipefail
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# THEVIEW_RUNTIME_ROOT is used by packaged distributions; the checkout remains the default development runtime.
+runtime_root="${THEVIEW_RUNTIME_ROOT:-$repo_root}"
 bin_dir="${THEVIEW_BIN_DIR:-${HOME}/.local/bin}"
 mkdir -p "$bin_dir"
-ln -sfn "$repo_root/bin/theview" "$bin_dir/theview"
+ln -sfn "$runtime_root/bin/theview" "$bin_dir/theview"
 
 case "${SHELL##*/}" in
   bash) default_rc="${HOME}/.bashrc" ;;

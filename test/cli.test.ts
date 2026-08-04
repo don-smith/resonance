@@ -22,6 +22,10 @@ test('opens the browser at the actual server port after startup', async () => {
     startServerFn: async (options) => {
       assert.equal(options.root, '/tmp/example-repository');
       assert.equal(options.port, 4317);
+      assert.equal(options.config.version, 1);
+      assert.equal(options.config.packages.home.source, 'README.md');
+      assert.deepEqual(options.registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs']);
+      assert.ok(options.registry.routes['/api/home']);
       return fakeServer;
     },
     openBrowserFn: (url) => openedUrls.push(url),

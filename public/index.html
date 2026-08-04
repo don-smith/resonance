@@ -4,7 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>theview</title>
-    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="/assets/shell/shell.css">
+    <link rel="stylesheet" href="/assets/home/home.css">
+    <link rel="stylesheet" href="/assets/docs/docs.css">
   </head>
   <body>
     <div class="app-shell">
@@ -14,50 +16,15 @@
           <h1>theview</h1>
           <p class="sidebar-note">A readable surface over the repository you are building.</p>
         </div>
-
         <nav id="primary-navigation" class="primary-navigation" aria-label="Workspace">
           <p class="nav-label">WORKSPACE</p>
-          <button class="primary-nav-item active" type="button" data-view="home" aria-current="page">
-            <span class="nav-index">01</span>
-            <span>Home</span>
-          </button>
-          <button class="primary-nav-item" type="button" data-view="docs">
-            <span class="nav-index">02</span>
-            <span>Docs</span>
-            <span class="nav-meta">MD</span>
-          </button>
         </nav>
-
         <div class="primary-footer">
           <span>LOCAL</span>
           <span>COCKPIT 0.1</span>
         </div>
       </aside>
-
-      <aside id="document-sidebar" class="document-sidebar" aria-label="Markdown documents" hidden>
-        <div class="document-sidebar-head">
-          <p class="eyebrow">DOCS / MARKDOWN</p>
-          <h2 id="project-name">theview</h2>
-          <p class="document-count"><span id="document-count">—</span> documents in this repository</p>
-        </div>
-        <nav id="document-tree" class="document-tree" aria-label="Markdown document tree">
-          <p class="loading">Loading repository…</p>
-        </nav>
-      </aside>
-
-      <main id="document-pane" class="document-pane">
-        <header class="document-header">
-          <span id="section-label" class="section-label">HOME</span>
-          <span class="header-rule" aria-hidden="true"></span>
-          <span id="document-path" class="document-path">theview</span>
-        </header>
-        <article id="document-content" class="document-content" aria-live="polite">
-          <p class="eyebrow">A LOCAL DEVELOPMENT COCKPIT</p>
-          <h2>See the shape of what you’re building.</h2>
-          <p class="lead">theview turns the Markdown already living in a repository into a calm, navigable workspace. Choose Docs to browse the document tree, then select a file to begin reading.</p>
-          <div class="welcome-line"><span class="signal-dot"></span><span>Connected to the current repository</span></div>
-        </article>
-      </main>
+      <main id="package-mount" class="package-mount-region" aria-live="polite"></main>
     </div>
     <script type="module" src="/assets/app.js"></script>
   </body>

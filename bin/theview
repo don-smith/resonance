@@ -2,6 +2,9 @@
 
 import process from 'node:process';
 import { openBrowser } from '../src/browser.ts';
+import { loadRepositoryConfig } from '../src/config.ts';
+import { createHost } from '../src/host.ts';
+import { createDefaultPackages } from '../src/packages/index.ts';
 import { startServer } from '../src/server.ts';
 
 function printHelp(log = console.log) {
@@ -52,7 +55,9 @@ export async function run(argumentsList, {
     return null;
   }
 
-  const server = await startServerFn({ root, ...options });
+  const config = await loadRepositoryConfig(root);
+  const registry = createHost({ root, config, packages: createDefaultPackages(config) });
+  const server = await startServerFn({ root, config, registry, ...options });
   const address = server.address();
   const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
   const url = `http://${visibleHost}:${address.port}`;

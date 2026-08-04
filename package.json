@@ -7,6 +7,7 @@
   "bin": {
     "theview": "bin/theview"
   },
+  "files": ["bin", "src", "public", "scripts", "README.md"],
   "description": "A local developer cockpit for navigating repository Markdown.",
   "scripts": {
     "test": "bun test",
@@ -14,5 +15,8 @@
   },
   "dependencies": {
     "markdown-it": "^14.1.0"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18.12"
   }
 }

@@ -1,39 +1,19 @@
 import { createReadStream } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildMarkdownTree, discoverMarkdownFiles, readMarkdown } from './content.ts';
-import { renderMarkdown } from './markdown.ts';
+import { defaultRepositoryConfig, loadRepositoryConfig } from './config.ts';
+import { createHost, type HostRegistry } from './host.ts';
+import { createDefaultPackages } from './packages/index.ts';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
-const publicRoot = path.join(projectRoot, 'public');
 
-function toPath(value) {
+function toPath(value: string | URL): string {
   return value instanceof URL ? fileURLToPath(value) : value;
 }
 
-function sendJson(response, status, body) {
-  response.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-  });
-  response.end(JSON.stringify(body));
-}
-
-function safeDocumentPath(root, requestedPath) {
-  if (!requestedPath || path.posix.isAbsolute(requestedPath) || /\\/.test(requestedPath)) return null;
-
-  const rootPath = path.resolve(toPath(root));
-  const absolutePath = path.resolve(rootPath, requestedPath);
-  const relativePath = path.relative(rootPath, absolutePath);
-
-  if (relativePath.startsWith('..' + path.sep) || relativePath === '..' || path.isAbsolute(relativePath)) return null;
-  if (!/\.(md|markdown)$/i.test(relativePath)) return null;
-  return relativePath;
-}
-
-async function serveFile(response, filename, contentType) {
+async function serveFile(response, filename: string, contentType: string): Promise<void> {
   try {
     await access(filename);
     response.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-cache' });
@@ -44,10 +24,23 @@ async function serveFile(response, filename, contentType) {
   }
 }
 
-export function createApp({ root = process.cwd(), appRoot = projectRoot } = {}) {
-  const repositoryRoot = toPath(root);
+export function createApp({
+  root = process.cwd(),
+  appRoot = projectRoot,
+  config,
+  registry = createHost({
+    root,
+    appRoot,
+    config: config || defaultRepositoryConfig(),
+    packages: createDefaultPackages(config || defaultRepositoryConfig()),
+  }),
+} : {
+  root?: string | URL;
+  appRoot?: string | URL;
+  config?: ReturnType<typeof defaultRepositoryConfig>;
+  registry?: HostRegistry;
+} = {}) {
   const assetsRoot = path.join(toPath(appRoot), 'public');
-
   return http.createServer(async (request, response) => {
     if (request.method !== 'GET') {
       response.writeHead(405, { allow: 'GET' });
@@ -56,46 +49,21 @@ export function createApp({ root = process.cwd(), appRoot = projectRoot } = {}) 
     }
 
     const requestUrl = new URL(request.url, 'http://127.0.0.1');
-
     try {
-      if (requestUrl.pathname === '/api/tree') {
-        const documents = await discoverMarkdownFiles(repositoryRoot);
-        sendJson(response, 200, {
-          rootName: path.basename(path.resolve(repositoryRoot)),
-          documents,
-          tree: buildMarkdownTree(documents),
-        });
+      if (requestUrl.pathname === '/api/manifest') {
+        registry.context.sendJson(response, 200, registry.manifest);
         return;
       }
 
-      if (requestUrl.pathname === '/api/document') {
-        const relativePath = safeDocumentPath(repositoryRoot, requestUrl.searchParams.get('path'));
-        if (!relativePath) {
-          sendJson(response, 404, { error: 'Markdown document not found' });
-          return;
-        }
-
-        try {
-          const content = await readMarkdown(repositoryRoot, relativePath);
-          sendJson(response, 200, {
-            path: relativePath.split(path.sep).join('/'),
-            content,
-            html: renderMarkdown(content),
-          });
-        } catch {
-          sendJson(response, 404, { error: 'Markdown document not found' });
-        }
+      const route = registry.routes[requestUrl.pathname];
+      if (route) {
+        await route.handler(request, response, registry.context);
         return;
       }
 
-      const assets = {
-        '/': ['index.html', 'text/html; charset=utf-8'],
-        '/assets/app.js': ['app.js', 'text/javascript; charset=utf-8'],
-        '/assets/styles.css': ['styles.css', 'text/css; charset=utf-8'],
-      };
-      const asset = assets[requestUrl.pathname];
+      const asset = registry.assets[requestUrl.pathname];
       if (asset) {
-        await serveFile(response, path.join(assetsRoot, asset[0]), asset[1]);
+        await serveFile(response, path.join(assetsRoot, asset.file), asset.contentType);
         return;
       }
 
@@ -103,7 +71,7 @@ export function createApp({ root = process.cwd(), appRoot = projectRoot } = {}) 
       response.end('Not found');
     } catch (error) {
       console.error(error);
-      sendJson(response, 500, { error: 'Internal server error' });
+      registry.context.sendJson(response, 500, { error: 'Internal server error' });
     }
   });
 }
@@ -114,13 +82,24 @@ export async function startServer({
   host = '127.0.0.1',
   port = 4317,
   maxPortAttempts = 100,
+  config,
+  registry,
+} : {
+  root?: string | URL;
+  appRoot?: string | URL;
+  host?: string;
+  port?: number;
+  maxPortAttempts?: number;
+  config?: ReturnType<typeof defaultRepositoryConfig>;
+  registry?: HostRegistry;
 } = {}) {
+  const resolvedConfig = config || await loadRepositoryConfig(root);
+  const resolvedRegistry = registry || createHost({ root, appRoot, config: resolvedConfig, packages: createDefaultPackages(resolvedConfig) });
   const attempts = port === 0 ? 1 : maxPortAttempts;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const candidatePort = port + attempt;
-    const server = createApp({ root, appRoot });
-
+    const server = createApp({ root, appRoot, registry: resolvedRegistry });
     try {
       await new Promise((resolve, reject) => {
         server.once('error', reject);

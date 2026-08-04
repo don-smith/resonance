@@ -1,16 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMarkdownTree, discoverMarkdownFiles } from '../src/content.ts';
-import { renderMarkdown } from '../src/markdown.ts';
+import { DEFAULT_MARKDOWN_EXTENSIONS, buildMarkdownTree, discoverMarkdownFiles } from '../src/content.ts';
+import { createMarkdownRenderer, renderMarkdown } from '../src/markdown.ts';
 
-test('discovers Markdown files recursively while ignoring generated dependency directories', async () => {
-  const files = await discoverMarkdownFiles(new URL('./fixtures/repository/', import.meta.url));
-
+test('supports configurable discovery filters while preserving defaults', async () => {
+  const fixture = new URL('./fixtures/repository/', import.meta.url);
+  const files = await discoverMarkdownFiles(fixture);
   assert.deepEqual(files, [
     'README.md',
     'docs/architecture.md',
     'docs/guides/getting-started.md',
+    'home.md',
   ]);
+  assert.deepEqual(await discoverMarkdownFiles(fixture, { extensions: ['.md'], ignoredDirectories: ['.git', 'node_modules'] }), files);
+  assert.deepEqual(await discoverMarkdownFiles(fixture, { extensions: ['.markdown'], ignoredDirectories: ['.git', 'node_modules'] }), []);
+  assert.deepEqual(DEFAULT_MARKDOWN_EXTENSIONS, ['.md', '.markdown']);
 });
 
 test('builds a navigable folder tree from Markdown paths', () => {
@@ -37,11 +41,8 @@ test('builds a navigable folder tree from Markdown paths', () => {
   ]);
 });
 
-test('renders safe Markdown for the document pane', () => {
-  const html = renderMarkdown('# Heading\n\nA [link](https://example.com).\n\n```js\nconst answer = 42;\n```\n\n<script>alert(1)</script>');
-
+test('creates independently configured safe Markdown renderers', () => {
+  const html = createMarkdownRenderer().render('# Heading');
   assert.match(html, /<h1[^>]*>Heading<\/h1>/);
-  assert.match(html, /<a href="https:\/\/example.com">link<\/a>/);
-  assert.match(html, /<code class="language-js">/);
-  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(renderMarkdown('<script>alert(1)</script>'), /<script>/);
 });

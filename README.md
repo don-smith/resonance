@@ -2,12 +2,11 @@
 
 A local cockpit for seeing the shape of the application you are building.
 
-The first slice turns the Markdown files in any repository into a readable browser workspace:
+Theview is composed from a small, deterministic set of packages:
 
-- a project homepage;
-- a navigable tree of Markdown documents;
-- a document pane with safe Markdown rendering;
-- a global development CLI that can be run from another repository.
+- **Shell** owns navigation and package mount regions.
+- **Home** renders the configured repository landing source.
+- **Docs** owns Markdown discovery, tree navigation, and document rendering.
 
 ## Try it
 
@@ -25,7 +24,24 @@ cd /path/to/another/repository
 theview
 ```
 
-Theview starts at port 4317, moves to the next available port if needed, and opens the selected URL in your default browser. The server reads Markdown from the directory where the command was run.
+The command reads `.theview.json` from the current repository. If it is absent, version-one defaults use `README.md` for Home and `.md`/`.markdown` files for Docs. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL in the default browser.
+
+## Repository configuration
+
+```json
+{
+  "version": 1,
+  "packages": {
+    "home": { "source": "README.md" },
+    "docs": {
+      "extensions": [".md", ".markdown"],
+      "ignoredDirectories": [".git", "node_modules"]
+    }
+  }
+}
+```
+
+Package routes are canonical under `/api/<package-id>/...`; Docs also keeps `/api/tree` and `/api/document` as compatibility aliases. Package assets are served under `/assets/<package-id>/...`.
 
 ## Develop theview
 
@@ -41,3 +57,5 @@ The local Bun script delegates to the installed CLI:
 ```sh
 bun run theview
 ```
+
+The installer keeps checkout symlinks for development. Packaged runtimes can set `THEVIEW_RUNTIME_ROOT` while retaining the same CLI entrypoint.

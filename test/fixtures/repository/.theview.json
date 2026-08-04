@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "packages": {
+    "home": { "source": "home.md" },
+    "docs": { "extensions": [".md", ".markdown"], "ignoredDirectories": [".git", "node_modules"] }
+  }
+}

@@ -62,7 +62,7 @@ test('validates contributions and isolates optional registration failures', () =
 });
 
 test('preserves Home validation and removes Docs aliases', () => {
-  assert.equal(homeInput({ source: '.theview/home.html' }).source, '.theview/home.html');
+  assert.equal(homeInput({ source: '.resonance/home.html' }).source, '.resonance/home.html');
   assert.throws(() => homeInput({ source: 'home.txt' }), /Markdown file/);
   const registry = createHost({ packages: [docsPackage] });
   assert.ok(registry.routes['/api/docs/tree']);

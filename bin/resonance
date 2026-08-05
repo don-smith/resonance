@@ -6,10 +6,10 @@ import { loadRepositoryConfig } from '../src/config.ts';
 import { startServer } from '../src/server.ts';
 
 function printHelp(log = console.log) {
-  log(`theview — local cockpit for repository Markdown
+  log(`resonance — local cockpit for repository Markdown
 
 Usage:
-  theview [options]
+  resonance [options]
 
 Options:
   --port <number>  Port to listen on (default: 4317)
@@ -19,7 +19,7 @@ Options:
 }
 
 export function parseArgs(argumentsList) {
-  const options = { port: Number(process.env.THEVIEW_PORT || 4317), host: process.env.THEVIEW_HOST || '127.0.0.1' };
+  const options = { port: Number(process.env.RESONANCE_PORT || 4317), host: process.env.RESONANCE_HOST || '127.0.0.1' };
   for (let index = 0; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
     if (argument === '--help' || argument === '-h') return { help: true };
@@ -40,15 +40,15 @@ export async function run(argumentsList, { root = process.cwd(), startServerFn =
   const address = server.address();
   const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
   const url = `http://${visibleHost}:${address.port}`;
-  log(`theview serving ${root}`); log(url); openBrowserFn(url);
+  log(`resonance serving ${root}`); log(url); openBrowserFn(url);
   return server;
 }
 
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/theview')) {
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/resonance')) {
   try {
     const server = await run(process.argv.slice(2));
     if (!server) process.exit(0);
     const shutdown = () => server.close(() => process.exit(0));
     process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);
-  } catch (error) { console.error(`theview: ${error.message}`); process.exit(1); }
+  } catch (error) { console.error(`resonance: ${error.message}`); process.exit(1); }
 }

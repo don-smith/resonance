@@ -1,6 +1,6 @@
 # First-slice architecture
 
-The CLI lives in this repository, but the server reads the **current working directory** as its content root. That is what lets theview be developed here and exercised against another repository.
+The CLI lives in this repository, but the server reads the **current working directory** as its content root. That is what lets resonance be developed here and exercised against another repository.
 
 The server exposes canonical Docs JSON endpoints:
 

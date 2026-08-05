@@ -11,7 +11,7 @@ export function openBrowser(url, { platform = process.platform, spawnProcess = s
   const { command, args } = getBrowserCommand(platform, url);
   const child = spawnProcess(command, args, { detached: true, stdio: 'ignore' });
   child.once?.('error', (error) => {
-    console.error(`theview: unable to open browser: ${error.message}`);
+    console.error(`resonance: unable to open browser: ${error.message}`);
   });
   child.unref?.();
   return child;

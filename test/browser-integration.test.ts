@@ -11,15 +11,15 @@ const homeModulePath = new URL('../src/packages/home/home.js', import.meta.url);
 const docsModulePath = new URL('../src/packages/docs/docs.js', import.meta.url);
 function response(body, status = 200) { return { ok: status >= 200 && status < 300, status, async json() { return body; } }; }
 async function loadCoordinator(window, document) {
-  globalThis.window = window; globalThis.document = document; globalThis.__THEVIEW_TEST__ = true;
+  globalThis.window = window; globalThis.document = document; globalThis.__RESONANCE_TEST__ = true;
   let source = await readFile(shellPath, 'utf8');
   source = source.replace("'/assets/shell/shell.js'", JSON.stringify(pathToFileURL(fileURLToPath(shellModulePath)).href));
   const modules = { '/assets/home/home.js': pathToFileURL(fileURLToPath(homeModulePath)).href, '/assets/docs/docs.js': pathToFileURL(fileURLToPath(docsModulePath)).href };
   source = source.replace('import(packageInfo.entry)', `import(${JSON.stringify(modules)}[packageInfo.entry])`);
-  const directory = await mkdtemp(`${tmpdir()}/theview-browser-`); const filename = `${directory}/app.js`; await writeFile(filename, source);
+  const directory = await mkdtemp(`${tmpdir()}/resonance-browser-`); const filename = `${directory}/app.js`; await writeFile(filename, source);
   try { return await import(`${pathToFileURL(filename).href}?${Date.now()}`); } finally { await rm(directory, { recursive: true, force: true }); }
 }
-function cleanup() { delete globalThis.window; delete globalThis.document; delete globalThis.__THEVIEW_TEST__; }
+function cleanup() { delete globalThis.window; delete globalThis.document; delete globalThis.__RESONANCE_TEST__; }
 
 test('loads browser modules and stylesheets from the manifest', async () => {
   const { window, document } = parseHTML('<!doctype html><head></head><body><nav id="primary-navigation"></nav><main id="package-mount"></main></body>');

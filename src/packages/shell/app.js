@@ -43,6 +43,6 @@ export async function startApplication({ documentRoot = document, fetchFn = fetc
   return { manifest, packages, activate: shell.activate };
 }
 
-if (!globalThis.__THEVIEW_TEST__) {
+if (!globalThis.__RESONANCE_TEST__) {
   startApplication().catch((error) => { document.body.innerHTML = `<p class="shell-error">${String(error.message || error)}</p>`; });
 }

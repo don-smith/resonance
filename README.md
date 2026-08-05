@@ -1,8 +1,8 @@
-# theview
+# resonance
 
 A local cockpit for seeing the shape of the application you are building.
 
-Theview is composed from package folders under `src/packages/<package-id>`:
+Resonance is composed from package folders under `src/packages/<package-id>`:
 
 - **Shell** owns navigation, package mounts, the fixed browser bootstrap, and shared layout.
 - **Home** renders the configured repository landing source (`README.md` by default, or repository-owned Markdown/HTML).
@@ -17,14 +17,14 @@ Install this checkout into a user-local bin directory:
 source ~/.zshrc
 ```
 
-Then run theview from any repository:
+Then run resonance from any repository:
 
 ```sh
 cd /path/to/another/repository
-theview
+resonance
 ```
 
-The command reads `.theview/config.json` from the current repository. If it is absent, version-one defaults select the built-in Shell, Home, and Docs modules, use `README.md` for Home, and discover `.md`/`.markdown` files for Docs while ignoring `.git` and `node_modules`. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
+The command reads `.resonance/config.json` from the current repository. If it is absent, version-one defaults select the built-in Shell, Home, and Docs modules, use `README.md` for Home, and discover `.md`/`.markdown` files for Docs while ignoring `.git` and `node_modules`. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
 
 ## Repository configuration
 
@@ -49,13 +49,13 @@ Set `enabled` to `false` to omit an optional package. Shell is required because 
 
 ### Create a custom Home page
 
-Add a repository-owned HTML fragment such as `.theview/home.html`, scope its selectors below a root class, and point Home at it:
+Add a repository-owned HTML fragment such as `.resonance/home.html`, scope its selectors below a root class, and point Home at it:
 
 ```json
 {
   "version": 1,
   "packages": {
-    "home": { "module": "src/packages/home/index.ts", "source": ".theview/home.html" }
+    "home": { "module": "src/packages/home/index.ts", "source": ".resonance/home.html" }
   }
 }
 ```
@@ -64,7 +64,7 @@ Home accepts relative `.md`, `.markdown`, `.html`, and `.htm` sources. Markdown 
 
 Package routes are canonical under `/api/<package-id>/...`; Docs uses `/api/docs/tree` and `/api/docs/document`. Package assets retain `/assets/<package-id>/...` public URLs while their physical files live inside package folders.
 
-## Develop theview
+## Develop resonance
 
 ```sh
 bun install
@@ -74,5 +74,5 @@ bun test
 The local Bun script delegates to the installed CLI:
 
 ```sh
-bun run theview
+bun run resonance
 ```

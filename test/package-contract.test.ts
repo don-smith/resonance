@@ -6,7 +6,7 @@ import path from 'node:path';
 import { defaultRepositoryConfig, loadRepositoryConfig, validateRepositoryConfig } from '../src/config.ts';
 
 test('uses version-one defaults with explicit built-in modules when config is absent', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
   const config = await loadRepositoryConfig(root);
   assert.deepEqual(config, defaultRepositoryConfig());
   assert.equal(config.packages.shell.module, 'src/packages/shell/index.ts');
@@ -14,10 +14,10 @@ test('uses version-one defaults with explicit built-in modules when config is ab
   assert.deepEqual(config.packages.docs.extensions, ['.md', '.markdown']);
 });
 
-test('loads package selections from .theview/config.json', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
-  await mkdir(path.join(root, '.theview'));
-  await writeFile(path.join(root, '.theview', 'config.json'), JSON.stringify({ version: 1, packages: { shell: { module: 'src/packages/shell/index.ts' }, home: { module: 'src/packages/home/index.ts', source: 'docs/index.md' }, docs: { module: 'src/packages/docs/index.ts', extensions: ['.markdown'] } } }));
+test('loads package selections from .resonance/config.json', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
+  await mkdir(path.join(root, '.resonance'));
+  await writeFile(path.join(root, '.resonance', 'config.json'), JSON.stringify({ version: 1, packages: { shell: { module: 'src/packages/shell/index.ts' }, home: { module: 'src/packages/home/index.ts', source: 'docs/index.md' }, docs: { module: 'src/packages/docs/index.ts', extensions: ['.markdown'] } } }));
   const config = await loadRepositoryConfig(root);
   assert.equal(config.packages.home.module, 'src/packages/home/index.ts');
   assert.equal(config.packages.home.source, 'docs/index.md');
@@ -25,8 +25,8 @@ test('loads package selections from .theview/config.json', async () => {
 });
 
 test('does not read the legacy manifest', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
-  const legacyManifest = path.join(root, '.theview' + '.json');
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
+  const legacyManifest = path.join(root, '.resonance' + '.json');
   await writeFile(legacyManifest, JSON.stringify({ version: 1, packages: { home: { module: 'wrong.ts', source: 'wrong.md' } } }));
   const config = await loadRepositoryConfig(root);
   assert.equal(config.packages.home.module, 'src/packages/home/index.ts');
@@ -42,8 +42,8 @@ test('validates manifest containers and enabled flags', () => {
 });
 
 test('reports invalid JSON at the canonical filename', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
-  await mkdir(path.join(root, '.theview'));
-  await writeFile(path.join(root, '.theview', 'config.json'), '{');
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
+  await mkdir(path.join(root, '.resonance'));
+  await writeFile(path.join(root, '.resonance', 'config.json'), '{');
   await assert.rejects(() => loadRepositoryConfig(root), /config\.json: manifest is not valid JSON/);
 });

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MANIFEST_VERSION, type PackageConfig, type PackageInput, type RepositoryConfig } from './package-contract.ts';
 
-export const MANIFEST_NAME = '.theview/config.json';
+export const MANIFEST_NAME = '.resonance/config.json';
 const DEFAULT_HOME: PackageInput = { source: 'README.md' };
 const DEFAULT_DOCS: PackageInput = { extensions: ['.md', '.markdown'], ignoredDirectories: ['.git', 'node_modules'] };
 const DEFAULT_MODULES = {

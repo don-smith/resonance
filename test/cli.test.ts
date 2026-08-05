@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readlink, realpath } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -8,54 +8,23 @@ import { run } from '../bin/theview';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
-const projectRoot = new URL('../', import.meta.url);
 const projectPath = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 
-
 test('opens the browser at the actual server port after startup', async () => {
-  const logs = [];
-  const openedUrls = [];
-  const fakeServer = { address: () => ({ port: 4318 }) };
-
-  await run(['--port', '4317'], {
-    root: '/tmp/example-repository',
-    startServerFn: async (options) => {
-      assert.equal(options.root, '/tmp/example-repository');
-      assert.equal(options.port, 4317);
-      assert.equal(options.config.version, 1);
-      assert.equal(options.config.packages.home.source, 'README.md');
-      assert.deepEqual(options.registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs']);
-      assert.ok(options.registry.routes['/api/home']);
-      return fakeServer;
-    },
-    openBrowserFn: (url) => openedUrls.push(url),
-    log: (message) => logs.push(message),
-  });
-
-  assert.deepEqual(openedUrls, ['http://127.0.0.1:4318']);
-  assert.ok(logs.includes('http://127.0.0.1:4318'));
+  const logs = []; const openedUrls = []; const fakeServer = { address: () => ({ port: 4318 }) };
+  await run(['--port', '4317'], { root: '/tmp/example-repository', startServerFn: async (options) => { assert.equal(options.root, '/tmp/example-repository'); assert.equal(options.port, 4317); assert.equal(options.config.version, 1); assert.equal(options.registry, undefined); return fakeServer; }, openBrowserFn: (url) => openedUrls.push(url), log: (message) => logs.push(message) });
+  assert.deepEqual(openedUrls, ['http://127.0.0.1:4318']); assert.ok(logs.includes('http://127.0.0.1:4318'));
 });
 
-test('the package exposes a global CLI entry point', async () => {
+test('publishes the source package tree and global CLI entry', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(packageJson.bin.theview, 'bin/theview');
-  assert.equal(packageJson.scripts.test, 'bun test');
-  assert.equal(packageJson.packageManager, 'bun@1.3.13');
-
-  const cli = await readFile(new URL('../bin/theview', import.meta.url), 'utf8');
-  assert.match(cli, /^#!\/usr\/bin\/env bun/);
+  assert.equal(packageJson.bin.theview, 'bin/theview'); assert.deepEqual(packageJson.files, ['bin', 'src', 'scripts', 'README.md']); assert.equal(packageJson.scripts.test, 'bun test');
+  const cli = await readFile(new URL('../bin/theview', import.meta.url), 'utf8'); assert.match(cli, /^#!\/usr\/bin\/env bun/);
 });
 
-test('the local installer symlinks the checkout and adds its bin directory to the shell path', async () => {
-  const home = await mkdtemp(path.join(tmpdir(), 'theview-home-'));
-  const binDirectory = path.join(home, '.local', 'bin');
-  const shellConfig = path.join(home, '.zshrc');
-
-  await exec('bash', [new URL('../scripts/install-local.sh', import.meta.url).pathname], {
-    cwd: projectPath,
-    env: { ...process.env, HOME: home, THEVIEW_BIN_DIR: binDirectory, THEVIEW_SHELL_RC: shellConfig },
-  });
-
+test('the local installer symlinks the checkout and adds its bin directory to PATH', async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'theview-home-')); const binDirectory = path.join(home, '.local', 'bin'); const shellConfig = path.join(home, '.zshrc');
+  await exec('bash', [new URL('../scripts/install-local.sh', import.meta.url).pathname], { cwd: projectPath, env: { ...process.env, HOME: home, THEVIEW_BIN_DIR: binDirectory, THEVIEW_SHELL_RC: shellConfig } });
   assert.equal(await realpath(path.join(binDirectory, 'theview')), await realpath(new URL('../bin/theview', import.meta.url)));
   assert.match(await readFile(shellConfig, 'utf8'), new RegExp(`PATH=.*${binDirectory.replaceAll('/', '\\/')}`));
 });

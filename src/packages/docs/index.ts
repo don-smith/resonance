@@ -1,10 +1,10 @@
 import path from 'node:path';
-import { buildMarkdownTree, discoverMarkdownFiles, readMarkdown } from '../content.ts';
-import { createMarkdownRenderer } from '../markdown.ts';
-import type { HostContext, PackageDefinition, PackageInput, PackageRegistration } from '../package-contract.ts';
+import { buildMarkdownTree, discoverMarkdownFiles, readMarkdown } from '../../content.ts';
+import { createMarkdownRenderer } from '../../markdown.ts';
+import type { HostContext, PackageDefinition, PackageInput, PackageRegistration } from '../../package-contract.ts';
 
 const metadata = { id: 'docs', version: '1.0.0', hostVersion: '1', label: 'Docs', order: 20 } as const;
-const ROUTES = ['/api/docs/tree', '/api/docs/document', '/api/tree', '/api/document'] as const;
+const ROUTES = ['/api/docs/tree', '/api/docs/document'] as const;
 
 type DocsOptions = { extensions: string[]; ignoredDirectories: string[] };
 
@@ -39,7 +39,8 @@ function createRouteHandler(options: DocsOptions, kind: 'tree' | 'document') {
     }
 
     const relativePath = hostContext.resolveRepositoryPath(requestUrl.searchParams.get('path') || '');
-    if (!relativePath || !options.extensions.some((extension) => relativePath.toLowerCase().endsWith(extension.toLowerCase()))) {
+    const ignored = relativePath?.split(path.sep).some((segment) => options.ignoredDirectories.includes(segment));
+    if (!relativePath || ignored || !options.extensions.some((extension) => relativePath.toLowerCase().endsWith(extension.toLowerCase()))) {
       hostContext.sendJson(response, 404, { error: 'Markdown document not found' });
       return;
     }
@@ -63,12 +64,10 @@ function register(_context: HostContext, input: PackageInput): PackageRegistrati
     routes: [
       { method: 'GET', path: ROUTES[0], handler: createRouteHandler(options, 'tree') },
       { method: 'GET', path: ROUTES[1], handler: createRouteHandler(options, 'document') },
-      { method: 'GET', path: ROUTES[2], handler: createRouteHandler(options, 'tree') },
-      { method: 'GET', path: ROUTES[3], handler: createRouteHandler(options, 'document') },
     ],
     assets: [
-      { path: '/assets/docs/docs.js', file: 'docs.js', contentType: 'text/javascript; charset=utf-8' },
-      { path: '/assets/docs/docs.css', file: 'docs.css', contentType: 'text/css; charset=utf-8' },
+      { path: '/assets/docs/docs.js', file: 'src/packages/docs/docs.js', contentType: 'text/javascript; charset=utf-8' },
+      { path: '/assets/docs/docs.css', file: 'src/packages/docs/docs.css', contentType: 'text/css; charset=utf-8' },
     ],
     navigation: [{ id: 'docs', label: 'Docs', order: metadata.order }],
     browser: { id: 'docs', entry: '/assets/docs/docs.js', stylesheet: '/assets/docs/docs.css' },
@@ -76,3 +75,4 @@ function register(_context: HostContext, input: PackageInput): PackageRegistrati
 }
 
 export const docsPackage: PackageDefinition = { metadata, register };
+export default docsPackage;

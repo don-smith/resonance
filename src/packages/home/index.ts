@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { readMarkdown } from '../content.ts';
-import { createMarkdownRenderer } from '../markdown.ts';
-import type { HostContext, PackageDefinition, PackageInput, PackageRegistration } from '../package-contract.ts';
+import { readMarkdown } from '../../content.ts';
+import { createMarkdownRenderer } from '../../markdown.ts';
+import type { HostContext, PackageDefinition, PackageInput, PackageRegistration } from '../../package-contract.ts';
 
 const metadata = { id: 'home', version: '1.0.0', hostVersion: '1', label: 'Home', order: 10 } as const;
 
@@ -46,8 +46,8 @@ function register(_context: HostContext, input: PackageInput): PackageRegistrati
     metadata,
     routes: [{ method: 'GET', path: '/api/home', handler: createHomeHandler(input) }],
     assets: [
-      { path: '/assets/home/home.js', file: 'home.js', contentType: 'text/javascript; charset=utf-8' },
-      { path: '/assets/home/home.css', file: 'home.css', contentType: 'text/css; charset=utf-8' },
+      { path: '/assets/home/home.js', file: 'src/packages/home/home.js', contentType: 'text/javascript; charset=utf-8' },
+      { path: '/assets/home/home.css', file: 'src/packages/home/home.css', contentType: 'text/css; charset=utf-8' },
     ],
     navigation: [{ id: 'home', label: 'Home', order: metadata.order }],
     browser: { id: 'home', entry: '/assets/home/home.js', stylesheet: '/assets/home/home.css' },
@@ -55,3 +55,4 @@ function register(_context: HostContext, input: PackageInput): PackageRegistrati
 }
 
 export const homePackage: PackageDefinition = { metadata, register };
+export default homePackage;

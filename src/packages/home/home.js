@@ -1,4 +1,4 @@
-export function createHomePackage({ fetchFn = fetch } = {}) {
+export default function createHomePackage({ fetchFn = fetch } = {}) {
   let root;
   let contentElement;
 

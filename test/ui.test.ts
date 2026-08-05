@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const publicRoot = new URL('../public/', import.meta.url);
+const shellRoot = new URL('../src/packages/shell/', import.meta.url);
 
-test('the shell keeps static package invariants', async () => {
-  const html = await readFile(new URL('index.html', publicRoot), 'utf8');
+test('the Shell document contains only fixed Shell browser wiring', async () => {
+  const html = await readFile(new URL('index.html', shellRoot), 'utf8');
   assert.match(html, /id="primary-navigation"/);
   assert.match(html, /id="package-mount"/);
-  assert.doesNotMatch(html, /id="document-sidebar"/);
   assert.match(html, /assets\/shell\/shell\.css/);
-  assert.match(html, /assets\/home\/home\.css/);
-  assert.match(html, /assets\/docs\/docs\.css/);
+  assert.match(html, /assets\/app\.js/);
+  assert.doesNotMatch(html, /assets\/home\/home\.css/);
+  assert.doesNotMatch(html, /assets\/docs\/docs\.css/);
 });

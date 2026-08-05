@@ -2,7 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export const MANIFEST_VERSION = 1;
 export type PackageInput = Record<string, unknown>;
-export type RepositoryConfig = { version: typeof MANIFEST_VERSION; packages: Record<string, PackageInput> };
+export type PackageConfig = PackageInput & { module?: string; enabled?: boolean };
+export type RepositoryConfig = { version: typeof MANIFEST_VERSION; packages: Record<string, PackageConfig> };
 export type PackageMetadata = { id: string; version: string; hostVersion: string; label: string; order: number };
 export type HostContext = {
   repositoryRoot: string;

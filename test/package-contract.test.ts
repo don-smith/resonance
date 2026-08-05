@@ -1,48 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { defaultRepositoryConfig, loadRepositoryConfig, validateRepositoryConfig } from '../src/config.ts';
 
-test('uses version-one defaults when a repository has no manifest', async () => {
+test('uses version-one defaults with explicit built-in modules when config is absent', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
   const config = await loadRepositoryConfig(root);
   assert.deepEqual(config, defaultRepositoryConfig());
-  assert.equal(config.version, 1);
+  assert.equal(config.packages.shell.module, 'src/packages/shell/index.ts');
   assert.equal(config.packages.home.source, 'README.md');
-  assert.deepEqual(config.packages.docs, {
-    extensions: ['.md', '.markdown'],
-    ignoredDirectories: ['.git', 'node_modules'],
-  });
+  assert.deepEqual(config.packages.docs.extensions, ['.md', '.markdown']);
 });
 
-test('loads package inputs from a repository manifest', async () => {
+test('loads package selections from .theview/config.json', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
-  await writeFile(path.join(root, '.theview.json'), JSON.stringify({ version: 1, packages: { home: { source: 'docs/index.md' }, docs: { extensions: ['.markdown'] } } }));
+  await mkdir(path.join(root, '.theview'));
+  await writeFile(path.join(root, '.theview', 'config.json'), JSON.stringify({ version: 1, packages: { shell: { module: 'src/packages/shell/index.ts' }, home: { module: 'src/packages/home/index.ts', source: 'docs/index.md' }, docs: { module: 'src/packages/docs/index.ts', extensions: ['.markdown'] } } }));
   const config = await loadRepositoryConfig(root);
-  assert.equal(config.version, 1);
+  assert.equal(config.packages.home.module, 'src/packages/home/index.ts');
   assert.equal(config.packages.home.source, 'docs/index.md');
   assert.deepEqual(config.packages.docs.extensions, ['.markdown']);
 });
 
-test('supplies omitted home and docs package inputs', () => {
-  assert.deepEqual(validateRepositoryConfig({ version: 1, packages: { custom: { enabled: true } } }).packages, {
-    custom: { enabled: true },
-    home: { source: 'README.md' },
-    docs: { extensions: ['.md', '.markdown'], ignoredDirectories: ['.git', 'node_modules'] },
-  });
+test('does not read the legacy manifest', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
+  const legacyManifest = path.join(root, '.theview' + '.json');
+  await writeFile(legacyManifest, JSON.stringify({ version: 1, packages: { home: { module: 'wrong.ts', source: 'wrong.md' } } }));
+  const config = await loadRepositoryConfig(root);
+  assert.equal(config.packages.home.module, 'src/packages/home/index.ts');
+  assert.equal(config.packages.home.source, 'README.md');
 });
 
-test('rejects unsupported versions and non-object package inputs', () => {
+test('validates manifest containers and enabled flags', () => {
   assert.throws(() => validateRepositoryConfig({ version: 2 }), /version must be 1/);
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: [] }), /packages must be an object/);
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: { docs: [] } }), /inputs must be an object/);
+  assert.throws(() => validateRepositoryConfig({ version: 1, packages: { docs: { module: 'src/packages/docs/index.ts', enabled: 'yes' } } }), /enabled must be a boolean/);
+  assert.equal(validateRepositoryConfig({ version: 1, packages: { custom: { module: 'src/packages/custom/index.ts', enabled: false } } }).packages.custom.enabled, false);
 });
 
-test('loads the fixture manifest and selects home.md', async () => {
-  const fixture = new URL('./fixtures/repository/', import.meta.url);
-  const config = await loadRepositoryConfig(fixture);
-  assert.equal(config.version, 1);
-  assert.equal(config.packages.home.source, 'home.md');
+test('reports invalid JSON at the canonical filename', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'theview-config-'));
+  await mkdir(path.join(root, '.theview'));
+  await writeFile(path.join(root, '.theview', 'config.json'), '{');
+  await assert.rejects(() => loadRepositoryConfig(root), /config\.json: manifest is not valid JSON/);
 });

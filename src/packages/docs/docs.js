@@ -17,7 +17,7 @@ function renderTree(nodes) {
   }).join('');
 }
 
-export function createDocsPackage({ fetchFn = fetch } = {}) {
+export default function createDocsPackage({ fetchFn = fetch } = {}) {
   let root;
   let repository = { documents: [] };
   let selectedPath = null;

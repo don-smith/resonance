@@ -6,7 +6,7 @@
   "packageManager": "bun@1.3.13",
   "bin": { "resonate": "bin/resonate" },
   "files": ["bin", "src", "scripts", "README.md"],
-  "description": "A local developer cockpit for navigating repository Markdown.",
+  "description": "A local developer environment for navigating repository Markdown.",
   "scripts": { "test": "bun test", "resonate": "resonate" },
   "dependencies": { "markdown-it": "^14.1.0" },
   "devDependencies": { "linkedom": "^0.18.12" }

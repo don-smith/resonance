@@ -6,7 +6,7 @@ import { loadRepositoryConfig } from '../src/config.ts';
 import { startServer } from '../src/server.ts';
 
 function printHelp(log = console.log) {
-  log(`resonate — local cockpit for repository Markdown
+  log(`resonate — local environment for repository Markdown
 
 Usage:
   resonate [options]

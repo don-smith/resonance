@@ -9,6 +9,12 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 const projectPath = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
+const retiredTerm = new RegExp(['cock', 'pit'].join(''), 'i');
+
+test('the CLI help does not expose retired product terminology', async () => {
+  const cli = await readFile(new URL('../bin/resonate', import.meta.url), 'utf8');
+  assert.doesNotMatch(cli, retiredTerm);
+});
 
 test('opens the browser at the actual server port after startup', async () => {
   const logs = []; const openedUrls = []; const fakeServer = { address: () => ({ port: 4318 }) };

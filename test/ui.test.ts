@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const shellRoot = new URL('../src/packages/shell/', import.meta.url);
+const retiredTerm = new RegExp(['cock', 'pit'].join(''), 'i');
 
 test('the Shell document contains only fixed Shell browser wiring', async () => {
   const html = await readFile(new URL('index.html', shellRoot), 'utf8');
@@ -12,6 +13,12 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
   assert.match(html, /assets\/app\.js/);
   assert.doesNotMatch(html, /assets\/home\/home\.css/);
   assert.doesNotMatch(html, /assets\/docs\/docs\.css/);
+  assert.doesNotMatch(html, retiredTerm);
+});
+
+test('the Home package does not expose retired product terminology', async () => {
+  const homeModule = await readFile(new URL('../src/packages/home/home.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(homeModule, retiredTerm);
 });
 
 test('the repository Home presents the Resonance manifesto', async () => {

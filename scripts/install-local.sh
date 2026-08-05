@@ -6,7 +6,7 @@ repo_root="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 runtime_root="${RESONANCE_RUNTIME_ROOT:-$repo_root}"
 bin_dir="${RESONANCE_BIN_DIR:-${HOME}/.local/bin}"
 mkdir -p "$bin_dir"
-ln -sfn "$runtime_root/bin/resonance" "$bin_dir/resonance"
+ln -sfn "$runtime_root/bin/resonate" "$bin_dir/resonate"
 
 case "${SHELL##*/}" in
   bash) default_rc="${HOME}/.bashrc" ;;
@@ -19,12 +19,12 @@ if [[ ":${PATH}:" != *":${bin_dir}:"* ]]; then
   touch "$shell_rc"
   if ! grep -Fqx "$path_line" "$shell_rc"; then
     {
-      printf '\n# resonance local CLI\n'
+      printf '\n# resonate local CLI\n'
       printf '%s\n' "$path_line"
     } >> "$shell_rc"
   fi
-  printf 'Installed resonance at %s\n' "$bin_dir/resonance"
+  printf 'Installed resonate at %s\n' "$bin_dir/resonate"
   printf 'Added %s to %s. Open a new shell or run: source %s\n' "$bin_dir" "$shell_rc" "$shell_rc"
 else
-  printf 'Installed resonance at %s (already on PATH)\n' "$bin_dir/resonance"
+  printf 'Installed resonate at %s (already on PATH)\n' "$bin_dir/resonate"
 fi

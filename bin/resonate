@@ -6,10 +6,10 @@ import { loadRepositoryConfig } from '../src/config.ts';
 import { startServer } from '../src/server.ts';
 
 function printHelp(log = console.log) {
-  log(`resonance — local cockpit for repository Markdown
+  log(`resonate — local cockpit for repository Markdown
 
 Usage:
-  resonance [options]
+  resonate [options]
 
 Options:
   --port <number>  Port to listen on (default: 4317)
@@ -40,15 +40,15 @@ export async function run(argumentsList, { root = process.cwd(), startServerFn =
   const address = server.address();
   const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
   const url = `http://${visibleHost}:${address.port}`;
-  log(`resonance serving ${root}`); log(url); openBrowserFn(url);
+  log(`resonate serving ${root}`); log(url); openBrowserFn(url);
   return server;
 }
 
-if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/resonance')) {
+if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('/resonate')) {
   try {
     const server = await run(process.argv.slice(2));
     if (!server) process.exit(0);
     const shutdown = () => server.close(() => process.exit(0));
     process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);
-  } catch (error) { console.error(`resonance: ${error.message}`); process.exit(1); }
+  } catch (error) { console.error(`resonate: ${error.message}`); process.exit(1); }
 }

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
-import { run } from '../bin/resonance';
+import { run } from '../bin/resonate';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -18,13 +18,13 @@ test('opens the browser at the actual server port after startup', async () => {
 
 test('publishes the source package tree and global CLI entry', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(packageJson.bin.resonance, 'bin/resonance'); assert.deepEqual(packageJson.files, ['bin', 'src', 'scripts', 'README.md']); assert.equal(packageJson.scripts.test, 'bun test');
-  const cli = await readFile(new URL('../bin/resonance', import.meta.url), 'utf8'); assert.match(cli, /^#!\/usr\/bin\/env bun/);
+  assert.equal(packageJson.bin.resonate, 'bin/resonate'); assert.deepEqual(packageJson.files, ['bin', 'src', 'scripts', 'README.md']); assert.equal(packageJson.scripts.test, 'bun test');
+  const cli = await readFile(new URL('../bin/resonate', import.meta.url), 'utf8'); assert.match(cli, /^#!\/usr\/bin\/env bun/);
 });
 
 test('the local installer symlinks the checkout and adds its bin directory to PATH', async () => {
   const home = await mkdtemp(path.join(tmpdir(), 'resonance-home-')); const binDirectory = path.join(home, '.local', 'bin'); const shellConfig = path.join(home, '.zshrc');
   await exec('bash', [new URL('../scripts/install-local.sh', import.meta.url).pathname], { cwd: projectPath, env: { ...process.env, HOME: home, RESONANCE_BIN_DIR: binDirectory, RESONANCE_SHELL_RC: shellConfig } });
-  assert.equal(await realpath(path.join(binDirectory, 'resonance')), await realpath(new URL('../bin/resonance', import.meta.url)));
+  assert.equal(await realpath(path.join(binDirectory, 'resonate')), await realpath(new URL('../bin/resonate', import.meta.url)));
   assert.match(await readFile(shellConfig, 'utf8'), new RegExp(`PATH=.*${binDirectory.replaceAll('/', '\\/')}`));
 });

@@ -17,11 +17,11 @@ Install this checkout into a user-local bin directory:
 source ~/.zshrc
 ```
 
-Then run resonance from any repository:
+Then run resonate from any repository:
 
 ```sh
 cd /path/to/another/repository
-resonance
+resonate
 ```
 
 The command reads `.resonance/config.json` from the current repository. If it is absent, version-one defaults select the built-in Shell, Home, and Docs modules, use `README.md` for Home, and discover `.md`/`.markdown` files for Docs while ignoring `.git` and `node_modules`. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
@@ -74,5 +74,5 @@ bun test
 The local Bun script delegates to the installed CLI:
 
 ```sh
-bun run resonance
+bun run resonate
 ```

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { parseHTML } from 'linkedom';
 
-const shellRoot = new URL('../src/packages/shell/', import.meta.url);
+const shellRoot = new URL('./shell/', import.meta.url);
 const retiredTerm = new RegExp(['cock', 'pit'].join(''), 'i');
 
 test('the Shell document contains only fixed Shell browser wiring', async () => {
@@ -18,7 +18,7 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
 });
 
 test('the Shell keeps primary navigation fixed while the package area scrolls', async () => {
-  const css = await readFile(new URL('../src/packages/shell/styles.css', import.meta.url), 'utf8');
+  const css = await readFile(new URL('./shell/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.app-shell \{[^}]*height: 100vh;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.primary-sidebar \{[^}]*height: 100vh;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.package-mount-region \{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
@@ -29,7 +29,7 @@ test('the Shell keeps primary navigation fixed while the package area scrolls', 
 });
 
 test('the Docs keeps its tree fixed while the document pane scrolls', async () => {
-  const css = await readFile(new URL('../src/packages/docs/docs.css', import.meta.url), 'utf8');
+  const css = await readFile(new URL('./docs/docs.css', import.meta.url), 'utf8');
   assert.match(css, /\.docs-layout \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.document-sidebar \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.document-pane \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
@@ -41,7 +41,7 @@ test('the Docs keeps its tree fixed while the document pane scrolls', async () =
 test('Pi Agent exposes a live history, composer, retry, and New Session controls', async () => {
   const { document } = parseHTML('<!doctype html><body></body>');
   let source;
-  const module = await import(`../src/packages/pi-agent/pi-agent.js?ui=${Date.now()}`);
+  const module = await import(`./pi-agent/pi-agent.js?ui=${Date.now()}`);
   const instance = module.default({
     fetchFn: async () => ({ ok: true, status: 202, async json() { return { ok: true, state: { messages: [], status: 'idle', hasSession: false, error: null } }; } }),
     eventSourceFactory: () => { source = { close() {} }; return source; },
@@ -63,7 +63,7 @@ test('Pi Agent exposes a live history, composer, retry, and New Session controls
 test('Pi Agent submits on Shift+Enter while preserving plain Enter', async () => {
   const { document, window } = parseHTML('<!doctype html><body></body>');
   const calls = [];
-  const module = await import(`../src/packages/pi-agent/pi-agent.js?keyboard=${Date.now()}`);
+  const module = await import(`./pi-agent/pi-agent.js?keyboard=${Date.now()}`);
   const instance = module.default({
     fetchFn: async (url, options) => {
       calls.push([url, options]);
@@ -95,7 +95,7 @@ test('Pi Agent submits on Shift+Enter while preserving plain Enter', async () =>
 });
 
 test('Pi Agent uses fixed-pane scrolling and responsive mobile boundaries', async () => {
-  const css = await readFile(new URL('../src/packages/pi-agent/pi-agent.css', import.meta.url), 'utf8');
+  const css = await readFile(new URL('./pi-agent/pi-agent.css', import.meta.url), 'utf8');
   assert.match(css, /\.pi-agent-workspace \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.pi-agent-history \{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.pi-agent-workspace \{[^}]*height: auto;[^}]*overflow: visible;/s);
@@ -106,12 +106,12 @@ test('Pi Agent uses fixed-pane scrolling and responsive mobile boundaries', asyn
 });
 
 test('the Home package does not expose retired product terminology', async () => {
-  const homeModule = await readFile(new URL('../src/packages/home/home.js', import.meta.url), 'utf8');
+  const homeModule = await readFile(new URL('./home/home.js', import.meta.url), 'utf8');
   assert.doesNotMatch(homeModule, retiredTerm);
 });
 
 test('the repository Home presents the Resonance manifesto', async () => {
-  const html = await readFile(new URL('../.resonance/home.html', import.meta.url), 'utf8');
+  const html = await readFile(new URL('../../.resonance/home.html', import.meta.url), 'utf8');
   assert.match(html, /Integrated Application Environment/);
   assert.match(html, /The repository defines the team(?:'|’)s shared understanding/);
   assert.match(html, /Resonate is the action/);

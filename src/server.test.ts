@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApp, startServer } from '../src/server.ts';
-import { createHost } from '../src/host.ts';
-import { defaultRepositoryConfig, loadRepositoryConfig } from '../src/config.ts';
-import { HttpError, openSse, readJsonBody } from '../src/http.ts';
+import { createApp, startServer } from './server.ts';
+import { createHost } from './host.ts';
+import { defaultRepositoryConfig, loadRepositoryConfig } from './config.ts';
+import { HttpError, openSse, readJsonBody } from './http.ts';
 
-const fixtureRoot = new URL('./fixtures/repository/', import.meta.url);
+const fixtureRoot = new URL('../test/fixtures/repository/', import.meta.url);
 const appRoot = new URL('../', import.meta.url);
 const moduleConfig = defaultRepositoryConfig();
 function configWith(overrides) { return { version: 1, packages: { ...moduleConfig.packages, ...overrides } }; }

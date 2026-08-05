@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { defaultRepositoryConfig } from '../src/config.ts';
-import { createHost } from '../src/host.ts';
-import { loadConfiguredPackages } from '../src/packages/index.ts';
-import { homeInput } from '../src/packages/home/index.ts';
-import { docsPackage } from '../src/packages/docs/index.ts';
+import { defaultRepositoryConfig } from './config.ts';
+import { createHost } from './host.ts';
+import { loadConfiguredPackages } from './packages/index.ts';
+import { homeInput } from './packages/home/index.ts';
+import { docsPackage } from './packages/docs/index.ts';
 
 function packageDefinition(id, { order = 1, assetFile = 'src/packages/shell/app.js', extraRoute = false } = {}) {
   const metadata = { id, version: '1.0.0', hostVersion: '1', label: id.toUpperCase(), order };

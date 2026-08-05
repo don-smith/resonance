@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { defaultRepositoryConfig, loadRepositoryConfig, validateRepositoryConfig } from '../src/config.ts';
+import { defaultRepositoryConfig, loadRepositoryConfig, validateRepositoryConfig } from './config.ts';
 
 test('uses version-one defaults with explicit built-in modules when config is absent', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));

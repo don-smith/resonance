@@ -5,11 +5,11 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const shellPath = new URL('../src/packages/shell/app.js', import.meta.url);
-const shellModulePath = new URL('../src/packages/shell/shell.js', import.meta.url);
-const homeModulePath = new URL('../src/packages/home/home.js', import.meta.url);
-const docsModulePath = new URL('../src/packages/docs/docs.js', import.meta.url);
-const piAgentModulePath = new URL('../src/packages/pi-agent/pi-agent.js', import.meta.url);
+const shellPath = new URL('./shell/app.js', import.meta.url);
+const shellModulePath = new URL('./shell/shell.js', import.meta.url);
+const homeModulePath = new URL('./home/home.js', import.meta.url);
+const docsModulePath = new URL('./docs/docs.js', import.meta.url);
+const piAgentModulePath = new URL('./pi-agent/pi-agent.js', import.meta.url);
 function response(body, status = 200) { return { ok: status >= 200 && status < 300, status, async json() { return body; } }; }
 async function loadCoordinator(window, document) {
   globalThis.window = window; globalThis.document = document; globalThis.__RESONANCE_TEST__ = true;

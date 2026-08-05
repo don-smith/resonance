@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_MARKDOWN_EXTENSIONS, buildMarkdownTree, discoverMarkdownFiles } from '../src/content.ts';
-import { createMarkdownRenderer, renderMarkdown } from '../src/markdown.ts';
+import { DEFAULT_MARKDOWN_EXTENSIONS, buildMarkdownTree, discoverMarkdownFiles } from './content.ts';
+import { createMarkdownRenderer, renderMarkdown } from './markdown.ts';
 
 test('supports configurable discovery filters while preserving defaults', async () => {
-  const fixture = new URL('./fixtures/repository/', import.meta.url);
+  const fixture = new URL('../test/fixtures/repository/', import.meta.url);
   const files = await discoverMarkdownFiles(fixture);
   assert.deepEqual(files, [
     'README.md',

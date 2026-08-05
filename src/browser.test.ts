@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getBrowserCommand, openBrowser } from '../src/browser.ts';
+import { getBrowserCommand, openBrowser } from './browser.ts';
 
 test('uses the platform default browser command', () => {
   assert.deepEqual(getBrowserCommand('darwin', 'http://127.0.0.1:4317'), {

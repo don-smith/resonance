@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createPiAgentPackage } from '../src/packages/pi-agent/index.ts';
-import { createPiAgentSession, type AcpFactory } from '../src/packages/pi-agent/session.ts';
-import { createHost } from '../src/host.ts';
-import { createApp } from '../src/server.ts';
-import { docsPackage } from '../src/packages/docs/index.ts';
+import { createPiAgentPackage } from './index.ts';
+import { createPiAgentSession, type AcpFactory } from './session.ts';
+import { createHost } from '../../host.ts';
+import { createApp } from '../../server.ts';
+import { docsPackage } from '../docs/index.ts';
 
 function fakeFactory(log: { cwd?: string; prompts: string[]; closes: number; update?: (value: any) => void; release?: () => void }): AcpFactory {
   return async ({ cwd, onUpdate }) => {

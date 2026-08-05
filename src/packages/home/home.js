@@ -10,7 +10,7 @@ export default function createHomePackage({ fetchFn = fetch } = {}) {
   return {
     mount(mountRoot) {
       root = mountRoot;
-      root.innerHTML = '<article class="home-content"><p class="eyebrow">A LOCAL DEVELOPMENT ENVIRONMENT</p><div class="home-body"><p class="home-loading">Loading Home…</p></div></article>';
+      root.innerHTML = '<article class="home-content"><div class="home-body"><p class="home-loading">Loading Home…</p></div></article>';
       contentElement = root.querySelector('.home-body');
     },
     async activate() {

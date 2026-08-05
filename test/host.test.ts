@@ -28,8 +28,8 @@ test('loads configured built-in modules and assembles a deterministic registry',
   const config = defaultRepositoryConfig();
   const packages = await loadConfiguredPackages({ config, appRoot });
   const registry = createHost({ appRoot, config, packages });
-  assert.deepEqual(registry.manifest.navigation.map((item) => item.id), ['home', 'docs']);
-  assert.deepEqual(registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs']);
+  assert.deepEqual(registry.manifest.navigation.map((item) => item.id), ['home', 'docs', 'chat']);
+  assert.deepEqual(registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs', 'chat']);
   assert.equal(registry.assets['/assets/home/home.js'].file, 'src/packages/home/home.js');
   assert.ok(Object.isFrozen(registry.manifest));
 });
@@ -65,7 +65,33 @@ test('preserves Home validation and removes Docs aliases', () => {
   assert.equal(homeInput({ source: '.resonance/home.html' }).source, '.resonance/home.html');
   assert.throws(() => homeInput({ source: 'home.txt' }), /Markdown file/);
   const registry = createHost({ packages: [docsPackage] });
-  assert.ok(registry.routes['/api/docs/tree']);
-  assert.ok(registry.routes['/api/docs/document']);
-  assert.equal(registry.routes['/api/tree'], undefined);
+  assert.ok(registry.routes['GET /api/docs/tree']);
+  assert.ok(registry.routes['GET /api/docs/document']);
+  assert.equal(registry.routes['GET /api/tree'], undefined);
+});
+
+function methodPackage() {
+  const metadata = { id: 'methods', version: '1.0.0', hostVersion: '1', label: 'Methods', order: 1 };
+  return { metadata, register() { return {
+    metadata,
+    routes: [
+      { method: 'GET', path: '/api/methods/value', handler: async () => {} },
+      { method: 'POST', path: '/api/methods/value', handler: async () => {} },
+    ],
+    assets: [
+      { path: '/assets/methods/app.js', file: 'src/packages/shell/app.js', contentType: 'text/javascript' },
+      { path: '/assets/methods/styles.css', file: 'src/packages/shell/styles.css', contentType: 'text/css' },
+    ],
+    navigation: [{ id: 'methods', label: 'Methods', order: 1 }],
+    browser: { id: 'methods', entry: '/assets/methods/app.js', stylesheet: '/assets/methods/styles.css' },
+    dispose() {},
+  }; } };
+}
+
+test('registers distinct methods on one pathname and disposes packages idempotently', async () => {
+  const registry = createHost({ packages: [methodPackage()] });
+  assert.ok(registry.routes['GET /api/methods/value']);
+  assert.ok(registry.routes['POST /api/methods/value']);
+  await registry.dispose();
+  await registry.dispose();
 });

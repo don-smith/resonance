@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createApp, startServer } from '../src/server.ts';
 import { createHost } from '../src/host.ts';
 import { defaultRepositoryConfig, loadRepositoryConfig } from '../src/config.ts';
+import { HttpError, openSse, readJsonBody } from '../src/http.ts';
 
 const fixtureRoot = new URL('./fixtures/repository/', import.meta.url);
 const appRoot = new URL('../', import.meta.url);
@@ -22,6 +23,16 @@ function packageDefinition() {
       };
     },
   };
+}
+function transportPackage(log) {
+  const metadata = { id: 'transport', version: '1.0.0', hostVersion: '1', label: 'Transport', order: 1 };
+  return { metadata, register() { return { metadata, routes: [
+    { method: 'GET', path: '/api/transport/value', handler: async (_request, response, context) => context.sendJson(response, 200, { method: 'GET' }) },
+    { method: 'POST', path: '/api/transport/value', handler: async (_request, response, context) => context.sendJson(response, 202, { method: 'POST' }) },
+    { method: 'POST', path: '/api/transport/post-only', handler: async (_request, response, context) => context.sendJson(response, 202, { method: 'POST' }) },
+    { method: 'POST', path: '/api/transport/body', handler: async (request, response, context) => { try { context.sendJson(response, 200, await readJsonBody(request, 8)); } catch (error) { const status = error instanceof HttpError ? error.status : 500; context.sendJson(response, status, { error: error instanceof Error ? error.message : String(error) }); } } },
+    { method: 'GET', path: '/api/transport/stream', handler: async (_request, response) => { const stream = openSse(response); stream.write({ type: 'hello' }); throw new Error('after stream'); } },
+  ], assets: [{ path: '/assets/transport/app.js', file: 'src/packages/shell/app.js', contentType: 'text/javascript' }, { path: '/assets/transport/styles.css', file: 'src/packages/shell/styles.css', contentType: 'text/css' }], navigation: [{ id: 'transport', label: 'Transport', order: 1 }], browser: { id: 'transport', entry: '/assets/transport/app.js', stylesheet: '/assets/transport/styles.css' }, dispose() { log.disposed += 1; } }; } };
 }
 async function withServer(run, options = {}) {
   const server = await createApp({ root: fixtureRoot, ...options });
@@ -71,6 +82,23 @@ test('serves injected routes/assets and generic failures', async () => {
     const post = await fetch(`${baseUrl}/`, { method: 'POST' });
     assert.equal(post.status, 405); assert.equal(post.headers.get('allow'), 'GET');
   }, { registry });
+});
+
+test('dispatches methods, bounds JSON bodies, and protects streamed responses', async () => {
+  const log = { disposed: 0 };
+  const registry = createHost({ root: fixtureRoot, packages: [transportPackage(log)] });
+  await withServer(async (baseUrl) => {
+    assert.deepEqual(await fetch(`${baseUrl}/api/transport/value`, { method: 'GET' }).then((response) => response.json()), { method: 'GET' });
+    assert.deepEqual(await fetch(`${baseUrl}/api/transport/value`, { method: 'POST' }).then((response) => response.json()), { method: 'POST' });
+    const postOnlyGet = await fetch(`${baseUrl}/api/transport/post-only`); assert.equal(postOnlyGet.status, 405); assert.equal(postOnlyGet.headers.get('allow'), 'POST');
+    const unsupported = await fetch(`${baseUrl}/api/transport/value`, { method: 'PUT' }); assert.equal(unsupported.status, 405); assert.equal(unsupported.headers.get('allow'), 'GET, POST');
+    const valid = await fetch(`${baseUrl}/api/transport/body`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ok: 1 }) }); assert.equal(valid.status, 200); assert.deepEqual(await valid.json(), { ok: 1 });
+    const nonJson = await fetch(`${baseUrl}/api/transport/body`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' }); assert.equal(nonJson.status, 415);
+    const malformed = await fetch(`${baseUrl}/api/transport/body`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' }); assert.equal(malformed.status, 400);
+    const oversized = await fetch(`${baseUrl}/api/transport/body`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 'too long' }) }); assert.equal(oversized.status, 413);
+    const streamed = await fetch(`${baseUrl}/api/transport/stream`); assert.equal(streamed.status, 200); assert.match(streamed.headers.get('content-type'), /text\/event-stream/); assert.equal(streamed.headers.get('cache-control'), 'no-cache, no-store'); assert.match(await streamed.text(), /"type":"hello"/);
+  }, { registry });
+  assert.equal(log.disposed, 1);
 });
 
 test('starts on the next port when the requested port is occupied', async () => {

@@ -4,10 +4,22 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.13",
-  "bin": { "resonate": "bin/resonate" },
+  "bin": {
+    "resonate": "bin/resonate"
+  },
   "files": ["bin", "src", "scripts", "README.md"],
   "description": "A local developer environment for navigating repository Markdown.",
-  "scripts": { "test": "bun test", "resonate": "resonate" },
-  "dependencies": { "markdown-it": "^14.1.0" },
-  "devDependencies": { "linkedom": "^0.18.12" }
+  "scripts": {
+    "test": "bun test",
+    "resonate": "resonate"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "0.26.0",
+    "markdown-it": "^14.1.0",
+    "pi-acp": "0.0.33",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18.12"
+  }
 }

@@ -9,6 +9,7 @@ Resonance is composed from package folders under `src/packages/<package-id>`:
 - **Shell** owns navigation, package mounts, the fixed browser bootstrap, and shared layout.
 - **Home** renders the configured repository landing source (`README.md` by default, or repository-owned Markdown/HTML).
 - **Docs** owns Markdown discovery, tree navigation, and document rendering.
+- **Chat** owns one server-side Pi ACP session, prompt submission, incremental activity events, and local recovery controls.
 
 ## Try it
 
@@ -26,7 +27,7 @@ cd /path/to/another/repository
 resonate
 ```
 
-The command reads `.resonance/config.json` from the current repository. If it is absent, version-one defaults select the built-in Shell, Home, and Docs modules, use `README.md` for Home, and discover `.md`/`.markdown` files for Docs while ignoring `.git` and `node_modules`. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
+The command reads `.resonance/config.json` from the current repository. If it is absent, version-one defaults select the built-in Shell, Home, Docs, and Chat modules, use `README.md` for Home, and discover `.md`/`.markdown` files for Docs while ignoring `.git` and `node_modules`. Chat is local-only and requires an installed `pi` executable plus configured model credentials. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
 
 ## Repository configuration
 
@@ -42,7 +43,8 @@ The config is optional. Each package entry explicitly names an app-root-relative
       "module": "src/packages/docs/index.ts",
       "extensions": [".md", ".markdown"],
       "ignoredDirectories": [".git", "node_modules"]
-    }
+    },
+    "chat": { "module": "src/packages/chat/index.ts" }
   }
 }
 ```
@@ -62,11 +64,13 @@ Add a repository-owned HTML fragment such as `.resonance/home.html`, scope its s
 }
 ```
 
-Home accepts relative `.md`, `.markdown`, `.html`, and `.htm` sources. Markdown is rendered safely; HTML is trusted repository-owned markup inserted unchanged. Package responsibilities are documented in `src/packages/shell/README.md`, `src/packages/home/README.md`, and `src/packages/docs/README.md`.
+Home accepts relative `.md`, `.markdown`, `.html`, and `.htm` sources. Markdown is rendered safely; HTML is trusted repository-owned markup inserted unchanged. Package responsibilities are documented in `src/packages/shell/README.md`, `src/packages/home/README.md`, `src/packages/docs/README.md`, and `src/packages/chat/README.md`.
 
-Package routes are canonical under `/api/<package-id>/...`; Docs uses `/api/docs/tree` and `/api/docs/document`. Package assets retain `/assets/<package-id>/...` public URLs while their physical files live inside package folders.
+Package routes are canonical under `/api/<package-id>/...`; Docs uses `/api/docs/tree` and `/api/docs/document`, while Chat uses `POST /api/chat/prompt`, `GET /api/chat/events`, `GET /api/chat/state`, and `POST /api/chat/reset`. Package assets retain `/assets/<package-id>/...` public URLs while their physical files live inside package folders.
 
 ## Develop resonance
+
+Chat uses the root-owned `pi-acp@0.0.33` adapter and the ACP SDK; Resonance starts that adapter from the launch repository and does not use `npx` or `bunx`. The external Pi runtime remains a local prerequisite. Prompts are streamed over Server-Sent Events, and the in-memory transcript remains available while navigating between Chat and Docs.
 
 ```sh
 bun install

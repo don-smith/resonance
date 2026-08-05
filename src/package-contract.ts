@@ -12,7 +12,8 @@ export type HostContext = {
   sendJson(response: ServerResponse, status: number, body: unknown): void;
 };
 export type RouteHandler = (request: IncomingMessage, response: ServerResponse, context: HostContext) => Promise<void>;
-export type RouteContribution = { method: 'GET'; path: string; handler: RouteHandler };
+export type HttpMethod = 'GET' | 'POST';
+export type RouteContribution = { method: HttpMethod; path: string; handler: RouteHandler };
 export type AssetContribution = { path: string; file: string; contentType: string };
 export type NavigationContribution = { id: string; label: string; order: number };
 export type BrowserContribution = { id: string; entry: string; stylesheet: string };
@@ -22,6 +23,7 @@ export type PackageRegistration = {
   assets: AssetContribution[];
   navigation: NavigationContribution[];
   browser: BrowserContribution;
+  dispose?: () => void | Promise<void>;
 };
 export type PackageDefinition = {
   metadata: PackageMetadata;

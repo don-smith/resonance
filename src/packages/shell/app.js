@@ -9,7 +9,7 @@ function loadStylesheet(documentRoot, packageId, stylesheet) {
   documentRoot.head.append(link);
 }
 
-export async function startApplication({ documentRoot = document, fetchFn = fetch } = {}) {
+export async function startApplication({ documentRoot = document, fetchFn = fetch, eventSourceFactory = (url) => new EventSource(url) } = {}) {
   const response = await fetchFn('/api/manifest');
   if (!response.ok) throw new Error('Package manifest could not be loaded.');
   const manifest = await response.json();
@@ -26,7 +26,7 @@ export async function startApplication({ documentRoot = document, fetchFn = fetc
       const loaded = await import(packageInfo.entry);
       const factory = loaded.default;
       if (typeof factory !== 'function') throw new Error(`Invalid browser module for package ${packageInfo.id}.`);
-      const instance = factory({ fetchFn });
+      const instance = factory({ fetchFn, eventSourceFactory });
       instance.mount(shell.createMount(packageInfo.id));
       shell.registerPackage(packageInfo.id, instance);
       packages.set(packageInfo.id, instance);

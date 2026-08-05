@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { parseHTML } from 'linkedom';
 
 const shellRoot = new URL('../src/packages/shell/', import.meta.url);
 const retiredTerm = new RegExp(['cock', 'pit'].join(''), 'i');
@@ -35,6 +36,73 @@ test('the Docs keeps its tree fixed while the document pane scrolls', async () =
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.docs-layout \{[^}]*height: auto;[^}]*overflow: visible;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.document-sidebar \{[^}]*height: auto;[^}]*overflow: visible;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.document-pane \{[^}]*height: auto;[^}]*overflow: visible;/s);
+});
+
+test('Chat exposes a live history, composer, retry, and New Chat controls', async () => {
+  const { document } = parseHTML('<!doctype html><body></body>');
+  let source;
+  const module = await import(`../src/packages/chat/chat.js?ui=${Date.now()}`);
+  const instance = module.default({
+    fetchFn: async () => ({ ok: true, status: 202, async json() { return { ok: true, state: { messages: [], status: 'idle', hasSession: false, error: null } }; } }),
+    eventSourceFactory: () => { source = { close() {} }; return source; },
+  });
+  const root = document.createElement('section');
+  instance.mount(root);
+  await instance.activate();
+  assert.ok(root.querySelector('.chat-history'));
+  assert.equal(root.querySelector('.chat-history').getAttribute('aria-live'), 'polite');
+  assert.ok(root.querySelector('.chat-wait'));
+  assert.equal(root.querySelector('.chat-wait').hidden, true);
+  assert.ok(root.querySelector('.chat-composer textarea'));
+  assert.ok(root.querySelector('.chat-new'));
+  assert.ok(root.querySelector('.chat-retry'));
+  instance.deactivate();
+  assert.equal(root.hidden, true);
+});
+
+test('Chat submits on Shift+Enter while preserving plain Enter', async () => {
+  const { document, window } = parseHTML('<!doctype html><body></body>');
+  const calls = [];
+  const module = await import(`../src/packages/chat/chat.js?keyboard=${Date.now()}`);
+  const instance = module.default({
+    fetchFn: async (url, options) => {
+      calls.push([url, options]);
+      return { ok: true, status: 202, async json() { return { accepted: true }; } };
+    },
+    eventSourceFactory: () => ({ close() {} }),
+  });
+  const root = document.createElement('section');
+  instance.mount(root);
+  await instance.activate();
+  const input = root.querySelector('.chat-composer textarea');
+  input.value = 'shift prompt';
+
+  const shiftEnter = new window.Event('keydown', { bubbles: true, cancelable: true });
+  Object.defineProperties(shiftEnter, { key: { value: 'Enter' }, shiftKey: { value: true } });
+  input.dispatchEvent(shiftEnter);
+  assert.equal(shiftEnter.defaultPrevented, true);
+  assert.equal(calls.length, 1);
+  assert.equal(JSON.parse(calls[0][1].body).prompt, 'shift prompt');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(input.value, '');
+
+  input.value = 'prompt with a newline';
+  const enter = new window.Event('keydown', { bubbles: true, cancelable: true });
+  Object.defineProperties(enter, { key: { value: 'Enter' }, shiftKey: { value: false } });
+  input.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, false);
+  assert.equal(calls.length, 1);
+});
+
+test('Chat uses fixed-pane scrolling and responsive mobile boundaries', async () => {
+  const css = await readFile(new URL('../src/packages/chat/chat.css', import.meta.url), 'utf8');
+  assert.match(css, /\.chat-workspace \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
+  assert.match(css, /\.chat-history \{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.chat-workspace \{[^}]*height: auto;[^}]*overflow: visible;/s);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.chat-history \{[^}]*overflow: visible;/s);
+  assert.match(css, /\.chat-wait \{[^}]*animation:/s);
+  assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.chat-wait/);
+  assert.match(css, /\.chat-composer textarea \{[^}]*border: 1px solid var\(--line\);/s);
 });
 
 test('the Home package does not expose retired product terminology', async () => {

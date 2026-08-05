@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AssetContribution, BrowserContribution, HostContext, NavigationContribution, PackageDefinition, PackageInput, PackageRegistration, RepositoryConfig, RouteContribution } from './package-contract.ts';
+import type { AssetContribution, BrowserContribution, HostContext, HttpMethod, NavigationContribution, PackageDefinition, PackageInput, PackageRegistration, RepositoryConfig, RouteContribution } from './package-contract.ts';
 import { MANIFEST_VERSION } from './package-contract.ts';
 import { defaultRepositoryConfig } from './config.ts';
 
@@ -44,26 +44,52 @@ function isPackageRegistration(value: unknown): value is PackageRegistration {
   const metadata = candidate.metadata;
   return Boolean(metadata && typeof metadata.id === 'string' && typeof metadata.version === 'string' && typeof metadata.hostVersion === 'string' && typeof metadata.label === 'string' && typeof metadata.order === 'number' && Array.isArray(candidate.routes) && Array.isArray(candidate.assets) && Array.isArray(candidate.navigation) && candidate.browser && typeof candidate.browser === 'object');
 }
+export function routeKey(method: HttpMethod, pathname: string): string { return `${method} ${pathname}`; }
 export type HostManifest = { version: typeof MANIFEST_VERSION; navigation: readonly NavigationContribution[]; packages: readonly BrowserContribution[] };
-export type HostRegistry = { readonly context: HostContext; readonly routes: Readonly<Record<string, RouteContribution>>; readonly assets: Readonly<Record<string, AssetContribution>>; readonly manifest: HostManifest };
-type MutableRegistry = { context: HostContext; routes: Record<string, RouteContribution>; assets: Record<string, AssetContribution>; navigation: NavigationContribution[]; packages: BrowserContribution[] };
+export type HostRegistry = { readonly context: HostContext; readonly routes: Readonly<Record<string, RouteContribution>>; readonly assets: Readonly<Record<string, AssetContribution>>; readonly manifest: HostManifest; dispose(): Promise<void> };
+type MutableRegistry = { context: HostContext; routes: Record<string, RouteContribution>; assets: Record<string, AssetContribution>; navigation: NavigationContribution[]; packages: BrowserContribution[]; disposers: Array<() => void | Promise<void>> };
 function addRegistration(registry: MutableRegistry, registration: PackageRegistration, seenPackages: Set<string>): void {
-  const next: MutableRegistry = { context: registry.context, routes: { ...registry.routes }, assets: { ...registry.assets }, navigation: [...registry.navigation], packages: [...registry.packages] };
+  const next: MutableRegistry = {
+    context: registry.context,
+    routes: { ...registry.routes },
+    assets: { ...registry.assets },
+    navigation: [...registry.navigation],
+    packages: [...registry.packages],
+    disposers: [...registry.disposers],
+  };
   const nextSeen = new Set(seenPackages);
   const { metadata } = registration;
-  if (nextSeen.has(metadata.id)) throw new Error(`Duplicate package id: ${metadata.id}`); nextSeen.add(metadata.id);
-  for (const route of registration.routes) { assertRoutePath(route.path, metadata.id); if (route.method !== 'GET') throw new Error(`Unsupported route method: ${route.method}`); if (next.routes[route.path]) throw new Error(`Duplicate route path: ${route.path}`); next.routes[route.path] = route; }
-  for (const asset of registration.assets) { assertAssetPath(asset.path, metadata.id); assertAssetFile(asset.file); if (next.assets[asset.path]) throw new Error(`Duplicate asset path: ${asset.path}`); next.assets[asset.path] = asset; }
+  if (nextSeen.has(metadata.id)) throw new Error(`Duplicate package id: ${metadata.id}`);
+  nextSeen.add(metadata.id);
+  for (const route of registration.routes) {
+    assertRoutePath(route.path, metadata.id);
+    if (route.method !== 'GET' && route.method !== 'POST') throw new Error(`Unsupported route method: ${route.method}`);
+    const key = routeKey(route.method, route.path);
+    if (next.routes[key]) throw new Error(`Duplicate route path: ${route.path} (${route.method})`);
+    next.routes[key] = route;
+  }
+  for (const asset of registration.assets) {
+    assertAssetPath(asset.path, metadata.id);
+    assertAssetFile(asset.file);
+    if (next.assets[asset.path]) throw new Error(`Duplicate asset path: ${asset.path}`);
+    next.assets[asset.path] = asset;
+  }
   assertBrowserContribution(registration.browser, metadata.id, next.assets);
-  for (const navigation of registration.navigation) { if (next.navigation.some((item) => item.id === navigation.id)) throw new Error(`Duplicate navigation id: ${navigation.id}`); next.navigation.push(navigation); }
+  for (const navigation of registration.navigation) {
+    if (next.navigation.some((item) => item.id === navigation.id)) throw new Error(`Duplicate navigation id: ${navigation.id}`);
+    next.navigation.push(navigation);
+  }
   if (next.packages.some((item) => item.id === registration.browser.id)) throw new Error(`Duplicate browser package id: ${registration.browser.id}`);
   next.packages.push(registration.browser);
-  Object.assign(registry, next); seenPackages.clear(); nextSeen.forEach((id) => seenPackages.add(id));
+  if (registration.dispose) next.disposers.push(registration.dispose);
+  Object.assign(registry, next);
+  seenPackages.clear();
+  nextSeen.forEach((id) => seenPackages.add(id));
 }
 
 export function createHost({ root = process.cwd(), appRoot = process.cwd(), config = defaultRepositoryConfig(), packages = [], warn = console.warn }: { root?: string | URL; appRoot?: string | URL; config?: RepositoryConfig; packages?: PackageDefinition[]; warn?: (message: string) => void } = {}): HostRegistry {
   const context = createContext(toPath(root), toPath(appRoot));
-  const mutable: MutableRegistry = { context, routes: Object.create(null), assets: Object.create(null), navigation: [], packages: [] };
+  const mutable: MutableRegistry = { context, routes: Object.create(null), assets: Object.create(null), navigation: [], packages: [], disposers: [] };
   const seenPackages = new Set<string>();
   for (const definition of packages) {
     const configured = config.packages[definition.metadata.id];
@@ -83,5 +109,14 @@ export function createHost({ root = process.cwd(), appRoot = process.cwd(), conf
   const navigation = Object.freeze([...mutable.navigation].sort((left, right) => left.order - right.order || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)).map((item) => Object.freeze({ ...item })));
   const packageManifest = Object.freeze(mutable.packages.map((item) => Object.freeze({ ...item })));
   const manifest = Object.freeze({ version: MANIFEST_VERSION, navigation, packages: packageManifest });
-  return Object.freeze({ context, routes: Object.freeze({ ...mutable.routes }), assets: Object.freeze({ ...mutable.assets }), manifest });
+  let disposed = false;
+  async function dispose(): Promise<void> {
+    if (disposed) return;
+    disposed = true;
+    for (const cleanup of [...mutable.disposers].reverse()) {
+      try { await cleanup(); }
+      catch (error) { warn(`Package cleanup failed: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+  }
+  return Object.freeze({ context, routes: Object.freeze({ ...mutable.routes }), assets: Object.freeze({ ...mutable.assets }), manifest, dispose });
 }

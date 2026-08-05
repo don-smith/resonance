@@ -10,7 +10,7 @@ test('uses version-one defaults with explicit built-in modules when config is ab
   const config = await loadRepositoryConfig(root);
   assert.deepEqual(config, defaultRepositoryConfig());
   assert.equal(config.packages.shell.module, 'src/packages/shell/index.ts');
-  assert.equal(config.packages.chat.module, 'src/packages/chat/index.ts');
+  assert.equal(config.packages['pi-agent'].module, 'src/packages/pi-agent/index.ts');
   assert.equal(config.packages.home.source, 'README.md');
   assert.deepEqual(config.packages.docs.extensions, ['.md', '.markdown']);
 });

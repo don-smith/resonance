@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { createChatPackage } from '../src/packages/chat/index.ts';
-import { createChatSession, type AcpFactory } from '../src/packages/chat/session.ts';
+import { createPiAgentPackage } from '../src/packages/pi-agent/index.ts';
+import { createPiAgentSession, type AcpFactory } from '../src/packages/pi-agent/session.ts';
 import { createHost } from '../src/host.ts';
 import { createApp } from '../src/server.ts';
 import { docsPackage } from '../src/packages/docs/index.ts';
@@ -28,7 +28,7 @@ function fakeFactory(log: { cwd?: string; prompts: string[]; closes: number; upd
 
 test('anchors one session, suppresses tool activity, and rejects concurrent prompts', async () => {
   const log = { prompts: [] as string[], closes: 0 };
-  const session = createChatSession({ repositoryRoot: '/repo', adapterFactory: fakeFactory(log) });
+  const session = createPiAgentSession({ repositoryRoot: '/repo', adapterFactory: fakeFactory(log) });
   const events: any[] = [];
   session.subscribe((event) => events.push(event));
   await session.submitPrompt('hello');
@@ -48,7 +48,7 @@ test('anchors one session, suppresses tool activity, and rejects concurrent prom
   assert.equal(session.snapshot().status, 'idle');
 });
 
-test('New Chat drops stale updates and allows a replacement after close', async () => {
+test('New Pi Agent session drops stale updates and allows a replacement after close', async () => {
   const updates: Array<(value: any) => void> = [];
   let closes = 0;
   let prompts = 0;
@@ -57,7 +57,7 @@ test('New Chat drops stale updates and allows a replacement after close', async 
     const id = String(++prompts);
     return { sessionId: id, prompt: async () => {}, cancel: async () => {}, close: async () => { closes += 1; } };
   };
-  const session = createChatSession({ repositoryRoot: '/repo', adapterFactory });
+  const session = createPiAgentSession({ repositoryRoot: '/repo', adapterFactory });
   await session.submitPrompt('first');
   await session.reset();
   updates[0]({ kind: 'assistant', text: 'stale' });
@@ -68,11 +68,11 @@ test('New Chat drops stale updates and allows a replacement after close', async 
 });
 
 test('makes a fake Pi Markdown edit visible through Docs from the same repository root', async () => {
-  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'resonance-chat-'));
+  const repositoryRoot = await mkdtemp(path.join(tmpdir(), 'resonance-pi-agent-'));
   await mkdir(path.join(repositoryRoot, 'docs'));
   await writeFile(path.join(repositoryRoot, 'README.md'), '# Repository');
   let closeCount = 0;
-  const chat = createChatPackage(async ({ cwd, onUpdate }) => ({
+  const piAgent = createPiAgentPackage(async ({ cwd, onUpdate }) => ({
     sessionId: 'mutation',
     prompt: async () => {
       await writeFile(path.join(cwd, 'docs', 'from-pi.md'), '# Edited by Pi');
@@ -81,12 +81,12 @@ test('makes a fake Pi Markdown edit visible through Docs from the same repositor
     cancel: async () => {},
     close: async () => { closeCount += 1; },
   }));
-  const registry = createHost({ root: repositoryRoot, packages: [docsPackage, chat] });
+  const registry = createHost({ root: repositoryRoot, packages: [docsPackage, piAgent] });
   const server = await createApp({ root: repositoryRoot, registry });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   try {
-    const prompt = await fetch(`${baseUrl}/api/chat/prompt`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Update the docs' }) });
+    const prompt = await fetch(`${baseUrl}/api/pi-agent/prompt`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Update the docs' }) });
     assert.equal(prompt.status, 202);
     const tree = await fetch(`${baseUrl}/api/docs/tree`).then((response) => response.json());
     assert.ok(tree.documents.includes('docs/from-pi.md'));
@@ -98,13 +98,16 @@ test('makes a fake Pi Markdown edit visible through Docs from the same repositor
   assert.equal(closeCount, 1);
 });
 
-test('registers default Chat routes, assets, navigation, and disposal', async () => {
-  const definition = createChatPackage(async () => ({ sessionId: 'test', prompt: async () => {}, cancel: async () => {}, close: async () => {} }));
+test('registers default Pi Agent routes, assets, navigation, and disposal', async () => {
+  const definition = createPiAgentPackage(async () => ({ sessionId: 'test', prompt: async () => {}, cancel: async () => {}, close: async () => {} }));
   const registry = createHost({ packages: [definition] });
-  assert.deepEqual(registry.manifest.navigation.map((item) => item.id), ['chat']);
-  assert.ok(registry.routes['GET /api/chat/state']);
-  assert.ok(registry.routes['GET /api/chat/events']);
-  assert.ok(registry.routes['POST /api/chat/prompt']);
-  assert.ok(registry.routes['POST /api/chat/reset']);
+  assert.deepEqual(registry.manifest.navigation, [{ id: 'pi-agent', label: 'Pi Agent', order: 30 }]);
+  assert.ok(registry.routes['GET /api/pi-agent/state']);
+  assert.ok(registry.routes['GET /api/pi-agent/events']);
+  assert.ok(registry.routes['POST /api/pi-agent/prompt']);
+  assert.ok(registry.routes['POST /api/pi-agent/reset']);
+  assert.equal(registry.manifest.packages[0].id, 'pi-agent');
+  assert.equal(registry.manifest.packages[0].entry, '/assets/pi-agent/pi-agent.js');
+  assert.equal(registry.manifest.packages[0].stylesheet, '/assets/pi-agent/pi-agent.css');
   await registry.dispose();
 });

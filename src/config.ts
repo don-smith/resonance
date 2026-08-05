@@ -10,7 +10,7 @@ const DEFAULT_MODULES = {
   shell: 'src/packages/shell/index.ts',
   home: 'src/packages/home/index.ts',
   docs: 'src/packages/docs/index.ts',
-  chat: 'src/packages/chat/index.ts',
+  'pi-agent': 'src/packages/pi-agent/index.ts',
 } as const;
 
 function toPath(value: string | URL): string { return value instanceof URL ? fileURLToPath(value) : value; }
@@ -21,7 +21,7 @@ function defaultPackageInputs(): Record<string, PackageConfig> {
     shell: { module: DEFAULT_MODULES.shell },
     home: { module: DEFAULT_MODULES.home, ...DEFAULT_HOME },
     docs: { module: DEFAULT_MODULES.docs, extensions: [...(DEFAULT_DOCS.extensions as string[])], ignoredDirectories: [...(DEFAULT_DOCS.ignoredDirectories as string[])] },
-    chat: { module: DEFAULT_MODULES.chat },
+    'pi-agent': { module: DEFAULT_MODULES['pi-agent'] },
   };
 }
 

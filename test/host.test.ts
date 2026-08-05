@@ -28,8 +28,8 @@ test('loads configured built-in modules and assembles a deterministic registry',
   const config = defaultRepositoryConfig();
   const packages = await loadConfiguredPackages({ config, appRoot });
   const registry = createHost({ appRoot, config, packages });
-  assert.deepEqual(registry.manifest.navigation.map((item) => item.id), ['home', 'docs', 'chat']);
-  assert.deepEqual(registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs', 'chat']);
+  assert.deepEqual(registry.manifest.navigation.map((item) => item.id), ['home', 'docs', 'pi-agent']);
+  assert.deepEqual(registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs', 'pi-agent']);
   assert.equal(registry.assets['/assets/home/home.js'].file, 'src/packages/home/home.js');
   assert.ok(Object.isFrozen(registry.manifest));
 });

@@ -7,7 +7,7 @@ Resonance is a local, manifest-driven workspace. The CLI reads the current worki
 - **Shell** owns the fixed browser bootstrap, primary navigation, package mounts, activation rollback, and shared layout.
 - **Home** reads the configured repository landing source and renders it in the browser.
 - **Docs** discovers Markdown beneath `HostContext.repositoryRoot`, exposes the tree/document routes, and re-reads documents whenever Docs is activated.
-- **Chat** owns the server-side Pi ACP session, prompt submission, incremental activity events, transcript, and local recovery controls.
+- **Pi Agent** owns the developer-specific server-side Pi ACP session, prompt submission, incremental activity events, transcript, and local recovery controls.
 
 Packages contribute method-aware routes, assets, navigation metadata, and one browser module through the shared package contract. The host validates contributions transactionally, keys routes by `METHOD pathname`, and keeps optional package failures isolated. Package cleanup callbacks run in reverse registration order when the HTTP server closes; disposal is idempotent.
 

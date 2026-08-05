@@ -5,27 +5,27 @@ import { ClientSideConnection, ndJsonStream, type Client, type RequestPermission
 
 const require = createRequire(import.meta.url);
 
-export type ChatStatus = 'idle' | 'working' | 'error';
-export type ChatMessage = { id: string; role: 'user' | 'assistant' | 'activity'; content: string };
-export type ChatSnapshot = { messages: ChatMessage[]; status: ChatStatus; hasSession: boolean; error: string | null };
-export type ChatAgentUpdate = { kind: 'assistant' | 'activity' | 'error'; text: string };
-export type ChatEvent =
-  | { type: 'snapshot'; snapshot: ChatSnapshot }
-  | { type: 'message'; message: ChatMessage }
-  | { type: 'activity'; message: ChatMessage }
-  | { type: 'status'; status: ChatStatus }
+export type PiAgentStatus = 'idle' | 'working' | 'error';
+export type PiAgentMessage = { id: string; role: 'user' | 'assistant' | 'activity'; content: string };
+export type PiAgentSnapshot = { messages: PiAgentMessage[]; status: PiAgentStatus; hasSession: boolean; error: string | null };
+export type PiAgentUpdate = { kind: 'assistant' | 'activity' | 'error'; text: string };
+export type PiAgentEvent =
+  | { type: 'snapshot'; snapshot: PiAgentSnapshot }
+  | { type: 'message'; message: PiAgentMessage }
+  | { type: 'activity'; message: PiAgentMessage }
+  | { type: 'status'; status: PiAgentStatus }
   | { type: 'error'; message: string }
   | { type: 'done' };
 export type AcpAdapter = { sessionId: string; prompt(text: string): Promise<void>; cancel(): Promise<void>; close(): Promise<void> };
-export type AcpFactory = (options: { cwd: string; onUpdate(update: ChatAgentUpdate): void; onFailure(error: Error): void }) => Promise<AcpAdapter>;
+export type AcpFactory = (options: { cwd: string; onUpdate(update: PiAgentUpdate): void; onFailure(error: Error): void }) => Promise<AcpAdapter>;
 
-export class ChatBusyError extends Error {
+export class PiAgentBusyError extends Error {
   status = 409;
-  constructor() { super('A prompt is already running.'); this.name = 'ChatBusyError'; }
+  constructor() { super('A prompt is already running.'); this.name = 'PiAgentBusyError'; }
 }
-export class ChatUnavailableError extends Error {
+export class PiAgentUnavailableError extends Error {
   status = 503;
-  constructor(message: string, options?: { cause?: unknown }) { super(message, options); this.name = 'ChatUnavailableError'; }
+  constructor(message: string, options?: { cause?: unknown }) { super(message, options); this.name = 'PiAgentUnavailableError'; }
 }
 
 function messageId(): string { return crypto.randomUUID(); }
@@ -33,7 +33,7 @@ function textOf(content: unknown): string | null {
   const value = content as { type?: unknown; text?: unknown } | null;
   return value?.type === 'text' && typeof value.text === 'string' ? value.text : null;
 }
-function normalize(update: unknown): ChatAgentUpdate | null {
+function normalize(update: unknown): PiAgentUpdate | null {
   const value = update as { sessionUpdate?: unknown; content?: unknown; title?: unknown; status?: unknown } | null;
   if (value?.sessionUpdate === 'agent_message_chunk') {
     const text = textOf(value.content);
@@ -105,25 +105,25 @@ export const createPiAcpFactory = (): AcpFactory => async ({ cwd, onUpdate, onFa
   }
 };
 
-export function createChatSession({ repositoryRoot, adapterFactory = createPiAcpFactory() }: { repositoryRoot: string; adapterFactory?: AcpFactory }) {
+export function createPiAgentSession({ repositoryRoot, adapterFactory = createPiAcpFactory() }: { repositoryRoot: string; adapterFactory?: AcpFactory }) {
   let adapter: AcpAdapter | null = null;
-  let status: ChatStatus = 'idle';
+  let status: PiAgentStatus = 'idle';
   let error: string | null = null;
-  let messages: ChatMessage[] = [];
+  let messages: PiAgentMessage[] = [];
   let generation = 0;
   let starting = false;
   let closing: Promise<void> | null = null;
   let assistantId: string | null = null;
-  const listeners = new Set<(event: ChatEvent) => void>();
-  const snapshot = (): ChatSnapshot => ({ messages: messages.map((message) => ({ ...message })), status, hasSession: Boolean(adapter), error });
-  const emit = (event: ChatEvent) => listeners.forEach((listener) => listener(event));
-  const setStatus = (next: ChatStatus) => { status = next; emit({ type: 'status', status }); };
+  const listeners = new Set<(event: PiAgentEvent) => void>();
+  const snapshot = (): PiAgentSnapshot => ({ messages: messages.map((message) => ({ ...message })), status, hasSession: Boolean(adapter), error });
+  const emit = (event: PiAgentEvent) => listeners.forEach((listener) => listener(event));
+  const setStatus = (next: PiAgentStatus) => { status = next; emit({ type: 'status', status }); };
   const closeAdapter = (current: AcpAdapter) => {
     const pending = current.close().catch(() => undefined);
     closing = pending;
     void pending.finally(() => { if (closing === pending) closing = null; });
   };
-  const onUpdate = (turn: number, update: ChatAgentUpdate) => {
+  const onUpdate = (turn: number, update: PiAgentUpdate) => {
     if (turn !== generation) return;
     if (update.kind === 'error') {
       error = update.text;
@@ -164,12 +164,12 @@ export function createChatSession({ repositoryRoot, adapterFactory = createPiAcp
       });
       if (turn !== generation) {
         await next.close();
-        throw new Error('Chat session was reset.');
+        throw new Error('Pi Agent session was reset.');
       }
       adapter = next;
       return next;
     } catch (failure) {
-      throw new ChatUnavailableError(failure instanceof Error ? failure.message : String(failure), { cause: failure });
+      throw new PiAgentUnavailableError(failure instanceof Error ? failure.message : String(failure), { cause: failure });
     }
   };
   const run = async (turn: number, current: AcpAdapter, text: string) => {
@@ -194,7 +194,7 @@ export function createChatSession({ repositoryRoot, adapterFactory = createPiAcp
   };
   return {
     snapshot,
-    subscribe(listener: (event: ChatEvent) => void) {
+    subscribe(listener: (event: PiAgentEvent) => void) {
       listeners.add(listener);
       listener({ type: 'snapshot', snapshot: snapshot() });
       return () => { listeners.delete(listener); };
@@ -203,14 +203,14 @@ export function createChatSession({ repositoryRoot, adapterFactory = createPiAcp
       if (closing) await closing;
       const prompt = text.trim();
       if (!prompt) throw new Error('Prompt must not be empty.');
-      if (status === 'working' || starting) throw new ChatBusyError();
+      if (status === 'working' || starting) throw new PiAgentBusyError();
       const turn = generation;
       starting = true;
       error = null;
       setStatus('working');
       try {
         const current = await ensure(turn);
-        if (turn !== generation) throw new Error('Chat session was reset.');
+        if (turn !== generation) throw new Error('Pi Agent session was reset.');
         const user = { id: messageId(), role: 'user' as const, content: prompt };
         messages.push(user);
         assistantId = null;

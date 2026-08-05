@@ -38,10 +38,10 @@ test('the Docs keeps its tree fixed while the document pane scrolls', async () =
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.document-pane \{[^}]*height: auto;[^}]*overflow: visible;/s);
 });
 
-test('Chat exposes a live history, composer, retry, and New Chat controls', async () => {
+test('Pi Agent exposes a live history, composer, retry, and New Session controls', async () => {
   const { document } = parseHTML('<!doctype html><body></body>');
   let source;
-  const module = await import(`../src/packages/chat/chat.js?ui=${Date.now()}`);
+  const module = await import(`../src/packages/pi-agent/pi-agent.js?ui=${Date.now()}`);
   const instance = module.default({
     fetchFn: async () => ({ ok: true, status: 202, async json() { return { ok: true, state: { messages: [], status: 'idle', hasSession: false, error: null } }; } }),
     eventSourceFactory: () => { source = { close() {} }; return source; },
@@ -49,21 +49,21 @@ test('Chat exposes a live history, composer, retry, and New Chat controls', asyn
   const root = document.createElement('section');
   instance.mount(root);
   await instance.activate();
-  assert.ok(root.querySelector('.chat-history'));
-  assert.equal(root.querySelector('.chat-history').getAttribute('aria-live'), 'polite');
-  assert.ok(root.querySelector('.chat-wait'));
-  assert.equal(root.querySelector('.chat-wait').hidden, true);
-  assert.ok(root.querySelector('.chat-composer textarea'));
-  assert.ok(root.querySelector('.chat-new'));
-  assert.ok(root.querySelector('.chat-retry'));
+  assert.ok(root.querySelector('.pi-agent-history'));
+  assert.equal(root.querySelector('.pi-agent-history').getAttribute('aria-live'), 'polite');
+  assert.ok(root.querySelector('.pi-agent-wait'));
+  assert.equal(root.querySelector('.pi-agent-wait').hidden, true);
+  assert.ok(root.querySelector('.pi-agent-composer textarea'));
+  assert.ok(root.querySelector('.pi-agent-new'));
+  assert.ok(root.querySelector('.pi-agent-retry'));
   instance.deactivate();
   assert.equal(root.hidden, true);
 });
 
-test('Chat submits on Shift+Enter while preserving plain Enter', async () => {
+test('Pi Agent submits on Shift+Enter while preserving plain Enter', async () => {
   const { document, window } = parseHTML('<!doctype html><body></body>');
   const calls = [];
-  const module = await import(`../src/packages/chat/chat.js?keyboard=${Date.now()}`);
+  const module = await import(`../src/packages/pi-agent/pi-agent.js?keyboard=${Date.now()}`);
   const instance = module.default({
     fetchFn: async (url, options) => {
       calls.push([url, options]);
@@ -74,7 +74,7 @@ test('Chat submits on Shift+Enter while preserving plain Enter', async () => {
   const root = document.createElement('section');
   instance.mount(root);
   await instance.activate();
-  const input = root.querySelector('.chat-composer textarea');
+  const input = root.querySelector('.pi-agent-composer textarea');
   input.value = 'shift prompt';
 
   const shiftEnter = new window.Event('keydown', { bubbles: true, cancelable: true });
@@ -94,15 +94,15 @@ test('Chat submits on Shift+Enter while preserving plain Enter', async () => {
   assert.equal(calls.length, 1);
 });
 
-test('Chat uses fixed-pane scrolling and responsive mobile boundaries', async () => {
-  const css = await readFile(new URL('../src/packages/chat/chat.css', import.meta.url), 'utf8');
-  assert.match(css, /\.chat-workspace \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
-  assert.match(css, /\.chat-history \{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
-  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.chat-workspace \{[^}]*height: auto;[^}]*overflow: visible;/s);
-  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.chat-history \{[^}]*overflow: visible;/s);
-  assert.match(css, /\.chat-wait \{[^}]*animation:/s);
-  assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.chat-wait/);
-  assert.match(css, /\.chat-composer textarea \{[^}]*border: 1px solid var\(--line\);/s);
+test('Pi Agent uses fixed-pane scrolling and responsive mobile boundaries', async () => {
+  const css = await readFile(new URL('../src/packages/pi-agent/pi-agent.css', import.meta.url), 'utf8');
+  assert.match(css, /\.pi-agent-workspace \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
+  assert.match(css, /\.pi-agent-history \{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.pi-agent-workspace \{[^}]*height: auto;[^}]*overflow: visible;/s);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.pi-agent-history \{[^}]*overflow: visible;/s);
+  assert.match(css, /\.pi-agent-wait \{[^}]*animation:/s);
+  assert.match(css, /prefers-reduced-motion: reduce[\s\S]*\.pi-agent-wait/);
+  assert.match(css, /\.pi-agent-composer textarea \{[^}]*border: 1px solid var\(--line\);/s);
 });
 
 test('the Home package does not expose retired product terminology', async () => {

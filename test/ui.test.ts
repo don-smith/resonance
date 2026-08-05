@@ -13,3 +13,13 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
   assert.doesNotMatch(html, /assets\/home\/home\.css/);
   assert.doesNotMatch(html, /assets\/docs\/docs\.css/);
 });
+
+test('the repository Home presents the Resonance manifesto', async () => {
+  const html = await readFile(new URL('../.resonance/home.html', import.meta.url), 'utf8');
+  assert.match(html, /Integrated Application Environment/);
+  assert.match(html, /The repository defines the team(?:'|’)s shared understanding/);
+  assert.match(html, /Resonate is the action/);
+  assert.equal((html.match(/class="home-section"/g) || []).length, 7);
+  assert.match(html, /<pre><code>resonate init/);
+  assert.match(html, /aria-labelledby="home-commands-title"/);
+});

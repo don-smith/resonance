@@ -1,12 +1,24 @@
 {
   "version": 1,
   "packages": {
-    "shell": { "module": "src/packages/shell/index.ts" },
-    "home": { "module": "src/packages/home/index.ts", "source": ".resonance/home.html" },
+    "shell": {
+      "module": "src/packages/shell/index.ts"
+    },
+    "home": {
+      "module": "src/packages/home/index.ts",
+      "source": ".resonance/home.html"
+    },
     "docs": {
       "module": "src/packages/docs/index.ts",
-      "extensions": [".md", ".markdown"],
-      "ignoredDirectories": [".git", "node_modules"]
+      "extensions": [
+        ".md",
+        ".markdown"
+      ],
+      "ignoredDirectories": [
+        ".git",
+        "node_modules",
+        ".myflow"
+      ]
     }
   }
 }

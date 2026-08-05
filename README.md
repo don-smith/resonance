@@ -1,6 +1,8 @@
 # resonance
 
-A local cockpit for seeing the shape of the application you are building.
+Resonance is an **Integrated Application Environment** for understanding, evolving, and operating a software application. It brings architecture, documentation, workflows, agents, skills, plans, operational context, runtime information, developer tooling, and team knowledge into one environment around the application itself.
+
+The repository defines the team’s shared understanding; each developer extends it with their own experience and tools, and the runtime brings those layers together. Resonance raises the level at which humans spend their attention—from individual source files toward intent, constraints, relationships, evidence, operational state, and system behaviour. Resonance is the environment; **resonate** is the action.
 
 Resonance is composed from package folders under `src/packages/<package-id>`:
 

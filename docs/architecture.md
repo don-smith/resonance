@@ -1,6 +1,6 @@
 # Architecture
 
-Resonance is a local, manifest-driven workspace. The CLI reads the current working directory as the authoritative repository root, loads the repository package configuration, and starts a localhost HTTP server. The server serves the Shell document and package assets, then dispatches package-owned API routes under `/api/<package-id>/...`.
+Resonance is a local, manifest-driven workspace. The CLI reads the current working directory as the authoritative repository root, offers `resonate install` when `.resonance/config.json` is absent, and starts a localhost HTTP server only after a configuration exists. Installation always writes Shell and interactively selects Home and Docs; the configured package entries are an authoritative allowlist. The server serves the Shell document and package assets, then dispatches package-owned API routes under `/api/<package-id>/...`.
 
 ## Package boundaries
 
@@ -9,7 +9,7 @@ Resonance is a local, manifest-driven workspace. The CLI reads the current worki
 - **Docs** discovers Markdown beneath `HostContext.repositoryRoot`, exposes the tree/document routes, and re-reads documents whenever Docs is activated.
 - **Pi Agent** owns the developer-specific server-side Pi ACP session, prompt submission, incremental activity events, transcript, and local recovery controls.
 
-Packages contribute method-aware routes, assets, navigation metadata, and one browser module through the shared package contract. The host validates contributions transactionally, keys routes by `METHOD pathname`, and keeps optional package failures isolated. Package cleanup callbacks run in reverse registration order when the HTTP server closes; disposal is idempotent.
+Packages contribute method-aware routes, assets, navigation metadata, and one browser module through the shared package contract. The host validates contributions transactionally, keys routes by `METHOD pathname`, and keeps optional package failures isolated. Route handlers receive package-safe request/response capabilities: bounded JSON parsing, JSON responses, request-abort notifications, and SSE streams. They do not receive Node HTTP objects. Package cleanup callbacks run in reverse registration order when the HTTP server closes; disposal is idempotent.
 
 ## Transport and safety boundaries
 

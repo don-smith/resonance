@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { HostRequest, HostResponse } from './package-contract.ts';
 
 export class HttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -68,7 +69,28 @@ export function openSse(response: ServerResponse): { write(event: unknown): bool
       return response.write(`data: ${JSON.stringify(event)}\n\n`);
     },
     close() {
-      if (!response.writableEnded) response.end();
+      if (!response.writableEnded && !response.destroyed) response.end();
     },
+  };
+}
+
+export function createHostRequest(request: IncomingMessage): HostRequest {
+  return {
+    url: request.url || '/',
+    headers: request.headers,
+    readJson: <T>(maxBytes?: number) => readJsonBody<T>(request, maxBytes),
+    onAbort(listener) { request.once('aborted', listener); },
+  };
+}
+
+export function createHostResponse(response: ServerResponse): HostResponse {
+  return {
+    json(status, body) {
+      response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      response.end(JSON.stringify(body));
+    },
+    sse() { return openSse(response); },
+    onClose(listener) { response.once('close', listener); },
+    get closed() { return Boolean(response.destroyed || response.writableEnded); },
   };
 }

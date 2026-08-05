@@ -81,7 +81,7 @@ test('makes a fake Pi Markdown edit visible through Docs from the same repositor
     cancel: async () => {},
     close: async () => { closeCount += 1; },
   }));
-  const registry = createHost({ root: repositoryRoot, packages: [docsPackage, piAgent] });
+  const registry = createHost({ root: repositoryRoot, config: { version: 1, packages: { docs: { module: 'src/packages/docs/index.ts' }, 'pi-agent': { module: 'src/packages/pi-agent/index.ts' } } }, packages: [docsPackage, piAgent] });
   const server = await createApp({ root: repositoryRoot, registry });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -100,7 +100,7 @@ test('makes a fake Pi Markdown edit visible through Docs from the same repositor
 
 test('registers default Pi Agent routes, assets, navigation, and disposal', async () => {
   const definition = createPiAgentPackage(async () => ({ sessionId: 'test', prompt: async () => {}, cancel: async () => {}, close: async () => {} }));
-  const registry = createHost({ packages: [definition] });
+  const registry = createHost({ config: { version: 1, packages: { 'pi-agent': { module: 'src/packages/pi-agent/index.ts' } } }, packages: [definition] });
   assert.deepEqual(registry.manifest.navigation, [{ id: 'pi-agent', label: 'Pi Agent', order: 30 }]);
   assert.ok(registry.routes['GET /api/pi-agent/state']);
   assert.ok(registry.routes['GET /api/pi-agent/events']);

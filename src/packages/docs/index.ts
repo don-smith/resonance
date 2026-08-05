@@ -30,7 +30,7 @@ function createRouteHandler(options: DocsOptions, kind: 'tree' | 'document') {
     const requestUrl = new URL(request.url, 'http://127.0.0.1');
     if (kind === 'tree') {
       const documents = await discoverMarkdownFiles(hostContext.repositoryRoot, options);
-      hostContext.sendJson(response, 200, {
+      response.json(200, {
         rootName: path.basename(path.resolve(hostContext.repositoryRoot)),
         documents,
         tree: buildMarkdownTree(documents),
@@ -41,18 +41,18 @@ function createRouteHandler(options: DocsOptions, kind: 'tree' | 'document') {
     const relativePath = hostContext.resolveRepositoryPath(requestUrl.searchParams.get('path') || '');
     const ignored = relativePath?.split(path.sep).some((segment) => options.ignoredDirectories.includes(segment));
     if (!relativePath || ignored || !options.extensions.some((extension) => relativePath.toLowerCase().endsWith(extension.toLowerCase()))) {
-      hostContext.sendJson(response, 404, { error: 'Markdown document not found' });
+      response.json(404, { error: 'Markdown document not found' });
       return;
     }
     try {
       const content = await readMarkdown(hostContext.repositoryRoot, relativePath);
-      hostContext.sendJson(response, 200, {
+      response.json(200, {
         path: relativePath.split(path.sep).join('/'),
         content,
         html: renderer.render(content),
       });
     } catch {
-      hostContext.sendJson(response, 404, { error: 'Markdown document not found' });
+      response.json(404, { error: 'Markdown document not found' });
     }
   };
 }

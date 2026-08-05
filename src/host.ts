@@ -14,7 +14,6 @@ function createContext(repositoryRoot: string, appRoot: string): HostContext {
       if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
       return relative;
     },
-    sendJson(response, status, body) { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(body)); },
   };
   return Object.freeze(context);
 }
@@ -93,7 +92,7 @@ export function createHost({ root = process.cwd(), appRoot = process.cwd(), conf
   const seenPackages = new Set<string>();
   for (const definition of packages) {
     const configured = config.packages[definition.metadata.id];
-    if (configured?.enabled === false) continue;
+    if (!configured || configured.enabled === false) continue;
     try {
       const input: PackageInput = configured || {};
       const registration = definition.register(context, input);

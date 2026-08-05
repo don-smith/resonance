@@ -22,20 +22,20 @@ function createHomeHandler(input: PackageInput) {
   return async (_request, response, context: HostContext) => {
     const relativePath = context.resolveRepositoryPath(source);
     if (!relativePath) {
-      context.sendJson(response, 404, { error: 'Home source not found' });
+      response.json(404, { error: 'Home source not found' });
       return;
     }
     try {
       const content = isHtml
         ? await readFile(path.join(context.repositoryRoot, relativePath), 'utf8')
         : await readMarkdown(context.repositoryRoot, relativePath);
-      context.sendJson(response, 200, {
+      response.json(200, {
         path: relativePath.split(path.sep).join('/'),
         content,
         html: isHtml ? content : renderer.render(content),
       });
     } catch {
-      context.sendJson(response, 404, { error: 'Home source not found' });
+      response.json(404, { error: 'Home source not found' });
     }
   };
 }

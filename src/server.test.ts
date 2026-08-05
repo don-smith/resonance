@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { access, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { createApp, startServer } from './server.ts';
 import { createHost } from './host.ts';
-import { defaultRepositoryConfig, loadRepositoryConfig } from './config.ts';
-import { HttpError, openSse, readJsonBody } from './http.ts';
+import { createRepositoryConfig, loadRepositoryConfig, writeRepositoryConfig } from './config.ts';
+
 
 const fixtureRoot = new URL('../test/fixtures/repository/', import.meta.url);
 const appRoot = new URL('../', import.meta.url);
-const moduleConfig = defaultRepositoryConfig();
+const moduleConfig = createRepositoryConfig({ home: true, docs: true });
 function configWith(overrides) { return { version: 1, packages: { ...moduleConfig.packages, ...overrides } }; }
 function packageDefinition() {
   const metadata = { id: 'test', version: '1.0.0', hostVersion: '1', label: 'Test', order: 1 };
@@ -16,7 +18,7 @@ function packageDefinition() {
     register() {
       return {
         metadata,
-        routes: [{ method: 'GET', path: '/api/test/value', handler: async (_request, response, context) => context.sendJson(response, 200, { ok: true }) }, { method: 'GET', path: '/api/test/failure', handler: async () => { throw new Error('boom'); } }],
+        routes: [{ method: 'GET', path: '/api/test/value', handler: async (_request, response) => response.json(200, { ok: true }) }, { method: 'GET', path: '/api/test/failure', handler: async () => { throw new Error('boom'); } }],
         assets: [{ path: '/assets/test/app.js', file: 'src/packages/shell/app.js', contentType: 'text/javascript; charset=utf-8' }, { path: '/assets/test/styles.css', file: 'src/packages/shell/styles.css', contentType: 'text/css; charset=utf-8' }],
         navigation: [{ id: 'test', label: 'Test', order: 1 }],
         browser: { id: 'test', entry: '/assets/test/app.js', stylesheet: '/assets/test/styles.css' },
@@ -27,11 +29,11 @@ function packageDefinition() {
 function transportPackage(log) {
   const metadata = { id: 'transport', version: '1.0.0', hostVersion: '1', label: 'Transport', order: 1 };
   return { metadata, register() { return { metadata, routes: [
-    { method: 'GET', path: '/api/transport/value', handler: async (_request, response, context) => context.sendJson(response, 200, { method: 'GET' }) },
-    { method: 'POST', path: '/api/transport/value', handler: async (_request, response, context) => context.sendJson(response, 202, { method: 'POST' }) },
-    { method: 'POST', path: '/api/transport/post-only', handler: async (_request, response, context) => context.sendJson(response, 202, { method: 'POST' }) },
-    { method: 'POST', path: '/api/transport/body', handler: async (request, response, context) => { try { context.sendJson(response, 200, await readJsonBody(request, 8)); } catch (error) { const status = error instanceof HttpError ? error.status : 500; context.sendJson(response, status, { error: error instanceof Error ? error.message : String(error) }); } } },
-    { method: 'GET', path: '/api/transport/stream', handler: async (_request, response) => { const stream = openSse(response); stream.write({ type: 'hello' }); throw new Error('after stream'); } },
+    { method: 'GET', path: '/api/transport/value', handler: async (_request, response) => response.json(200, { method: 'GET' }) },
+    { method: 'POST', path: '/api/transport/value', handler: async (_request, response) => response.json(202, { method: 'POST' }) },
+    { method: 'POST', path: '/api/transport/post-only', handler: async (_request, response) => response.json(202, { method: 'POST' }) },
+    { method: 'POST', path: '/api/transport/body', handler: async (request, response) => { try { response.json(200, await request.readJson(8)); } catch (error) { const status = typeof error === 'object' && error && 'status' in error && typeof error.status === 'number' ? error.status : 500; response.json(status, { error: error instanceof Error ? error.message : String(error) }); } } },
+    { method: 'GET', path: '/api/transport/stream', handler: async (_request, response) => { const stream = response.sse(); stream.write({ type: 'hello' }); throw new Error('after stream'); } },
   ], assets: [{ path: '/assets/transport/app.js', file: 'src/packages/shell/app.js', contentType: 'text/javascript' }, { path: '/assets/transport/styles.css', file: 'src/packages/shell/styles.css', contentType: 'text/css' }], navigation: [{ id: 'transport', label: 'Transport', order: 1 }], browser: { id: 'transport', entry: '/assets/transport/app.js', stylesheet: '/assets/transport/styles.css' }, dispose() { log.disposed += 1; } }; } };
 }
 async function withServer(run, options = {}) {
@@ -58,7 +60,7 @@ test('serves canonical Docs routes and rejects removed aliases', async () => {
 });
 
 test('serves configured repository Home content and preserves HTML', async () => {
-  await withServer(async (baseUrl) => { const body = await fetch(`${baseUrl}/api/home`).then((response) => { assert.equal(response.status, 200); return response.json(); }); assert.equal(body.path, 'home.md'); assert.match(body.html, /Fixture Home/); }, { config: await loadRepositoryConfig(fixtureRoot) });
+  await withServer(async (baseUrl) => { const body = await fetch(`${baseUrl}/api/home`).then((response) => { assert.equal(response.status, 200); return response.json(); }); assert.equal(body.path, 'home.md'); assert.match(body.html, /Fixture Home/); }, { config: configWith({ home: { module: 'src/packages/home/index.ts', source: 'home.md' } }) });
   await withServer(async (baseUrl) => { const body = await fetch(`${baseUrl}/api/home`).then((response) => { assert.equal(response.status, 200); return response.json(); }); assert.equal(body.path, 'home.html'); assert.match(body.html, /Repository-owned markup/); }, { config: configWith({ home: { module: 'src/packages/home/index.ts', source: 'home.html' } }) });
 });
 
@@ -68,12 +70,14 @@ test('serves package-local assets through preserved public URLs', async () => {
     assert.equal(home.status, 200); assert.match(await home.text(), /export default/);
     assert.equal(docs.status, 200); assert.match(await docs.text(), /docs-layout/);
     assert.equal(shell.status, 200); assert.match(await shell.text(), /import\(packageInfo\.entry\)/);
+    assert.equal((await fetch(`${baseUrl}/api/pi-agent/state`)).status, 404);
+    assert.equal((await fetch(`${baseUrl}/assets/pi-agent/pi-agent.js`)).status, 404);
     assert.equal((await fetch(`${baseUrl}/not-registered.js`)).status, 404);
   }, { config: moduleConfig });
 });
 
 test('serves injected routes/assets and generic failures', async () => {
-  const registry = createHost({ root: fixtureRoot, packages: [packageDefinition()] });
+  const registry = createHost({ root: fixtureRoot, config: { version: 1, packages: { test: { module: 'test.ts' } } }, packages: [packageDefinition()] });
   await withServer(async (baseUrl) => {
     assert.deepEqual(await fetch(`${baseUrl}/api/manifest`).then((response) => response.json()), registry.manifest);
     assert.deepEqual(await fetch(`${baseUrl}/api/test/value`).then((response) => response.json()), { ok: true });
@@ -86,7 +90,7 @@ test('serves injected routes/assets and generic failures', async () => {
 
 test('dispatches methods, bounds JSON bodies, and protects streamed responses', async () => {
   const log = { disposed: 0 };
-  const registry = createHost({ root: fixtureRoot, packages: [transportPackage(log)] });
+  const registry = createHost({ root: fixtureRoot, config: { version: 1, packages: { transport: { module: 'test.ts' } } }, packages: [transportPackage(log)] });
   await withServer(async (baseUrl) => {
     assert.deepEqual(await fetch(`${baseUrl}/api/transport/value`, { method: 'GET' }).then((response) => response.json()), { method: 'GET' });
     assert.deepEqual(await fetch(`${baseUrl}/api/transport/value`, { method: 'POST' }).then((response) => response.json()), { method: 'POST' });
@@ -99,6 +103,23 @@ test('dispatches methods, bounds JSON bodies, and protects streamed responses', 
     const streamed = await fetch(`${baseUrl}/api/transport/stream`); assert.equal(streamed.status, 200); assert.match(streamed.headers.get('content-type'), /text\/event-stream/); assert.equal(streamed.headers.get('cache-control'), 'no-cache, no-store'); assert.match(await streamed.text(), /"type":"hello"/);
   }, { registry });
   assert.equal(log.disposed, 1);
+});
+
+test('starts from an explicitly installed Shell+Docs config without Pi Agent', async () => {
+  const root = await mkdtemp(`${tmpdir()}/resonance-generated-`);
+  await writeRepositoryConfig(root, createRepositoryConfig({ docs: true }));
+  await withServer(async (baseUrl) => {
+    const manifest = await fetch(`${baseUrl}/api/manifest`).then((response) => response.json());
+    assert.deepEqual(manifest.packages.map((item) => item.id), ['shell', 'docs']);
+    assert.equal((await fetch(`${baseUrl}/api/pi-agent/state`)).status, 404);
+  }, { root });
+});
+
+test('does not load repository config when a registry is supplied', async () => {
+  const root = await mkdtemp(`${tmpdir()}/resonance-server-`);
+  const registry = createHost({ root, config: { version: 1, packages: {} } });
+  await createApp({ root, registry });
+  await assert.rejects(() => access(`${root}/.resonance/config.json`), { code: 'ENOENT' });
 });
 
 test('starts on the next port when the requested port is occupied', async () => {

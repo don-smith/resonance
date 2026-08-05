@@ -1,17 +1,28 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-
 export const MANIFEST_VERSION = 1;
 export type PackageInput = Record<string, unknown>;
 export type PackageConfig = PackageInput & { module?: string; enabled?: boolean };
 export type RepositoryConfig = { version: typeof MANIFEST_VERSION; packages: Record<string, PackageConfig> };
 export type PackageMetadata = { id: string; version: string; hostVersion: string; label: string; order: number };
+export type RequestHeaders = Readonly<Record<string, string | string[] | undefined>>;
+export type HostRequest = {
+  url: string;
+  headers: RequestHeaders;
+  readJson<T>(maxBytes?: number): Promise<T>;
+  onAbort(listener: () => void): void;
+};
+export type SseStream = { write(event: unknown): boolean; close(): void };
+export type HostResponse = {
+  json(status: number, body: unknown): void;
+  sse(): SseStream;
+  onClose(listener: () => void): void;
+  readonly closed: boolean;
+};
 export type HostContext = {
   repositoryRoot: string;
   appRoot: string;
   resolveRepositoryPath(relativePath: string): string | null;
-  sendJson(response: ServerResponse, status: number, body: unknown): void;
 };
-export type RouteHandler = (request: IncomingMessage, response: ServerResponse, context: HostContext) => Promise<void>;
+export type RouteHandler = (request: HostRequest, response: HostResponse, context: HostContext) => Promise<void>;
 export type HttpMethod = 'GET' | 'POST';
 export type RouteContribution = { method: HttpMethod; path: string; handler: RouteHandler };
 export type AssetContribution = { path: string; file: string; contentType: string };

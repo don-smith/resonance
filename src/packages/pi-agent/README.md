@@ -9,6 +9,25 @@ Pi Agent is the default local Resonance workspace for one in-memory Pi ACP sessi
 - Submit prompts, enforce prompt concurrency, and bridge assistant/status updates through SSE.
 - Reset the session and serve the Pi Agent browser workspace.
 
+## Configuration
+
+Configure Pi Agent as an entry in the repository manifest’s `packages` object:
+
+```json
+{
+  "version": 1,
+  "packages": {
+    "pi-agent": { "module": "src/packages/pi-agent/index.ts" }
+  }
+}
+```
+
+- `module` is required at load time and must be a non-empty path relative to the Resonance application root.
+- `enabled` is an optional common package flag; `false` omits Pi Agent from the host.
+- Pi Agent has no package-specific configuration fields. Additional package inputs are ignored.
+
+When registered, Pi Agent always creates its one in-memory session with `HostContext.repositoryRoot`; the browser cannot select a different filesystem root. The package also requires an installed `pi` executable and configured model credentials. Omit Pi Agent from `packages` or disable it when that local runtime is unavailable.
+
 ## ACP boundary
 
 The server resolves the root-installed `pi-acp@0.0.33` entry through its dependency graph and starts it with `HostContext.repositoryRoot` as the child-process working directory. ACP `session/new.cwd` receives the same launch root. The browser never starts ACP or supplies a filesystem root.

@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 
 import process from 'node:process';
+import { createInterface, clearLine, cursorTo, moveCursor } from 'node:readline';
 import { openBrowser } from '../src/browser.ts';
-import { loadRepositoryConfig } from '../src/config.ts';
+import { createRepositoryConfig, loadRepositoryConfig, repositoryConfigExists, writeRepositoryConfig } from '../src/config.ts';
 import { startServer } from '../src/server.ts';
 
 function printHelp(log = console.log) {
@@ -10,6 +11,10 @@ function printHelp(log = console.log) {
 
 Usage:
   resonate [options]
+  resonate install
+
+Commands:
+  install          Set up Resonance in the current repository
 
 Options:
   --port <number>  Port to listen on (default: 4317)
@@ -19,8 +24,10 @@ Options:
 }
 
 export function parseArgs(argumentsList) {
-  const options = { port: Number(process.env.RESONANCE_PORT || 4317), host: process.env.RESONANCE_HOST || '127.0.0.1' };
-  for (let index = 0; index < argumentsList.length; index += 1) {
+  const options = { command: null, port: Number(process.env.RESONANCE_PORT || 4317), host: process.env.RESONANCE_HOST || '127.0.0.1' };
+  let index = 0;
+  if (argumentsList[0] === 'install') { options.command = 'install'; index = 1; }
+  for (; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
     if (argument === '--help' || argument === '-h') return { help: true };
     if (argument === '--port') options.port = Number(argumentsList[++index]);
@@ -32,11 +39,106 @@ export function parseArgs(argumentsList) {
   return options;
 }
 
-export async function run(argumentsList, { root = process.cwd(), startServerFn = startServer, openBrowserFn = openBrowser, log = console.log } = {}) {
+function askQuestion(prompt, question) {
+  return new Promise((resolve) => prompt.question(question, resolve));
+}
+
+function createInputLineReader(input) {
+  let buffer = ''; let ended = false; const lines = []; const waiters = [];
+  const deliver = () => { while (lines.length > 0 && waiters.length > 0) waiters.shift()(lines.shift()); };
+  const onData = (chunk) => { buffer += String(chunk); const parts = buffer.split(/\r?\n/); buffer = parts.pop(); lines.push(...parts); deliver(); };
+  const onEnd = () => { if (buffer) lines.push(buffer); buffer = ''; ended = true; while (waiters.length > 0) waiters.shift()(''); deliver(); };
+  input.on('data', onData); input.once('end', onEnd);
+  return { next: () => { if (lines.length > 0) return Promise.resolve(lines.shift()); if (ended) return Promise.resolve(''); return new Promise((resolve) => waiters.push(resolve)); }, close: () => { input.off('data', onData); input.off('end', onEnd); } };
+}
+
+export async function askToInstall({ input = process.stdin, output = process.stdout } = {}) {
+  if (!input.isTTY) {
+    const reader = createInputLineReader(input);
+    output.write('Would you like to install Resonance in this repository? [y/N] ');
+    try { return /^(y|yes)$/i.test((await reader.next()).trim()); } finally { reader.close(); }
+  }
+  const prompt = createInterface({ input, output });
+  try { return /^(y|yes)$/i.test((await askQuestion(prompt, 'Would you like to install Resonance in this repository? [y/N] ')).trim()); }
+  finally { prompt.close(); input.resume?.(); }
+}
+
+const OPTIONAL_PACKAGES = [{ id: 'home', label: 'Home (README.md)' }, { id: 'docs', label: 'Docs' }];
+
+function checkboxLines(cursor, selected) {
+  return OPTIONAL_PACKAGES.map((item, index) => `${index === cursor ? '❯' : ' '} [${selected[item.id] ? 'x' : ' '}] ${item.label}`);
+}
+
+export async function selectOptionalPackages({ input = process.stdin, output = process.stdout } = {}) {
+  output.write('Shell package is required and will always be installed.\n');
+  if (!input.isTTY || !output.isTTY || typeof input.setRawMode !== 'function') {
+    const reader = createInputLineReader(input);
+    output.write('Install Home package? [y/N] ');
+    try {
+      const home = /^(y|yes)$/i.test((await reader.next()).trim());
+      output.write('Install Docs package? [y/N] ');
+      const docs = /^(y|yes)$/i.test((await reader.next()).trim());
+      return { home, docs };
+    } finally { reader.close(); }
+  }
+
+  return new Promise((resolve) => {
+    let cursor = 0; const selected = { home: false, docs: false }; let rendered = false; let inputBuffer = '';
+    const render = () => {
+      if (rendered) moveCursor(output, 0, -OPTIONAL_PACKAGES.length);
+      for (const line of checkboxLines(cursor, selected)) { cursorTo(output, 0); clearLine(output, 0); output.write(line); output.write('\n'); }
+      rendered = true;
+    };
+    const finish = (result) => {
+      input.setRawMode(false); input.off('data', onData); output.write('\n'); resolve(result);
+    };
+    const onData = (chunk) => {
+      inputBuffer += String(chunk);
+      while (inputBuffer.length > 0) {
+        if (inputBuffer.startsWith('\x1b[') && inputBuffer.length < 3) return;
+        let action = inputBuffer[0];
+        if (inputBuffer.startsWith('\x1b[A') || inputBuffer.startsWith('\x1b[D')) { action = 'up'; inputBuffer = inputBuffer.slice(3); }
+        else if (inputBuffer.startsWith('\x1b[B') || inputBuffer.startsWith('\x1b[C')) { action = 'down'; inputBuffer = inputBuffer.slice(3); }
+        else { inputBuffer = inputBuffer.slice(1); }
+        if (action === '\x03' || action === '\x04' || action === '\x1b') { finish(null); return; }
+        if (action === 'up') cursor = (cursor + OPTIONAL_PACKAGES.length - 1) % OPTIONAL_PACKAGES.length;
+        else if (action === 'down') cursor = (cursor + 1) % OPTIONAL_PACKAGES.length;
+        else if (action === ' ') selected[OPTIONAL_PACKAGES[cursor].id] = !selected[OPTIONAL_PACKAGES[cursor].id];
+        else if (action === '\r' || action === '\n') { finish(selected); return; }
+        else continue;
+        render();
+      }
+    };
+    output.write('Select optional packages (↑/↓ to move, space to select, enter to continue):\n');
+    input.setRawMode(true); input.on('data', onData); render();
+  });
+}
+
+export async function installRepository(root, { selectPackagesFn = selectOptionalPackages, log = console.log } = {}) {
+  if (await repositoryConfigExists(root)) {
+    log('Resonance is already installed in this repository.');
+    return loadRepositoryConfig(root);
+  }
+  const selection = await selectPackagesFn();
+  if (!selection) { log('Installation cancelled.'); return null; }
+  const config = await writeRepositoryConfig(root, createRepositoryConfig(selection));
+  log(`Resonance installed in ${root}.`);
+  return config;
+}
+
+export async function run(argumentsList, { root = process.cwd(), startServerFn = startServer, openBrowserFn = openBrowser, log = console.log, isInstalledFn = repositoryConfigExists, confirmInstallFn = askToInstall, selectPackagesFn = selectOptionalPackages, loadConfigFn = loadRepositoryConfig } = {}) {
   const options = parseArgs(argumentsList);
   if (options.help) { printHelp(log); return null; }
-  const config = await loadRepositoryConfig(root);
-  const server = await startServerFn({ root, config, ...options });
+  if (options.command === 'install') { await installRepository(root, { selectPackagesFn, log }); return null; }
+  if (!await isInstalledFn(root)) {
+    log('Resonance is not installed in this repository.');
+    if (!await confirmInstallFn()) { log('Installation cancelled.'); return null; }
+    const installed = await installRepository(root, { selectPackagesFn, log });
+    if (!installed) return null;
+  }
+  const config = await loadConfigFn(root);
+  const { command: _command, ...serverOptions } = options;
+  const server = await startServerFn({ root, config, ...serverOptions });
   const address = server.address();
   const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;
   const url = `http://${visibleHost}:${address.port}`;

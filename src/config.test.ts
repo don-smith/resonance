@@ -1,18 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { defaultRepositoryConfig, loadRepositoryConfig, validateRepositoryConfig } from './config.ts';
+import { createRepositoryConfig, defaultRepositoryConfig, loadRepositoryConfig, validateRepositoryConfig, writeRepositoryConfig } from './config.ts';
 
-test('uses version-one defaults with explicit built-in modules when config is absent', async () => {
+test('does not create a config while loading an uninstalled repository', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
-  const config = await loadRepositoryConfig(root);
-  assert.deepEqual(config, defaultRepositoryConfig());
-  assert.equal(config.packages.shell.module, 'src/packages/shell/index.ts');
-  assert.equal(config.packages['pi-agent'].module, 'src/packages/pi-agent/index.ts');
+  await assert.rejects(() => loadRepositoryConfig(root), (error) => error?.code === 'ENOENT');
+  await assert.rejects(() => access(path.join(root, '.resonance/config.json')));
+});
+
+test('builds install config with Shell and selected optional packages only', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
+  const config = createRepositoryConfig({ home: true, docs: false });
+  assert.deepEqual(Object.keys(config.packages), ['shell', 'home']);
   assert.equal(config.packages.home.source, 'README.md');
-  assert.deepEqual(config.packages.docs.extensions, ['.md', '.markdown']);
+  assert.equal(config.packages.docs, undefined);
+  assert.equal(config.packages['pi-agent'], undefined);
+  await writeRepositoryConfig(root, config);
+  assert.deepEqual(JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')), config);
+  assert.deepEqual(await loadRepositoryConfig(root), config);
+});
+
+test('default install config contains the required Shell package', () => {
+  assert.deepEqual(Object.keys(defaultRepositoryConfig().packages), ['shell']);
 });
 
 test('loads package selections from .resonance/config.json', async () => {
@@ -23,19 +35,21 @@ test('loads package selections from .resonance/config.json', async () => {
   assert.equal(config.packages.home.module, 'src/packages/home/index.ts');
   assert.equal(config.packages.home.source, 'docs/index.md');
   assert.deepEqual(config.packages.docs.extensions, ['.markdown']);
+  assert.deepEqual(Object.keys(config.packages), ['shell', 'home', 'docs']);
+  assert.equal(config.packages['pi-agent'], undefined);
 });
 
-test('does not read the legacy manifest', async () => {
+test('does not read or create a config from the legacy manifest', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
   const legacyManifest = path.join(root, '.resonance' + '.json');
   await writeFile(legacyManifest, JSON.stringify({ version: 1, packages: { home: { module: 'wrong.ts', source: 'wrong.md' } } }));
-  const config = await loadRepositoryConfig(root);
-  assert.equal(config.packages.home.module, 'src/packages/home/index.ts');
-  assert.equal(config.packages.home.source, 'README.md');
+  await assert.rejects(() => loadRepositoryConfig(root), (error) => error?.code === 'ENOENT');
+  await assert.rejects(() => access(path.join(root, '.resonance/config.json')));
 });
 
 test('validates manifest containers and enabled flags', () => {
   assert.throws(() => validateRepositoryConfig({ version: 2 }), /version must be 1/);
+  assert.throws(() => validateRepositoryConfig({ version: 1 }), /packages must be an object/);
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: [] }), /packages must be an object/);
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: { docs: [] } }), /inputs must be an object/);
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: { docs: { module: 'src/packages/docs/index.ts', enabled: 'yes' } } }), /enabled must be a boolean/);

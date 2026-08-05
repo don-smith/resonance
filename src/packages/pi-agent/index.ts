@@ -1,12 +1,11 @@
-import type { HostContext, PackageDefinition, PackageRegistration } from '../../package-contract.ts';
-import { HttpError, openSse, readJsonBody } from '../../http.ts';
-import { PiAgentBusyError, PiAgentUnavailableError, createPiAgentSession, createPiAcpFactory } from './session.ts';
+import type { HostResponse, PackageDefinition, PackageRegistration } from '../../package-contract.ts';
+import { createPiAgentSession, createPiAcpFactory } from './session.ts';
 
 const metadata = { id: 'pi-agent', version: '1.0.0', hostVersion: '1', label: 'Pi Agent', order: 30 } as const;
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-function sendError(response: Parameters<HostContext['sendJson']>[0], context: HostContext, error: unknown): void {
-  const status = error instanceof HttpError || error instanceof PiAgentBusyError || error instanceof PiAgentUnavailableError ? error.status : 500;
-  context.sendJson(response, status, { error: error instanceof Error ? error.message : String(error) });
+function sendError(response: HostResponse, error: unknown): void {
+  const status = isRecord(error) && typeof error.status === 'number' ? error.status : 500;
+  response.json(status, { error: error instanceof Error ? error.message : String(error) });
 }
 
 export function createPiAgentPackage(adapterFactory = createPiAcpFactory()): PackageDefinition {
@@ -18,9 +17,9 @@ export function createPiAgentPackage(adapterFactory = createPiAcpFactory()): Pac
       return {
         metadata,
         routes: [
-          { method: 'GET', path: '/api/pi-agent/state', handler: async (_request, response, hostContext) => hostContext.sendJson(response, 200, session.snapshot()) },
+          { method: 'GET', path: '/api/pi-agent/state', handler: async (_request, response) => response.json(200, session.snapshot()) },
           { method: 'GET', path: '/api/pi-agent/events', handler: async (request, response) => {
-            const stream = openSse(response);
+            const stream = response.sse();
             let closed = false;
             let unsubscribe: (() => void) | null = null;
             let cleanupBeforeSubscribe = false;
@@ -36,26 +35,29 @@ export function createPiAgentPackage(adapterFactory = createPiAcpFactory()): Pac
               resolveClosed();
             };
             activeStreams.add(close);
-            request.once('aborted', close);
-            response.once('close', close);
+            request.onAbort(close);
+            response.onClose(close);
             unsubscribe = session.subscribe((event) => {
               stream.write(event);
-              if (response.destroyed || response.writableEnded) close();
+              if (response.closed) close();
             });
             if (cleanupBeforeSubscribe) unsubscribe();
             await closedPromise;
           } },
-          { method: 'POST', path: '/api/pi-agent/prompt', handler: async (request, response, hostContext) => {
+          { method: 'POST', path: '/api/pi-agent/prompt', handler: async (request, response) => {
             try {
-              const body = await readJsonBody<{ prompt?: unknown }>(request, 32 * 1024);
-              if (!isRecord(body) || typeof body.prompt !== 'string' || !body.prompt.trim()) throw new HttpError(400, 'Prompt must be a non-empty string.');
+              const body = await request.readJson<{ prompt?: unknown }>(32 * 1024);
+              if (!isRecord(body) || typeof body.prompt !== 'string' || !body.prompt.trim()) {
+                response.json(400, { error: 'Prompt must be a non-empty string.' });
+                return;
+              }
               await session.submitPrompt(body.prompt);
-              hostContext.sendJson(response, 202, { accepted: true });
-            } catch (error) { sendError(response, hostContext, error); }
+              response.json(202, { accepted: true });
+            } catch (error) { sendError(response, error); }
           } },
-          { method: 'POST', path: '/api/pi-agent/reset', handler: async (_request, response, hostContext) => {
-            try { hostContext.sendJson(response, 200, { ok: true, state: await session.reset() }); }
-            catch (error) { sendError(response, hostContext, error); }
+          { method: 'POST', path: '/api/pi-agent/reset', handler: async (_request, response) => {
+            try { response.json(200, { ok: true, state: await session.reset() }); }
+            catch (error) { sendError(response, error); }
           } },
         ],
         assets: [

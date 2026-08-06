@@ -34,7 +34,7 @@ decisions:
     priority: P3
   - title: Package to workspace
     plan: plans/package-to-workspace.md
-    status: in-progress
+    status: recently-done
     priority: P2
   - title: Backlog evals
     plan: plans/backlog-evals.md

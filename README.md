@@ -6,10 +6,12 @@ The repository defines the team’s shared understanding; each developer extends
 
 Resonance is composed from package folders under `src/packages/<package-id>`:
 
-- **Shell** owns navigation, package mounts, the fixed browser bootstrap, and shared layout.
+- **Shell** owns navigation, workspace mounts, the fixed browser bootstrap, and shared layout.
 - **Home** renders the configured repository landing source (`README.md` by default, or repository-owned Markdown/HTML).
 - **Docs** owns Markdown discovery, tree navigation, and document rendering.
 - **Pi Agent** owns one developer-specific server-side Pi ACP session, prompt submission, incremental activity events, and local recovery controls.
+
+A **package** is Resonance's general extensibility and implementation unit. A **workspace** is a user-visible surface mounted and navigated by Shell. Home, Docs, Backlog, and Pi Agent are packages that provide workspaces; Shell is infrastructure and is not a workspace. Package terminology remains authoritative for source folders, manifest entries, package IDs, routes, assets, contracts, and the authoring CLI.
 
 ## Try it
 

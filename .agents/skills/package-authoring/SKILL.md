@@ -7,14 +7,14 @@ description: Use when creating, scaffolding, configuring, or changing a Resonanc
 
 ## Core Rule
 
-A Resonance package is application-root source plus an explicit viewed-repository manifest opt-in. Never create package source below the viewed repository, auto-load a package, or edit `.resonance/config.json` on the developer’s behalf.
+A Resonance package is Resonance's general extensibility and implementation unit: application-root source plus an explicit viewed-repository manifest opt-in. A package may provide a user-visible workspace mounted by Shell, but package and workspace are not synonyms. Never create package source below the viewed repository, auto-load a package, or edit `.resonance/config.json` on the developer’s behalf.
 
 ## Capture the Brief First
 
 Before selecting a starter or invoking the CLI, capture:
 - **Purpose** — the user problem and the package’s bounded responsibility.
 - **Data ownership** — repository files/data it reads or writes, and the read-only boundary.
-- **Route, configuration, and UI** — named API routes, package inputs, navigation, and what renders in the Shell mount.
+- **Route, configuration, and UI** — named API routes, package inputs, navigation, and what renders in the Shell mount when the package provides a workspace.
 - **Risks** — containment, side effects, error handling, performance, and verification risks.
 
 Ask targeted questions for missing items. Record the answers in a brief. Do not represent bespoke behavior as deterministically generated.

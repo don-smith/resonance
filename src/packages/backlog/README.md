@@ -2,7 +2,7 @@
 
 ## Responsibilities
 
-Backlog owns the canonical `backlog/todo.yaml` projection, linked-plan rendering, and its constrained conversational agent. It is explicitly configured in `.resonance/config.json` and contributes only namespaced routes and assets.
+The Backlog package provides the Backlog workspace. It owns the canonical `backlog/todo.yaml` projection, linked-plan rendering, and its constrained conversational agent. It is explicitly configured in `.resonance/config.json` and contributes only namespaced routes and assets.
 
 ## Configuration
 

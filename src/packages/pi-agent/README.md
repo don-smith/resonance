@@ -1,6 +1,6 @@
 # Pi Agent package
 
-Pi Agent is the default local Resonance workspace for one in-memory Pi ACP session. It is a developer-specific package and can be disabled in `.resonance/config.json`.
+The Pi Agent package provides the default local Resonance workspace for one in-memory Pi ACP session. It is a developer-specific package and can be disabled in `.resonance/config.json`.
 
 ## Responsibilities
 

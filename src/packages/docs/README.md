@@ -1,6 +1,6 @@
 # Docs package
 
-The Docs package owns the repository Markdown workspace. It discovers configured document types, projects them into a tree, reads selected files, renders Markdown, and exposes canonical namespaced routes.
+The Docs package provides the repository Markdown workspace. It discovers configured document types, projects them into a tree, reads selected files, renders Markdown, and exposes canonical namespaced routes.
 
 ## Responsibilities
 

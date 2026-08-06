@@ -1,6 +1,6 @@
 # Home package
 
-The Home package owns the repository landing page. It reads the configured source from `.resonance/config.json`, returns its original content and browser-ready HTML, and mounts that content inside a private Home surface.
+The Home package provides the repository landing workspace. It reads the configured source from `.resonance/config.json`, returns its original content and browser-ready HTML, and mounts that content inside a private Home surface.
 
 ## Responsibilities
 

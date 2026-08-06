@@ -1,11 +1,11 @@
 # Shell package
 
-The Shell package owns the application frame. It provides the stable page document, primary workspace navigation, package mount region, and browser coordinator that switches between installed package mounts.
+The Shell package owns the application frame. It provides the stable page document, primary workspace navigation, workspace mount region, and browser coordinator that switches between installed package surfaces.
 
 ## Responsibilities
 
 - Render the shared sidebar and navigation controls.
-- Create one private DOM mount for each browser package.
+- Create one private DOM mount for each browser package that provides a workspace.
 - Activate and deactivate package instances without owning their internal state.
 - Serve the Shell entrypoint and shared stylesheet.
 - Expose composition metadata through the host manifest without owning package routes.

@@ -1,0 +1,25 @@
+.backlog-workspace { display: grid; grid-template-columns: minmax(230px, 280px) 1fr; height: 100%; min-height: 0; overflow: hidden; }
+.backlog-list { height: 100%; min-height: 0; overflow: auto; padding: 32px 20px; border-right: 1px solid var(--line); background: var(--paper-deep); }
+.backlog-list h2 { margin: 0 0 24px; font: 400 28px/1 var(--display); letter-spacing: -.03em; }
+.backlog-group { margin: 0 0 20px; }
+.backlog-group h3 { margin: 0 0 6px; color: var(--muted); font: 11px var(--mono); text-transform: uppercase; }
+.backlog-item { display: flex; width: 100%; gap: 9px; padding: 9px 10px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; text-align: left; font: 12px/1.4 var(--mono); }
+.backlog-priority { color: var(--accent); }
+.backlog-item:hover, .backlog-item.active { color: var(--ink); }
+.backlog-item.active { border-left-color: var(--accent); background: var(--accent-soft); }
+.backlog-plan { min-width: 0; overflow-y: auto; }
+.backlog-plan header { display: flex; gap: 14px; padding: 28px 52px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
+.backlog-plan header span:first-child { color: var(--accent); }
+.backlog-rule { width: 28px; height: 1px; background: var(--line); }
+.backlog-content { max-width: 900px; margin: 0 auto; padding: 72px 52px; font-size: 18px; line-height: 1.7; }
+.backlog-content h1 { font: 400 clamp(42px, 6vw, 82px)/.98 var(--display); letter-spacing: -.055em; }
+.backlog-content a { color: var(--accent); }
+.backlog-loading, .backlog-empty { color: var(--muted); font: 12px var(--mono); }
+.backlog-error { color: #a94325; font: 12px/1.5 var(--mono); }
+
+@media (max-width: 720px) {
+  .backlog-workspace { display: block; height: auto; overflow: visible; }
+  .backlog-list, .backlog-plan { height: auto; overflow: visible; }
+  .backlog-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .backlog-plan header, .backlog-content { padding-left: 20px; padding-right: 20px; }
+}

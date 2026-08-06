@@ -146,6 +146,17 @@ test('publishes the source package tree, canonical authoring skill, and global C
   assert.match(skill, /^---\nname: package-authoring\n/); assert.match(skill, /## Capture the Brief First/); assert.match(skill, /Purpose/); assert.match(skill, /Data ownership/); assert.match(skill, /Route, configuration, and UI/); assert.match(skill, /Risks/); assert.match(skill, /resonate package create <lowercase-kebab-id>/); assert.match(skill, /--skill <path>/);
 });
 
+test('publishes canonical Backlog maintenance guidance', async () => {
+  const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.ok(packageJson.files.includes('.agents'));
+  const skill = await readFile(new URL('../.agents/skills/backlog/SKILL.md', import.meta.url), 'utf8');
+  assert.match(skill, /^---\nname: backlog\n/);
+  assert.match(skill, /backlog\/todo\.yaml/);
+  assert.match(skill, /recently-done/);
+  assert.match(skill, /P0–P3/);
+  assert.match(skill, /bun test src\/packages\/backlog\/backlog\.test\.ts/);
+});
+
 test('the local installer symlinks the checkout and adds its bin directory to PATH', async () => {
   const home = await mkdtemp(path.join(tmpdir(), 'resonance-home-')); const binDirectory = path.join(home, '.local', 'bin'); const shellConfig = path.join(home, '.zshrc');
   await exec('bash', [new URL('../scripts/install-local.sh', import.meta.url).pathname], { cwd: projectPath, env: { ...process.env, HOME: home, RESONANCE_BIN_DIR: binDirectory, RESONANCE_SHELL_RC: shellConfig } });

@@ -17,6 +17,7 @@
     "@agentclientprotocol/sdk": "0.26.0",
     "markdown-it": "^14.1.0",
     "pi-acp": "0.0.33",
+    "yaml": "^2.8.1",
     "zod": "3.25.76"
   },
   "devDependencies": {

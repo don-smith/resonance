@@ -101,7 +101,7 @@ test('makes a fake Pi Markdown edit visible through Docs from the same repositor
 test('registers default Pi Agent routes, assets, navigation, and disposal', async () => {
   const definition = createPiAgentPackage(async () => ({ sessionId: 'test', prompt: async () => {}, cancel: async () => {}, close: async () => {} }));
   const registry = createHost({ config: { version: 1, packages: { 'pi-agent': { module: 'src/packages/pi-agent/index.ts' } } }, packages: [definition] });
-  assert.deepEqual(registry.manifest.navigation, [{ id: 'pi-agent', label: 'Pi Agent', order: 30 }]);
+  assert.deepEqual(registry.manifest.navigation, [{ id: 'pi-agent', label: 'Pi Agent', order: 40 }]);
   assert.ok(registry.routes['GET /api/pi-agent/state']);
   assert.ok(registry.routes['GET /api/pi-agent/events']);
   assert.ok(registry.routes['POST /api/pi-agent/prompt']);

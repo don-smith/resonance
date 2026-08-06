@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AssetContribution, BrowserContribution, HostContext, HttpMethod, NavigationContribution, PackageDefinition, PackageInput, PackageRegistration, RepositoryConfig, RouteContribution } from './package-contract.ts';
@@ -12,6 +13,12 @@ function createContext(repositoryRoot: string, appRoot: string): HostContext {
       if (!relativePath || path.posix.isAbsolute(relativePath) || path.win32.isAbsolute(relativePath) || /\\/.test(relativePath)) return null;
       const root = path.resolve(repositoryRoot); const absolute = path.resolve(root, relativePath); const relative = path.relative(root, absolute);
       if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+      try {
+        const physicalRoot = realpathSync(root);
+        const physicalCandidate = realpathSync(absolute);
+        const physicalRelative = path.relative(physicalRoot, physicalCandidate);
+        if (physicalRelative === '..' || physicalRelative.startsWith(`..${path.sep}`) || path.isAbsolute(physicalRelative)) return null;
+      } catch { return null; }
       return relative;
     },
   };

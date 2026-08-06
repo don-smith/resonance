@@ -20,6 +20,9 @@
         ".myflow"
       ]
     },
+    "backlog": {
+      "module": "src/packages/backlog/index.ts"
+    },
     "pi-agent": {
       "module": "src/packages/pi-agent/index.ts"
     }

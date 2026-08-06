@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -122,4 +122,22 @@ test('registers distinct methods on one pathname and disposes packages idempoten
   assert.ok(registry.routes['POST /api/methods/value']);
   await registry.dispose();
   await registry.dispose();
+});
+
+test('rejects a lexically contained symlink that physically escapes the repository', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-host-'));
+  const outsideRoot = await mkdtemp(path.join(tmpdir(), 'resonance-host-outside-'));
+  try {
+    await mkdir(path.join(root, 'backlog'), { recursive: true });
+    await writeFile(path.join(root, 'backlog', 'contained.md'), '# Contained');
+    await writeFile(path.join(outsideRoot, 'outside.md'), '# Outside');
+    await symlink(path.join(outsideRoot, 'outside.md'), path.join(root, 'backlog', 'outside.md'));
+    const repositoryContext = createHost({ root }).context;
+    assert.equal(repositoryContext.resolveRepositoryPath('backlog/contained.md'), 'backlog/contained.md');
+    assert.equal(repositoryContext.resolveRepositoryPath('backlog/outside.md'), null);
+    assert.equal(repositoryContext.resolveRepositoryPath('missing.md'), null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outsideRoot, { recursive: true, force: true });
+  }
 });

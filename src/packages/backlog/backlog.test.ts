@@ -10,7 +10,7 @@ import { backlogInput, parseBacklogItems } from './index.ts';
 import createBacklog from './backlog.js';
 
 const appRoot = fileURLToPath(new URL('../../../', import.meta.url));
-const config = { version: 1 as const, packages: { shell: { module: 'src/packages/shell/index.ts' }, backlog: { module: 'src/packages/backlog/index.ts' } } };
+const config = { version: 1 as const, packages: { shell: { module: 'src/packages/shell/index.ts' }, backlog: { module: 'src/packages/backlog/index.ts', provider: 'openai', model: 'gpt-4.1' } } };
 const item = '  - title: Queue\n    plan: plans/queue.md\n    status: in-planning\n    priority: P2\n';
 const valid = `version: 1\ndecisions:\n${item}`;
 
@@ -32,7 +32,7 @@ test('validates a closed versioned decisions document', () => {
     valid.replace('plans/queue.md', '\\plans\\queue.md'),
     `${valid}decisions: []\n`,
   ]) assert.throws(() => parseBacklogItems(source), /Backlog source is invalid/);
-  assert.throws(() => backlogInput({ source: 'elsewhere' }), /does not accept/);
+  assert.throws(() => backlogInput({ source: 'elsewhere' }), /input is invalid/);
 });
 
 test('serves sorted contained decisions through the renamed package', async () => {
@@ -83,10 +83,31 @@ test('distinguishes invalid and escaping sources', async () => {
 
 test('uses the checked-in migration and explicit config', async () => {
   const repositoryConfig = JSON.parse(await readFile(new URL('../../../.resonance/config.json', import.meta.url), 'utf8'));
-  assert.deepEqual(repositoryConfig.packages.backlog, { module: 'src/packages/backlog/index.ts' });
+  assert.deepEqual(repositoryConfig.packages.backlog, { module: 'src/packages/backlog/index.ts', provider: 'openai', model: 'gpt-4.1' });
   assert.equal(repositoryConfig.packages['backlog-workspace'], undefined);
-  assert.equal(parseBacklogItems(await readFile(new URL('../../../backlog/todo.yaml', import.meta.url), 'utf8')).length, 7);
-  await withServer(async (base) => assert.equal((await fetch(`${base}/api/backlog/items`).then((response) => response.json())).items.length, 7), appRoot);
+  assert.equal(parseBacklogItems(await readFile(new URL('../../../backlog/todo.yaml', import.meta.url), 'utf8')).length, 8);
+  await withServer(async (base) => assert.equal((await fetch(`${base}/api/backlog/items`).then((response) => response.json())).items.length, 8), appRoot);
+});
+
+test('exposes lazy agent state, bounded agent routes, and non-secret credential responses', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-backlog-agent-'));
+  try {
+    await mkdir(path.join(root, 'backlog', 'plans'), { recursive: true });
+    await mkdir(path.join(root, '.resonance'), { recursive: true });
+    await writeFile(path.join(root, 'backlog', 'todo.yaml'), valid);
+    await writeFile(path.join(root, 'backlog', 'plans', 'queue.md'), '# Queue');
+    await withServer(async (base) => {
+      const state = await fetch(`${base}/api/backlog/agent/state`).then((response) => response.json());
+      assert.deepEqual(state, { messages: [], status: 'idle', hasSession: false, error: null, pendingDeletion: null });
+      const missing = await fetch(`${base}/api/backlog/agent/prompt`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Review', selectedPath: 'backlog/plans/queue.md' }) });
+      assert.equal(missing.status, 202); assert.deepEqual(await missing.json(), { accepted: false, credentialRequired: true });
+      const key = await fetch(`${base}/api/backlog/agent/credential`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey: 'sk-local-secret' }) });
+      assert.equal(key.status, 200); const keyBody = await key.json(); assert.deepEqual(keyBody, { ok: true }); assert.doesNotMatch(JSON.stringify(keyBody), /sk-local-secret/);
+      assert.match(await readFile(path.join(root, '.resonance', 'backlog-agent.env'), 'utf8'), /OPENAI_API_KEY=sk-local-secret/);
+      assert.equal((await fetch(`${base}/api/backlog/agent/prompt`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 415);
+      assert.equal((await fetch(`${base}/api/backlog/agent/credential`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey: 'x'.repeat(9000) }) })).status, 413);
+    }, root);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test('renders ordered Decisions and selects the first non-done plan', async () => {
@@ -104,4 +125,19 @@ test('renders ordered Decisions and selects the first non-done plan', async () =
   assert.match(root.querySelector('.backlog-content').textContent, /Progress/);
   instance.deactivate();
   assert.equal(root.hidden, true);
+});
+
+test('opens the manager stream only while active and submits the selected canonical path', async () => {
+  const { document } = parseHTML('<!doctype html><body></body>');
+  const root = document.createElement('section'); const streams: any[] = []; const requests: any[] = [];
+  const items = [{ title: 'Queue', path: 'backlog/plans/queue.md', status: 'in-planning', priority: 'P2' }];
+  const instance = createBacklog({
+    eventSourceFactory: (url) => { const stream: any = { url, close() { stream.closed = true; } }; streams.push(stream); return stream; },
+    fetchFn: async (url, options) => { requests.push({ url, options }); if (url === '/api/backlog/items') return { ok: true, async json() { return { items }; } }; if (url.startsWith('/api/backlog/plan')) return { ok: true, async json() { return { ...items[0], html: '<h1>Queue</h1>' }; } }; return { ok: true, async json() { return { accepted: true }; } }; },
+  });
+  instance.mount(root); await instance.activate(); assert.equal(streams.length, 1); assert.equal(streams[0].url, '/api/backlog/agent/events');
+  streams[0].onmessage({ data: JSON.stringify({ type: 'snapshot', snapshot: { messages: [], status: 'idle', error: null, pendingDeletion: null } }) });
+  const input: any = root.querySelector('.backlog-composer textarea'); input.value = 'Review this'; input.dispatchEvent(new document.defaultView.Event('input')); await new Promise((resolve) => setTimeout(resolve, 0)); root.querySelector('.backlog-composer').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true })); await new Promise((resolve) => setTimeout(resolve, 0));
+  const prompt = requests.find((request) => request.url === '/api/backlog/agent/prompt'); assert.deepEqual(JSON.parse(prompt.options.body), { prompt: 'Review this', selectedPath: items[0].path });
+  instance.deactivate(); assert.equal(streams[0].closed, true);
 });

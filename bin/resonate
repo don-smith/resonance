@@ -1,10 +1,15 @@
 #!/usr/bin/env bun
 
 import process from 'node:process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createInterface, clearLine, cursorTo, moveCursor } from 'node:readline';
 import { openBrowser } from '../src/browser.ts';
 import { createRepositoryConfig, loadRepositoryConfig, repositoryConfigExists, writeRepositoryConfig } from '../src/config.ts';
 import { startServer } from '../src/server.ts';
+import { createPackageScaffold, planPackageScaffold } from '../src/package-scaffold.ts';
+
+const applicationRoot = fileURLToPath(new URL('../', import.meta.url));
 
 function printHelp(log = console.log) {
   log(`resonate — local environment for repository Markdown
@@ -12,9 +17,11 @@ function printHelp(log = console.log) {
 Usage:
   resonate [options]
   resonate install
+  resonate package create <id>
 
 Commands:
-  install          Set up Resonance in the current repository
+  install              Set up Resonance in the current repository
+  package create <id>  Create a package starter below the Resonance application root
 
 Options:
   --port <number>  Port to listen on (default: 4317)
@@ -24,9 +31,14 @@ Options:
 }
 
 export function parseArgs(argumentsList) {
-  const options = { command: null, port: Number(process.env.RESONANCE_PORT || 4317), host: process.env.RESONANCE_HOST || '127.0.0.1' };
+  const options = { command: null, packageId: null, port: Number(process.env.RESONANCE_PORT || 4317), host: process.env.RESONANCE_HOST || '127.0.0.1' };
   let index = 0;
   if (argumentsList[0] === 'install') { options.command = 'install'; index = 1; }
+  else if (argumentsList[0] === 'package') {
+    if (argumentsList[1] !== 'create') throw new Error(`Unknown package command: ${argumentsList[1] || '(missing)'}`);
+    if (!argumentsList[2] || argumentsList[2].startsWith('--')) throw new Error('Package create requires an <id>.');
+    options.command = 'package-create'; options.packageId = argumentsList[2]; index = 3;
+  }
   for (; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
     if (argument === '--help' || argument === '-h') return { help: true };
@@ -37,6 +49,17 @@ export function parseArgs(argumentsList) {
   }
   if (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535) throw new Error('Port must be an integer between 0 and 65535.');
   return options;
+}
+
+export async function runFocusedPackageTest(plan, { appRoot = applicationRoot, spawnFn = Bun.spawn } = {}) {
+  const child = spawnFn(['bun', 'test', plan.testFile], { cwd: appRoot, stdout: 'inherit', stderr: 'inherit' });
+  const exitCode = await child.exited;
+  if (exitCode !== 0) throw new Error(`Focused package test failed with exit code ${exitCode}.`);
+}
+
+function logPackagePlan(plan, appRoot, log) {
+  log(`Package files to create for ${plan.id}:`);
+  for (const filename of plan.files) log(`  ${path.relative(appRoot, filename)}`);
 }
 
 function askQuestion(prompt, question) {
@@ -126,10 +149,21 @@ export async function installRepository(root, { selectPackagesFn = selectOptiona
   return config;
 }
 
-export async function run(argumentsList, { root = process.cwd(), startServerFn = startServer, openBrowserFn = openBrowser, log = console.log, isInstalledFn = repositoryConfigExists, confirmInstallFn = askToInstall, selectPackagesFn = selectOptionalPackages, loadConfigFn = loadRepositoryConfig } = {}) {
+export async function run(argumentsList, { root = process.cwd(), appRoot = applicationRoot, startServerFn = startServer, openBrowserFn = openBrowser, log = console.log, isInstalledFn = repositoryConfigExists, confirmInstallFn = askToInstall, selectPackagesFn = selectOptionalPackages, loadConfigFn = loadRepositoryConfig, planPackageScaffoldFn = planPackageScaffold, createPackageScaffoldFn = createPackageScaffold, runFocusedTestFn = runFocusedPackageTest } = {}) {
   const options = parseArgs(argumentsList);
   if (options.help) { printHelp(log); return null; }
   if (options.command === 'install') { await installRepository(root, { selectPackagesFn, log }); return null; }
+  if (options.command === 'package-create') {
+    const plan = planPackageScaffoldFn({ appRoot, id: options.packageId });
+    logPackagePlan(plan, appRoot, log);
+    const created = await createPackageScaffoldFn({ appRoot, id: options.packageId, verify: (scaffoldPlan) => runFocusedTestFn(scaffoldPlan, { appRoot }) });
+    log(`Created package ${created.id}.`);
+    log('Focused package test passed.');
+    log('Add this explicit entry to the viewed repository manifest:');
+    log(created.manifestSnippet);
+    log('Full regression: bun test');
+    return null;
+  }
   if (!await isInstalledFn(root)) {
     log('Resonance is not installed in this repository.');
     if (!await confirmInstallFn()) { log('Installation cancelled.'); return null; }
@@ -137,7 +171,7 @@ export async function run(argumentsList, { root = process.cwd(), startServerFn =
     if (!installed) return null;
   }
   const config = await loadConfigFn(root);
-  const { command: _command, ...serverOptions } = options;
+  const { command: _command, packageId: _packageId, ...serverOptions } = options;
   const server = await startServerFn({ root, config, ...serverOptions });
   const address = server.address();
   const visibleHost = options.host === '0.0.0.0' ? '127.0.0.1' : options.host;

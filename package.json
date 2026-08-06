@@ -7,7 +7,7 @@
   "bin": {
     "resonate": "bin/resonate"
   },
-  "files": ["bin", "src", "scripts", "README.md"],
+  "files": ["bin", "src", "scripts", ".agents", "README.md"],
   "description": "A local developer environment for navigating repository Markdown.",
   "scripts": {
     "test": "bun test",

@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { Writable } from 'node:stream';
-import { askToInstall, run, selectOptionalPackages } from './resonate';
+import { askToInstall, parseArgs, run, runFocusedPackageTest, selectOptionalPackages } from './resonate';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -86,10 +86,64 @@ test('first-run confirmation resumes terminal input before package selection', a
   const confirmation = askToInstall({ input, output }); input.end('y\n'); assert.equal(await confirmation, true); assert.ok(resumeCount > 1);
 });
 
-test('publishes the source package tree and global CLI entry', async () => {
+test('parses the nested package create command and rejects malformed package commands', () => {
+  assert.deepEqual(parseArgs(['package', 'create', 'reading-queue']), { command: 'package-create', packageId: 'reading-queue', port: 4317, host: '127.0.0.1' });
+  for (const argumentsList of [['package'], ['package', 'remove', 'reading-queue'], ['package', 'create'], ['package', 'create', '--help'], ['package', 'create', 'reading-queue', 'extra']]) {
+    assert.throws(() => parseArgs(argumentsList), /package command|Package create requires|Unexpected argument/i);
+  }
+});
+
+test('runs only the generated package test and reports a non-zero exit', async () => {
+  const plan = { testFile: '/tmp/reading-queue.test.ts' };
+  const calls = [];
+  await runFocusedPackageTest(plan, { appRoot: '/tmp/resonance', spawnFn: (command, options) => { calls.push({ command, options }); return { exited: Promise.resolve(0) }; } });
+  assert.deepEqual(calls, [{ command: ['bun', 'test', plan.testFile], options: { cwd: '/tmp/resonance', stdout: 'inherit', stderr: 'inherit' } }]);
+  await assert.rejects(() => runFocusedPackageTest(plan, { spawnFn: () => ({ exited: Promise.resolve(1) }) }), /Focused package test failed with exit code 1/);
+});
+
+test('package create dispatches before repository installation, config, server, and browser side effects', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-cli-repository-'));
+  const appRoot = await mkdtemp(path.join(tmpdir(), 'resonance-cli-app-'));
+  const logs = [];
+  const plan = {
+    id: 'reading-queue',
+    directory: path.join(appRoot, 'src', 'packages', 'reading-queue'),
+    files: [path.join(appRoot, 'src', 'packages', 'reading-queue', 'README.md'), path.join(appRoot, 'src', 'packages', 'reading-queue', 'index.ts')],
+    manifestSnippet: '"reading-queue": { "module": "src/packages/reading-queue/index.ts" }',
+    testFile: path.join(appRoot, 'src', 'packages', 'reading-queue', 'reading-queue.test.ts'),
+  };
+  let created = false;
+  let verified = false;
+  try {
+    const result = await run(['package', 'create', plan.id], {
+      root, appRoot, log: (message) => logs.push(message),
+      isInstalledFn: async () => { throw new Error('must not check repository installation'); },
+      confirmInstallFn: async () => { throw new Error('must not prompt for installation'); },
+      selectPackagesFn: async () => { throw new Error('must not select packages'); },
+      loadConfigFn: async () => { throw new Error('must not load repository configuration'); },
+      startServerFn: async () => { throw new Error('must not start a server'); },
+      openBrowserFn: () => { throw new Error('must not open a browser'); },
+      planPackageScaffoldFn: ({ appRoot: receivedAppRoot, id }) => { assert.equal(receivedAppRoot, appRoot); assert.equal(id, plan.id); return plan; },
+      createPackageScaffoldFn: async ({ appRoot: receivedAppRoot, id, verify }) => { assert.equal(receivedAppRoot, appRoot); assert.equal(id, plan.id); created = true; await verify(plan); return plan; },
+      runFocusedTestFn: async (receivedPlan, { appRoot: receivedAppRoot }) => { assert.equal(receivedPlan, plan); assert.equal(receivedAppRoot, appRoot); verified = true; },
+    });
+    assert.equal(result, null);
+    assert.equal(created, true);
+    assert.equal(verified, true);
+    await assert.rejects(() => stat(path.join(root, '.resonance')), { code: 'ENOENT' });
+    assert.deepEqual(logs, ['Package files to create for reading-queue:', '  src/packages/reading-queue/README.md', '  src/packages/reading-queue/index.ts', 'Created package reading-queue.', 'Focused package test passed.', 'Add this explicit entry to the viewed repository manifest:', plan.manifestSnippet, 'Full regression: bun test']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(appRoot, { recursive: true, force: true });
+  }
+});
+
+test('publishes the source package tree, canonical authoring skill, and global CLI entry', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.equal(packageJson.bin.resonate, 'bin/resonate'); assert.deepEqual(packageJson.files, ['bin', 'src', 'scripts', 'README.md']); assert.equal(packageJson.scripts.test, 'bun test');
+  assert.equal(packageJson.bin.resonate, 'bin/resonate'); assert.deepEqual(packageJson.files, ['bin', 'src', 'scripts', '.agents', 'README.md']); assert.equal(packageJson.scripts.test, 'bun test');
   const cli = await readFile(new URL('resonate', import.meta.url), 'utf8'); assert.match(cli, /^#!\/usr\/bin\/env bun/);
+  const skill = await readFile(new URL('../.agents/skills/package-authoring/SKILL.md', import.meta.url), 'utf8');
+  assert.match(skill, /^---\nname: package-authoring\n/); assert.match(skill, /## Capture the Brief First/); assert.match(skill, /Purpose/); assert.match(skill, /Data ownership/); assert.match(skill, /Route, configuration, and UI/); assert.match(skill, /Risks/); assert.match(skill, /resonate package create <lowercase-kebab-id>/); assert.match(skill, /--skill <path>/);
 });
 
 test('the local installer symlinks the checkout and adds its bin directory to PATH', async () => {

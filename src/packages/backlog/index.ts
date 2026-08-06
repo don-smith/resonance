@@ -14,7 +14,7 @@ export { parseBacklogItems } from './backlog-store.ts';
 const runFile = promisify(execFile);
 const metadata = { id: 'backlog', version: '1.0.0', hostVersion: '1', label: 'Backlog', order: 30 } as const;
 const CREDENTIAL_PATH = '.resonance/backlog-agent.env';
-const inputSchema = z.object({ provider: z.literal('openai'), model: z.literal('gpt-4.1') }).strict();
+const inputSchema = z.object({ provider: z.enum(['openai', 'openrouter']), model: z.string().trim().min(1).max(256) }).strict();
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const isMissing = (error: unknown) => Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === 'ENOENT');
 const within = (root: string, candidate: string) => candidate === root || candidate.startsWith(`${root}${path.sep}`);
@@ -70,20 +70,25 @@ async function isTracked(root: string): Promise<boolean> {
     return false;
   }
 }
-function parseCredential(contents: string): string {
-  const match = /^(?:OPENAI_API_KEY=)([^\r\n]+)\n?$/.exec(contents);
-  if (!match || !match[1].trim() || match[1] !== match[1].trim()) throw new Error('Credential file is invalid.');
-  return match[1];
+function credentialName(provider: 'openai' | 'openrouter'): string {
+  return provider === 'openrouter' ? 'OPENROUTER_API_KEY' : 'OPENAI_API_KEY';
 }
-async function readCredential(root: string): Promise<string | null> {
+function parseCredential(contents: string, provider: 'openai' | 'openrouter'): string | null {
+  const match = /^(OPENAI_API_KEY|OPENROUTER_API_KEY)=([^\r\n]+)\n?$/.exec(contents);
+  if (!match) throw new Error('Credential file is invalid.');
+  if (match[1] !== credentialName(provider)) return null;
+  if (!match[2].trim() || match[2] !== match[2].trim()) throw new Error('Credential file is invalid.');
+  return match[2];
+}
+async function readCredential(root: string, provider: 'openai' | 'openrouter'): Promise<string | null> {
   const locations = await credentialFilename(root);
   const directoryStats = await lstat(locations.directory).catch((error: unknown) => isMissing(error) ? null : Promise.reject(error));
   if (!directoryStats) return null;
   await secureCredentialDirectory(locations.directory);
   if (!await regularCredentialFile(locations.filename)) return null;
-  return parseCredential(await readFile(locations.filename, 'utf8'));
+  return parseCredential(await readFile(locations.filename, 'utf8'), provider);
 }
-async function writeCredential(root: string, apiKey: string): Promise<void> {
+async function writeCredential(root: string, provider: 'openai' | 'openrouter', apiKey: string): Promise<void> {
   if (!apiKey || apiKey.length > 4096 || /[\r\n]/.test(apiKey) || apiKey !== apiKey.trim()) throw new CredentialInputError('Credential must be a single-line API key.');
   const locations = await credentialFilename(root);
   await secureCredentialDirectory(locations.directory);
@@ -91,7 +96,7 @@ async function writeCredential(root: string, apiKey: string): Promise<void> {
   await regularCredentialFile(locations.filename);
   const temporary = path.join(locations.directory, `.backlog-agent.${crypto.randomUUID()}.tmp`);
   try {
-    await writeFile(temporary, `OPENAI_API_KEY=${apiKey}\n`, { encoding: 'utf8', mode: 0o600 });
+    await writeFile(temporary, `${credentialName(provider)}=${apiKey}\n`, { encoding: 'utf8', mode: 0o600 });
     await rename(temporary, locations.filename);
   } catch (error) {
     await unlink(temporary).catch(() => undefined);
@@ -108,8 +113,8 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
       const renderer = createMarkdownRenderer();
       const session = createBacklogAgentSession({
         store,
-        credentialProvider: () => readCredential(context.repositoryRoot),
-        runtimeFactory: runtimeFactory || createDeepAgentsRuntimeFactory({ model: config.model }),
+        credentialProvider: () => readCredential(context.repositoryRoot, config.provider),
+        runtimeFactory: runtimeFactory || createDeepAgentsRuntimeFactory({ provider: config.provider, model: config.model }),
       });
       const activeStreams = new Set<() => void>();
       const items = async () => store.listDecisions();
@@ -173,7 +178,7 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
               try {
                 const body = await request.readJson<{ apiKey?: unknown }>(8 * 1024);
                 if (!isRecord(body) || typeof body.apiKey !== 'string') { response.json(400, { error: 'apiKey must be a string.' }); return; }
-                await writeCredential(context.repositoryRoot, body.apiKey);
+                await writeCredential(context.repositoryRoot, config.provider, body.apiKey);
                 response.json(200, { ok: true });
               } catch (error) { sendError(response, error); }
             },

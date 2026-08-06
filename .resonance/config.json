@@ -22,8 +22,8 @@
     },
     "backlog": {
       "module": "src/packages/backlog/index.ts",
-      "provider": "openai",
-      "model": "gpt-4.1"
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash"
     },
     "pi-agent": {
       "module": "src/packages/pi-agent/index.ts"

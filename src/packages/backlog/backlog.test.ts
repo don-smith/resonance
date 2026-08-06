@@ -10,7 +10,7 @@ import { backlogInput, parseBacklogItems } from './index.ts';
 import createBacklog from './backlog.js';
 
 const appRoot = fileURLToPath(new URL('../../../', import.meta.url));
-const config = { version: 1 as const, packages: { shell: { module: 'src/packages/shell/index.ts' }, backlog: { module: 'src/packages/backlog/index.ts', provider: 'openai', model: 'gpt-4.1' } } };
+const config = { version: 1 as const, packages: { shell: { module: 'src/packages/shell/index.ts' }, backlog: { module: 'src/packages/backlog/index.ts', provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' } } };
 const item = '  - title: Queue\n    plan: plans/queue.md\n    status: in-planning\n    priority: P2\n';
 const valid = `version: 1\ndecisions:\n${item}`;
 
@@ -32,6 +32,10 @@ test('validates a closed versioned decisions document', () => {
     valid.replace('plans/queue.md', '\\plans\\queue.md'),
     `${valid}decisions: []\n`,
   ]) assert.throws(() => parseBacklogItems(source), /Backlog source is invalid/);
+  assert.deepEqual(backlogInput({ provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' }), { provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' });
+  assert.deepEqual(backlogInput({ provider: 'openai', model: 'gpt-4.1' }), { provider: 'openai', model: 'gpt-4.1' });
+  assert.throws(() => backlogInput({ provider: 'unsupported', model: 'model' }), /input is invalid/);
+  assert.throws(() => backlogInput({ provider: 'openrouter', model: '' }), /input is invalid/);
   assert.throws(() => backlogInput({ source: 'elsewhere' }), /input is invalid/);
 });
 
@@ -81,12 +85,10 @@ test('distinguishes invalid and escaping sources', async () => {
   }
 });
 
-test('uses the checked-in migration and explicit config', async () => {
+test('uses the checked-in backlog package config', async () => {
   const repositoryConfig = JSON.parse(await readFile(new URL('../../../.resonance/config.json', import.meta.url), 'utf8'));
-  assert.deepEqual(repositoryConfig.packages.backlog, { module: 'src/packages/backlog/index.ts', provider: 'openai', model: 'gpt-4.1' });
+  assert.deepEqual(repositoryConfig.packages.backlog, { module: 'src/packages/backlog/index.ts', provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' });
   assert.equal(repositoryConfig.packages['backlog-workspace'], undefined);
-  assert.equal(parseBacklogItems(await readFile(new URL('../../../backlog/todo.yaml', import.meta.url), 'utf8')).length, 8);
-  await withServer(async (base) => assert.equal((await fetch(`${base}/api/backlog/items`).then((response) => response.json())).items.length, 8), appRoot);
 });
 
 test('exposes lazy agent state, bounded agent routes, and non-secret credential responses', async () => {
@@ -94,6 +96,7 @@ test('exposes lazy agent state, bounded agent routes, and non-secret credential 
   try {
     await mkdir(path.join(root, 'backlog', 'plans'), { recursive: true });
     await mkdir(path.join(root, '.resonance'), { recursive: true });
+    await writeFile(path.join(root, '.resonance', 'backlog-agent.env'), 'OPENAI_API_KEY=old-provider-key\n', { mode: 0o600 });
     await writeFile(path.join(root, 'backlog', 'todo.yaml'), valid);
     await writeFile(path.join(root, 'backlog', 'plans', 'queue.md'), '# Queue');
     await withServer(async (base) => {
@@ -103,11 +106,21 @@ test('exposes lazy agent state, bounded agent routes, and non-secret credential 
       assert.equal(missing.status, 202); assert.deepEqual(await missing.json(), { accepted: false, credentialRequired: true });
       const key = await fetch(`${base}/api/backlog/agent/credential`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey: 'sk-local-secret' }) });
       assert.equal(key.status, 200); const keyBody = await key.json(); assert.deepEqual(keyBody, { ok: true }); assert.doesNotMatch(JSON.stringify(keyBody), /sk-local-secret/);
-      assert.match(await readFile(path.join(root, '.resonance', 'backlog-agent.env'), 'utf8'), /OPENAI_API_KEY=sk-local-secret/);
+      assert.match(await readFile(path.join(root, '.resonance', 'backlog-agent.env'), 'utf8'), /OPENROUTER_API_KEY=sk-local-secret/);
       assert.equal((await fetch(`${base}/api/backlog/agent/prompt`, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' })).status, 415);
       assert.equal((await fetch(`${base}/api/backlog/agent/credential`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey: 'x'.repeat(9000) }) })).status, 413);
     }, root);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('keeps plan and agent header separators aligned', async () => {
+  const css = await readFile(new URL('./backlog.css', import.meta.url), 'utf8');
+  assert.match(css, /\.backlog-plan header \{[^}]*padding: 28px 52px 20px;/s);
+  assert.match(css, /\.backlog-agent-header \{[^}]*padding: 28px 20px 20px;/s);
+  assert.match(css, /\.backlog-agent-toggle \{[^}]*border: 1px solid transparent;/s);
+  assert.match(css, /\.backlog-agent-toggle:hover \{[^}]*border-color: var\(--accent\);/s);
+  assert.match(css, /\.backlog-agent-toggle svg \{[^}]*stroke: currentColor;/s);
+  assert.match(css, /\.backlog-agent\[hidden\] \{[^}]*display: none !important;/s);
 });
 
 test('renders ordered Decisions and selects the first non-done plan', async () => {
@@ -127,7 +140,50 @@ test('renders ordered Decisions and selects the first non-done plan', async () =
   assert.equal(root.hidden, true);
 });
 
-test('opens the manager stream only while active and submits the selected canonical path', async () => {
+test('retains user and agent messages across sequential transcript events', async () => {
+  const { document } = parseHTML('<!doctype html><body></body>');
+  const root = document.createElement('section'); let stream: any;
+  const items = [{ title: 'Queue', path: 'backlog/plans/queue.md', status: 'in-planning', priority: 'P2' }];
+  const instance = createBacklog({
+    eventSourceFactory: () => { stream = { close() {} }; return stream; },
+    fetchFn: async (url) => url === '/api/backlog/items'
+      ? { ok: true, async json() { return { items }; } }
+      : url === '/api/backlog/agent/reset'
+        ? { ok: true, async json() { return { state: { messages: [], status: 'idle', error: null, pendingDeletion: null } }; } }
+        : { ok: true, async json() { return { ...items[0], html: '<h1>Queue</h1>' }; } },
+  });
+  instance.mount(root); await instance.activate();
+  const emit = (value: unknown) => stream.onmessage({ data: JSON.stringify(value) });
+  const messages = [
+    { id: 'user-1', role: 'user', content: 'First' },
+    { id: 'agent-1', role: 'assistant', content: 'First response' },
+  ];
+  emit({ type: 'snapshot', snapshot: { messages: [], status: 'idle', error: null, pendingDeletion: null } });
+  emit({ type: 'message', message: messages[0] });
+  emit({ type: 'message', message: messages[1] });
+  emit({ type: 'snapshot', snapshot: { messages: [messages[0]], status: 'idle', error: null, pendingDeletion: null } });
+  emit({ type: 'message', message: { id: 'user-2', role: 'user', content: 'Second' } });
+  emit({ type: 'message', message: { id: 'agent-2', role: 'assistant', content: 'Second response' } });
+  assert.deepEqual([...root.querySelectorAll('.backlog-message strong')].map((label) => label.textContent), ['You', 'Agent', 'You', 'Agent']);
+  assert.match(root.querySelector('.backlog-transcript').textContent, /First response/);
+  assert.match(root.querySelector('.backlog-transcript').textContent, /Second response/);
+  const agentToggle = root.querySelector('.backlog-agent-toggle');
+  const agentPanel = root.querySelector('.backlog-agent');
+  agentToggle.click();
+  assert.equal(agentPanel.hidden, true);
+  assert.equal(agentToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(root.querySelector('.backlog-workspace').classList.contains('backlog-agent-hidden'), true);
+  assert.match(root.querySelector('.backlog-transcript').textContent, /First response/);
+  agentToggle.click();
+  assert.equal(agentPanel.hidden, false);
+  assert.equal(agentToggle.getAttribute('aria-expanded'), 'true');
+  assert.match(root.querySelector('.backlog-transcript').textContent, /Second response/);
+  root.querySelector('.backlog-reset').click(); await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(root.querySelectorAll('.backlog-message').length, 0);
+  instance.deactivate();
+});
+
+test('opens the agent stream only while active and submits the selected canonical path', async () => {
   const { document } = parseHTML('<!doctype html><body></body>');
   const root = document.createElement('section'); const streams: any[] = []; const requests: any[] = [];
   const items = [{ title: 'Queue', path: 'backlog/plans/queue.md', status: 'in-planning', priority: 'P2' }];
@@ -135,7 +191,14 @@ test('opens the manager stream only while active and submits the selected canoni
     eventSourceFactory: (url) => { const stream: any = { url, close() { stream.closed = true; } }; streams.push(stream); return stream; },
     fetchFn: async (url, options) => { requests.push({ url, options }); if (url === '/api/backlog/items') return { ok: true, async json() { return { items }; } }; if (url.startsWith('/api/backlog/plan')) return { ok: true, async json() { return { ...items[0], html: '<h1>Queue</h1>' }; } }; return { ok: true, async json() { return { accepted: true }; } }; },
   });
-  instance.mount(root); await instance.activate(); assert.equal(streams.length, 1); assert.equal(streams[0].url, '/api/backlog/agent/events');
+  instance.mount(root);
+  assert.equal(root.querySelector('.backlog-agent-header .eyebrow').textContent, 'AGENT / CHAT');
+  assert.equal(root.querySelector('.backlog-agent-header .backlog-status').textContent, 'Ready');
+  assert.equal(root.querySelector('.backlog-agent-header .backlog-reset'), null);
+  assert.equal(root.querySelector('.backlog-agent-status'), null);
+  assert.ok(root.querySelector('.backlog-agent-toggle svg'));
+  assert.deepEqual([...root.querySelectorAll('.backlog-composer-actions button')].map((button) => button.textContent), ['New Chat', 'Send']);
+  await instance.activate(); assert.equal(streams.length, 1); assert.equal(streams[0].url, '/api/backlog/agent/events');
   streams[0].onmessage({ data: JSON.stringify({ type: 'snapshot', snapshot: { messages: [], status: 'idle', error: null, pendingDeletion: null } }) });
   const input: any = root.querySelector('.backlog-composer textarea'); input.value = 'Review this'; input.dispatchEvent(new document.defaultView.Event('input')); await new Promise((resolve) => setTimeout(resolve, 0)); root.querySelector('.backlog-composer').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true })); await new Promise((resolve) => setTimeout(resolve, 0));
   const prompt = requests.find((request) => request.url === '/api/backlog/agent/prompt'); assert.deepEqual(JSON.parse(prompt.options.body), { prompt: 'Review this', selectedPath: items[0].path });

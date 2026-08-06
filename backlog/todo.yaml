@@ -2,8 +2,12 @@ version: 1
 decisions:
   - title: Backlog package
     plan: plans/backlog-package.md
-    status: in-progress
+    status: recently-done
     priority: P1
+  - title: Backlog Agent and Skill
+    plan: plans/backlog-agent-skill.md
+    status: recently-done
+    priority: P2
   - title: Markdown linking
     plan: plans/markdown-linking.md
     status: is-ready
@@ -28,3 +32,15 @@ decisions:
     plan: plans/skills-package.md
     status: in-planning
     priority: P3
+  - title: Package to workspace
+    plan: plans/package-to-workspace.md
+    status: in-progress
+    priority: P2
+  - title: Backlog evals
+    plan: plans/backlog-evals.md
+    status: in-planning
+    priority: P3
+  - title: Member workspaces
+    status: is-ready
+    priority: P2
+    plan: plans/member-workspaces.md

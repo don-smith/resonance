@@ -46,8 +46,8 @@ function createBacklogTools(options: BacklogAgentRuntimeFactoryOptions) {
       name: 'read_plan', description: 'Read one authorized decision and linked Markdown by canonical decision path.', schema: z.object({ path: canonicalPath }),
     }),
     tool(async (input) => mutationResult(options, await options.store.createDecision(input)), {
-      name: 'create_decision', description: 'Create one validated decision and linked Markdown plan. The store owns path validation and atomicity.',
-      schema: z.object({ title: z.string().trim().min(1).max(200), plan: z.string().trim().min(1).max(480), status: z.enum(['recently-done', 'in-progress', 'is-ready', 'in-planning']), priority: z.enum(['P0', 'P1', 'P2', 'P3']), markdown: z.string().max(256 * 1024) }),
+      name: 'create_decision', description: 'Create one validated decision and linked Markdown plan. The store derives the plan path as plans/<kebab-case-title>.md; do not provide or invent a path.',
+      schema: z.object({ title: z.string().trim().min(1).max(200), status: z.enum(['recently-done', 'in-progress', 'is-ready', 'in-planning']), priority: z.enum(['P0', 'P1', 'P2', 'P3']), markdown: z.string().max(256 * 1024) }),
     }),
     tool(async ({ path: requestedPath, markdown }) => mutationResult(options, await options.store.editPlan(requestedPath, markdown)), {
       name: 'edit_plan', description: 'Replace Markdown for one existing authorized decision path.', schema: z.object({ path: canonicalPath, markdown: z.string().max(256 * 1024) }),
@@ -96,16 +96,21 @@ class DeepAgentsRuntime implements BacklogAgentRuntime {
   async dispose() {}
 }
 
-export function createDeepAgentsRuntimeFactory({ model }: { model: 'gpt-4.1' }): BacklogAgentRuntimeFactory {
+export function createDeepAgentsRuntimeFactory({ provider, model }: { provider: 'openai' | 'openrouter'; model: string }): BacklogAgentRuntimeFactory {
   return async (options) => {
     const skill = await readFile(new URL('./skills/manage-backlog/SKILL.md', import.meta.url), 'utf8');
     const agent = createDeepAgent({
-      model: new ChatOpenAI({ model, apiKey: options.apiKey, temperature: 0 }),
+      model: new ChatOpenAI({
+        model,
+        apiKey: options.apiKey,
+        temperature: 0,
+        configuration: provider === 'openrouter' ? { baseURL: 'https://openrouter.ai/api/v1' } : {},
+      }),
       tools: createBacklogTools(options),
       backend: createPackagedSkillBackend(skill),
       skills: ['/skills/'],
       checkpointer: false,
-      systemPrompt: 'You are Resonance Backlog Manager. Read /skills/manage-backlog/SKILL.md before acting. Only package-owned domain tools may access or change Backlog data; generic filesystem tools have no repository authority.',
+      systemPrompt: 'You are Resonance Backlog Agent. Read /skills/manage-backlog/SKILL.md before acting. Only package-owned domain tools may access or change Backlog data; generic filesystem tools have no repository authority.',
     });
     return new DeepAgentsRuntime(agent);
   };

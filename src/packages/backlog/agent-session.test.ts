@@ -36,7 +36,7 @@ test('rehydrates selected decision for sequential prompts in one shared runtime 
   const session = createBacklogAgentSession({ store, credentialProvider: async () => 'sk-local-secret', runtimeFactory: fakeFactory(log) });
   await session.submitPrompt({ prompt: 'Review this.', selectedPath: decision.path }); await assert.rejects(() => session.submitPrompt({ prompt: 'Again.', selectedPath: decision.path }), BacklogAgentBusyError); log.release!(); await new Promise((resolve) => setTimeout(resolve, 0));
   await session.submitPrompt({ prompt: 'Now edit it.', selectedPath: decision.path }); log.release!(); await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(log.created, 1); assert.deepEqual(calls, [decision.path, decision.path]); assert.equal(log.turns[1].selected.markdown, '# Queue'); assert.equal(log.turns[1].messages.filter((message: any) => message.role === 'user').length, 2); assert.doesNotMatch(JSON.stringify(session.snapshot()), /sk-local-secret/);
+  assert.equal(log.created, 1); assert.deepEqual(calls, [decision.path, decision.path]); assert.equal(log.turns[1].selected.markdown, '# Queue'); assert.equal(log.turns[1].messages.filter((message: any) => message.role === 'user').length, 2); assert.equal(session.snapshot().messages.filter((message) => message.role === 'assistant').length, 2); assert.doesNotMatch(JSON.stringify(session.snapshot()), /sk-local-secret/);
 });
 
 test('emits committed revisions, invalidates old confirmations, and ignores stale output after reset', async () => {

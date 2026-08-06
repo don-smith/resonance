@@ -1,5 +1,5 @@
 .backlog-workspace { display: grid; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(280px, 360px); height: 100%; min-height: 0; overflow: hidden; }
-.backlog-list, .backlog-plan, .backlog-manager { min-height: 0; overflow: auto; }
+.backlog-list, .backlog-plan, .backlog-agent { min-height: 0; overflow: auto; }
 .backlog-list { height: 100%; padding: 32px 20px; border-right: 1px solid var(--line); background: var(--paper-deep); }
 .backlog-list h2 { margin: 0 0 24px; font: 400 28px/1 var(--display); letter-spacing: -.03em; }
 .backlog-group { margin: 0 0 20px; }
@@ -9,18 +9,23 @@
 .backlog-item:hover, .backlog-item.active { color: var(--ink); }
 .backlog-item.active { border-left-color: var(--accent); background: var(--accent-soft); }
 .backlog-plan { min-width: 0; overflow-y: auto; }
-.backlog-plan header { display: flex; gap: 14px; padding: 28px 52px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
+.backlog-plan header { position: relative; display: flex; align-items: center; gap: 14px; padding: 28px 52px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
 .backlog-plan header span:first-child { color: var(--accent); }
+.backlog-agent-toggle { position: absolute; top: 50%; right: 52px; width: 28px; height: 28px; padding: 5px; border: 1px solid transparent; background: transparent; color: var(--ink); cursor: pointer; line-height: 1; transform: translateY(-50%); }
+.backlog-agent-toggle svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.backlog-agent-toggle:hover { border-color: var(--accent); }
+.backlog-agent-hidden { grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); }
 .backlog-rule { width: 28px; height: 1px; background: var(--line); }
 .backlog-content { max-width: 900px; margin: 0 auto; padding: 72px 52px; font-size: 18px; line-height: 1.7; }
 .backlog-content h1 { font: 400 clamp(42px, 6vw, 82px)/.98 var(--display); letter-spacing: -.055em; }
 .backlog-content a { color: var(--accent); }
 .backlog-loading, .backlog-empty, .backlog-chat-empty { color: var(--muted); font: 12px var(--mono); }
 .backlog-error, .backlog-chat-error { color: #a94325; font: 12px/1.5 var(--mono); }
-.backlog-manager { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--paper-deep); }
-.backlog-manager-header { display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: 24px 20px 16px; border-bottom: 1px solid var(--line); }
-.backlog-manager-header .eyebrow { margin: 0; }
-.backlog-status { margin: 8px 0 0; color: var(--muted); font: 11px var(--mono); }
+.backlog-agent { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--paper-deep); }
+.backlog-agent[hidden] { display: none !important; }
+.backlog-agent-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 28px 20px 20px; border-bottom: 1px solid var(--line); }
+.backlog-agent-header .eyebrow { margin: 0; }
+.backlog-status { margin: 0; color: var(--muted); font: 11px var(--mono); }
 .backlog-status[data-status="working"] { color: var(--accent); }
 .backlog-status[data-status="error"] { color: #a94325; }
 .backlog-transcript { flex: 1; min-height: 180px; overflow: auto; padding: 20px; }
@@ -28,30 +33,34 @@
 .backlog-message strong { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
 .backlog-message-user { color: var(--ink); }
 .backlog-message-assistant { color: var(--ink-soft, var(--ink)); }
-.backlog-agent-state { display: flex; justify-content: space-between; padding: 0 20px 10px; color: var(--muted); font: 10px var(--mono); }
+.backlog-agent-state { display: flex; justify-content: flex-end; padding: 0 20px 10px; color: var(--muted); font: 10px var(--mono); }
 .backlog-credential, .backlog-confirmation { margin: 0 20px 12px; padding: 14px; border: 1px solid var(--line); background: var(--paper); font: 11px/1.5 var(--mono); }
 .backlog-credential p, .backlog-confirmation p { margin: 0 0 10px; }
 .backlog-credential form { display: flex; gap: 6px; }
 .backlog-credential input { min-width: 0; flex: 1; }
 .backlog-composer { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 20px; border-top: 1px solid var(--line); }
 .backlog-composer textarea { width: 100%; min-height: 72px; resize: vertical; box-sizing: border-box; border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 10px; font: 12px/1.5 var(--mono); }
-.backlog-composer button, .backlog-manager button { align-self: end; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 8px 12px; cursor: pointer; font: 10px var(--mono); }
-.backlog-manager button:disabled { cursor: not-allowed; opacity: .45; }
+.backlog-composer button, .backlog-agent button { border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 8px 12px; cursor: pointer; font: 10px var(--mono); }
+.backlog-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.backlog-agent button:disabled { cursor: not-allowed; opacity: .45; }
 .backlog-reset, .backlog-retry { border: 1px solid var(--line) !important; background: transparent !important; color: var(--ink) !important; }
 .backlog-confirm-delete { align-self: start !important; background: #a94325 !important; border-color: #a94325 !important; }
 
 @media (max-width: 1100px) {
   .backlog-workspace { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr) minmax(250px, 300px); }
+  .backlog-workspace.backlog-agent-hidden { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); }
   .backlog-plan header, .backlog-content { padding-left: 32px; padding-right: 32px; }
+  .backlog-agent-toggle { right: 32px; }
 }
 @media (max-width: 820px) {
   .backlog-workspace { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr); overflow: auto; }
-  .backlog-manager { grid-column: 1 / -1; min-height: 360px; border-top: 1px solid var(--line); border-left: 0; }
+  .backlog-agent { grid-column: 1 / -1; min-height: 360px; border-top: 1px solid var(--line); border-left: 0; }
 }
 @media (max-width: 620px) {
   .backlog-workspace { display: block; height: auto; overflow: visible; }
-  .backlog-list, .backlog-plan, .backlog-manager { height: auto; overflow: visible; }
+  .backlog-list, .backlog-plan, .backlog-agent { height: auto; overflow: visible; }
   .backlog-list { border-right: 0; border-bottom: 1px solid var(--line); }
   .backlog-plan header, .backlog-content { padding-left: 20px; padding-right: 20px; }
-  .backlog-manager { min-height: 420px; }
+  .backlog-agent-toggle { right: 20px; }
+  .backlog-agent { min-height: 420px; }
 }

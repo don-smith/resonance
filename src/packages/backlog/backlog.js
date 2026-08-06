@@ -11,6 +11,9 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
   let list;
   let content;
   let pathLabel;
+  let workspace;
+  let agentPanel;
+  let agentToggle;
   let transcript;
   let statusLabel;
   let promptInput;
@@ -30,8 +33,18 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
   let pendingPrompt = null;
   let lastPrompt = null;
   let pendingConfirmation = null;
+  let agentVisible = true;
   let chatState = { messages: [], status: 'idle', error: null, pendingDeletion: null };
 
+  function setAgentVisible(show) {
+    agentVisible = show;
+    agentPanel.hidden = !show;
+    workspace.classList.toggle('backlog-agent-hidden', !show);
+    agentToggle.setAttribute('aria-expanded', String(show));
+    const label = show ? 'Hide agent panel' : 'Show agent panel';
+    agentToggle.setAttribute('aria-label', label);
+    agentToggle.title = label;
+  }
   function showError(error) {
     content.innerHTML = '<p class="backlog-error"></p>';
     content.querySelector('.backlog-error').textContent = error?.message || String(error);
@@ -44,7 +57,7 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
     list.innerHTML = groups || '<p class="backlog-empty">No decisions found.</p>';
   }
   function renderTranscript() {
-    transcript.innerHTML = chatState.messages.map((message) => `<p class="backlog-message backlog-message-${message.role}"><strong>${message.role === 'user' ? 'You' : 'Manager'}</strong><span>${escapeHtml(message.content)}</span></p>`).join('') || '<p class="backlog-chat-empty">Ask about the selected decision.</p>';
+    transcript.innerHTML = chatState.messages.map((message) => `<p class="backlog-message backlog-message-${message.role}"><strong>${message.role === 'user' ? 'You' : 'Agent'}</strong><span>${escapeHtml(message.content)}</span></p>`).join('') || '<p class="backlog-chat-empty">Ask about the selected decision.</p>';
     transcript.scrollTop = transcript.scrollHeight;
     const working = chatState.status === 'working';
     statusLabel.textContent = working ? 'Working…' : chatState.error ? 'Needs attention' : 'Ready';
@@ -69,8 +82,17 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
     pendingConfirmation = null;
     confirmationPanel.hidden = true;
   }
-  function applySnapshot(snapshot) {
-    chatState = { messages: snapshot.messages || [], status: snapshot.status || 'idle', error: snapshot.error || null, pendingDeletion: snapshot.pendingDeletion || null };
+  function applySnapshot(snapshot, replaceMessages = false) {
+    const incoming = Array.isArray(snapshot.messages) ? snapshot.messages : [];
+    const messages = replaceMessages ? incoming : [...chatState.messages];
+    if (!replaceMessages) {
+      for (const message of incoming) {
+        const index = messages.findIndex((item) => item.id === message.id);
+        if (index < 0) messages.push(message);
+        else messages[index] = message;
+      }
+    }
+    chatState = { messages, status: snapshot.status || 'idle', error: snapshot.error || null, pendingDeletion: snapshot.pendingDeletion || null };
     if (!chatState.pendingDeletion) hideConfirmation();
     renderTranscript();
   }
@@ -181,7 +203,7 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
     lastPrompt = null;
     retryButton.hidden = true;
     promptInput.value = '';
-    applySnapshot((await response.json()).state);
+    applySnapshot((await response.json()).state, true);
     hideConfirmation();
     showCredential(false);
   }
@@ -189,14 +211,16 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
   return {
     mount(mountRoot) {
       root = mountRoot;
-      root.innerHTML = '<section class="backlog-workspace" aria-label="Backlog"><aside class="backlog-list"><p class="eyebrow">BACKLOG / DECISIONS</p><h2>Decisions</h2><nav class="backlog-items" aria-label="Decisions"></nav></aside><article class="backlog-plan"><header><span>PLAN</span><span class="backlog-rule" aria-hidden="true"></span><span class="backlog-path">backlog</span></header><div class="backlog-content" aria-live="polite"></div></article><aside class="backlog-manager" aria-label="Backlog manager"><header class="backlog-manager-header"><div><span class="eyebrow">MANAGER / CHAT</span><p class="backlog-status" data-status="idle">Ready</p></div><button type="button" class="backlog-reset">New Chat</button></header><div class="backlog-transcript" aria-live="polite"></div><div class="backlog-agent-state"><span class="backlog-agent-status">Ready</span><button type="button" class="backlog-retry" hidden>Retry</button></div><div class="backlog-credential" hidden><p>Enter a local OpenAI key to start the manager.</p><form><input type="password" autocomplete="off" aria-label="OpenAI API key"><button type="submit">Save key</button></form></div><div class="backlog-confirmation" hidden><p class="backlog-confirmation-title"></p><button type="button" class="backlog-confirm-delete">Confirm deletion</button></div><form class="backlog-composer"><textarea rows="3" aria-label="Message" placeholder="Ask about this decision…"></textarea><button type="submit">Send</button></form></aside></section>';
-      list = root.querySelector('.backlog-items'); content = root.querySelector('.backlog-content'); pathLabel = root.querySelector('.backlog-path'); transcript = root.querySelector('.backlog-transcript'); statusLabel = root.querySelector('.backlog-status'); promptInput = root.querySelector('.backlog-composer textarea'); sendButton = root.querySelector('.backlog-composer button'); credentialPanel = root.querySelector('.backlog-credential'); credentialForm = credentialPanel.querySelector('form'); credentialInput = credentialPanel.querySelector('input'); retryButton = root.querySelector('.backlog-retry'); confirmationPanel = root.querySelector('.backlog-confirmation'); confirmButton = root.querySelector('.backlog-confirm-delete');
+      root.innerHTML = '<section class="backlog-workspace" aria-label="Backlog"><aside class="backlog-list"><p class="eyebrow">BACKLOG / DECISIONS</p><h2>Decisions</h2><nav class="backlog-items" aria-label="Decisions"></nav></aside><article class="backlog-plan"><header><span>PLAN</span><span class="backlog-rule" aria-hidden="true"></span><span class="backlog-path">backlog</span><button type="button" class="backlog-agent-toggle" aria-controls="backlog-agent-panel" aria-expanded="true" aria-label="Hide agent panel" title="Hide agent panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"></path></svg></button></header><div class="backlog-content" aria-live="polite"></div></article><aside id="backlog-agent-panel" class="backlog-agent" aria-label="Backlog agent"><header class="backlog-agent-header"><span class="eyebrow">AGENT / CHAT</span><p class="backlog-status" data-status="idle">Ready</p></header><div class="backlog-transcript" aria-live="polite"></div><div class="backlog-agent-state"><button type="button" class="backlog-retry" hidden>Retry</button></div><div class="backlog-credential" hidden><p>Enter a local provider API key to start the agent.</p><form><input type="password" autocomplete="off" aria-label="Provider API key"><button type="submit">Save key</button></form></div><div class="backlog-confirmation" hidden><p class="backlog-confirmation-title"></p><button type="button" class="backlog-confirm-delete">Confirm deletion</button></div><form class="backlog-composer"><textarea rows="3" aria-label="Message" placeholder="Ask about this decision…"></textarea><div class="backlog-composer-actions"><button type="button" class="backlog-reset">New Chat</button><button type="submit">Send</button></div></form></aside></section>';
+      workspace = root.querySelector('.backlog-workspace'); list = root.querySelector('.backlog-items'); content = root.querySelector('.backlog-content'); pathLabel = root.querySelector('.backlog-path'); agentPanel = root.querySelector('.backlog-agent'); agentToggle = root.querySelector('.backlog-agent-toggle'); transcript = root.querySelector('.backlog-transcript'); statusLabel = root.querySelector('.backlog-status'); promptInput = root.querySelector('.backlog-composer textarea'); sendButton = root.querySelector('.backlog-composer button[type="submit"]'); credentialPanel = root.querySelector('.backlog-credential'); credentialForm = credentialPanel.querySelector('form'); credentialInput = credentialPanel.querySelector('input'); retryButton = root.querySelector('.backlog-retry'); confirmationPanel = root.querySelector('.backlog-confirmation'); confirmButton = root.querySelector('.backlog-confirm-delete');
+      setAgentVisible(agentVisible);
       list.addEventListener('click', async (event) => { const button = event.target.closest('[data-path]'); if (!button || !list.contains(button)) return; try { await showPlan(button.dataset.path); } catch (error) { showError(error); } });
       root.querySelector('.backlog-composer').addEventListener('submit', (event) => { event.preventDefault(); void submitPrompt().catch(showError); });
       credentialForm.addEventListener('submit', (event) => { void saveCredential(event).catch(showError); });
       retryButton.addEventListener('click', () => { if (lastPrompt) void submitPrompt(lastPrompt).catch(showError); });
       confirmButton.addEventListener('click', () => { void confirmDeletion().catch(showError); });
       root.querySelector('.backlog-reset').addEventListener('click', () => { void reset().catch(showError); });
+      agentToggle.addEventListener('click', () => setAgentVisible(!agentVisible));
       promptInput.addEventListener('input', renderTranscript);
       renderItems(); renderTranscript();
     },

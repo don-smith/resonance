@@ -9,7 +9,7 @@ export type BacklogStatus = typeof backlogStatuses[number];
 export type BacklogPriority = typeof backlogPriorities[number];
 export type BacklogDecisionSummary = { path: string; title: string; status: BacklogStatus; priority: BacklogPriority };
 export type BacklogDecision = BacklogDecisionSummary & { markdown: string };
-export type BacklogCreateInput = { title: string; plan: string; status: BacklogStatus; priority: BacklogPriority; markdown: string };
+export type BacklogCreateInput = { title: string; status: BacklogStatus; priority: BacklogPriority; markdown: string };
 export type BacklogMutation = { affectedPaths: string[] };
 export type BacklogStore = {
   listDecisions(): Promise<BacklogDecisionSummary[]>;
@@ -27,7 +27,12 @@ const decisionSchema = z.object({
   status: z.enum(backlogStatuses),
   priority: z.enum(backlogPriorities),
 }).strict();
-const createSchema = decisionSchema.extend({ markdown: z.string().max(256 * 1024) });
+const createSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  status: z.enum(backlogStatuses),
+  priority: z.enum(backlogPriorities),
+  markdown: z.string().max(256 * 1024),
+}).strict();
 const backlogSchema = z.object({ version: z.literal(1), decisions: z.array(decisionSchema).superRefine((decisions, context) => {
   const seen = new Set<string>();
   decisions.forEach((decision, index) => {
@@ -61,6 +66,12 @@ const isMissing = (error: unknown) => Boolean(error && typeof error === 'object'
 const within = (root: string, candidate: string) => candidate === root || candidate.startsWith(`${root}${path.sep}`);
 const canonicalPlan = (plan: string) => path.posix.join('backlog', plan);
 const isBacklogPath = (relativePath: string) => relativePath === 'backlog' || relativePath.startsWith('backlog/');
+
+export function planForTitle(title: string): string {
+  const slug = title.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!slug) throw new BacklogStoreError('Decision title must contain at least one letter or number.');
+  return `plans/${slug}.md`;
+}
 
 export function parseBacklogItems(source: string): ParsedDecision[] {
   let document;
@@ -158,8 +169,8 @@ export function createBacklogStore({ repositoryRoot, fileSystem: overrides = {} 
   const requireCreate = (input: BacklogCreateInput) => {
     const parsed = createSchema.safeParse(input);
     if (!parsed.success) throw new BacklogStoreError(`Backlog decision is invalid: ${parsed.error.issues[0].message}`);
-    if (parsed.data.plan.split('/').includes('..') || canonicalPlan(parsed.data.plan) === 'backlog') throw new BacklogStoreError('Plan must stay inside backlog.');
-    const { markdown, ...decision } = parsed.data;
+    const { markdown, ...fields } = parsed.data;
+    const decision = { ...fields, plan: planForTitle(fields.title) };
     return { decision, markdown };
   };
   return {

@@ -4,16 +4,23 @@ export function createShell({ documentRoot = document, navigation, mount }) {
   let activeId = null;
 
   function renderNavigation(items) {
-    navigation.querySelectorAll('[data-package]').forEach((button) => button.remove());
-    items.forEach((item, index) => {
-      const button = documentRoot.createElement('button');
-      button.className = 'primary-nav-item';
-      button.type = 'button';
-      button.dataset.package = item.id;
-      button.innerHTML = `<span class="nav-index">${String(index + 1).padStart(2, '0')}</span><span></span>`;
-      button.lastElementChild.textContent = item.label;
-      navigation.append(button);
-    });
+    navigation.querySelectorAll('[data-package], [data-package-section]').forEach((element) => element.remove());
+    const team = items.filter((item) => item.scope !== 'member');
+    const personal = items.filter((item) => item.scope === 'member');
+    let index = 0;
+    const renderSection = (label, section) => {
+      if (!section.length) return;
+      const heading = documentRoot.createElement('p');
+      heading.className = 'nav-section-label'; heading.dataset.packageSection = label.toLowerCase(); heading.textContent = label;
+      navigation.append(heading);
+      section.forEach((item) => {
+        const button = documentRoot.createElement('button');
+        button.className = 'primary-nav-item'; button.type = 'button'; button.dataset.package = item.id;
+        button.innerHTML = `<span class="nav-index">${String(++index).padStart(2, '0')}</span><span></span>`;
+        button.lastElementChild.textContent = item.label; navigation.append(button);
+      });
+    };
+    renderSection('Team', team); renderSection('Personal', personal);
   }
 
   function setActive(id) {

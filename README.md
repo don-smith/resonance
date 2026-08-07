@@ -9,9 +9,8 @@ Resonance is composed from package folders under `src/packages/<package-id>`:
 - **Shell** owns navigation, workspace mounts, the fixed browser bootstrap, and shared layout.
 - **Home** renders the configured repository landing source (`README.md` by default, or repository-owned Markdown/HTML).
 - **Docs** owns Markdown discovery, tree navigation, and document rendering.
-- **Pi Agent** owns one developer-specific server-side Pi ACP session, prompt submission, incremental activity events, and local recovery controls.
 
-A **package** is Resonance's general extensibility and implementation unit. A **workspace** is a user-visible surface mounted and navigated by Shell. Home, Docs, Backlog, and Pi Agent are packages that provide workspaces; Shell is infrastructure and is not a workspace. Package terminology remains authoritative for source folders, manifest entries, package IDs, routes, assets, contracts, and the authoring CLI.
+A **package** is Resonance's general extensibility and implementation unit. A **workspace** is a user-visible surface mounted and navigated by Shell. Home, Docs, and Backlog are packages that provide workspaces; Shell is infrastructure and is not a workspace. Member packages are external packages selected per developer. Package terminology remains authoritative for source folders, manifest entries, package IDs, routes, assets, contracts, and the authoring CLI.
 
 ## Try it
 
@@ -29,7 +28,7 @@ cd /path/to/another/repository
 resonate
 ```
 
-The command reads `.resonance/config.json` from the current repository. If it is absent, Resonance reports that the repository is not installed and asks whether to install it. Approval runs the same setup as `resonate install`: Shell is always installed, while Home and Docs can be selected interactively. Existing config files are authoritative: omitted packages are not imported or registered. Pi Agent is never added by installation and remains an explicit opt-in entry requiring an installed `pi` executable plus configured model credentials. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
+The command reads `.resonance/config.json` from the current repository. If it is absent, Resonance reports that the repository is not installed and asks whether to install it. Approval runs the same setup as `resonate install`: Shell is always installed, while Home and Docs can be selected interactively. Existing config files are authoritative: omitted packages are not imported or registered. Member packages are never added by team installation. Select them from an external member repository with `resonate member install /path/to/member-packages`; the ignored `.resonance/member-config.json` selects them for the current repository. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
 
 ## Repository configuration
 
@@ -46,12 +45,35 @@ Use `resonate install` to create `.resonance/config.json`. Each package entry ex
       "extensions": [".md", ".markdown"],
       "ignoredDirectories": [".git", "node_modules"]
     },
-    "pi-agent": { "module": "src/packages/pi-agent/index.ts" }
+    "backlog": { "module": "src/packages/backlog/index.ts" }
   }
 }
 ```
 
-Set `enabled` to `false` to omit an optional package. Shell is required because it owns `/` and the browser bootstrap. Invalid optional module entries are skipped with a warning; an invalid Shell module prevents startup. A stale legacy manifest is not read or migrated.
+Member packages use a separate external manifest, for example `member-packages.json`:
+
+```json
+{
+  "version": 1,
+  "packages": {
+    "personal-tools": { "module": "src/packages/personal-tools/index.ts" }
+  }
+}
+```
+
+Create a self-contained member-package repository with:
+
+```sh
+resonate member init ~/resonance-member-packages
+cd ~/resonance-member-packages
+resonate member package create personal-tools
+cd /path/to/viewed-repository
+resonate member install ~/resonance-member-packages
+```
+
+The initializer creates the manifest, Bun package metadata, local package contract, Git repository, and a copy of the package-authoring skill.
+
+Set `enabled` to `false` to omit an optional team package. Shell is required because it owns `/` and the browser bootstrap. Invalid optional module entries are skipped with a warning; an invalid Shell module prevents startup. A stale legacy manifest is not read or migrated. Team packages load before member packages and win conflicts.
 
 ### Create a custom Home page
 
@@ -66,13 +88,13 @@ Add a repository-owned HTML fragment such as `.resonance/home.html`, scope its s
 }
 ```
 
-Home accepts relative `.md`, `.markdown`, `.html`, and `.htm` sources. Markdown is rendered safely; HTML is trusted repository-owned markup inserted unchanged. Package responsibilities are documented in `src/packages/shell/README.md`, `src/packages/home/README.md`, `src/packages/docs/README.md`, and `src/packages/pi-agent/README.md`.
+Home accepts relative `.md`, `.markdown`, `.html`, and `.htm` sources. Markdown is rendered safely; HTML is trusted repository-owned markup inserted unchanged. Package responsibilities are documented in `src/packages/shell/README.md`, `src/packages/home/README.md`, and `src/packages/docs/README.md`.
 
-Package routes are canonical under `/api/<package-id>/...`; Docs uses `/api/docs/tree` and `/api/docs/document`, while Pi Agent uses `POST /api/pi-agent/prompt`, `GET /api/pi-agent/events`, `GET /api/pi-agent/state`, and `POST /api/pi-agent/reset`. Package assets retain `/assets/<package-id>/...` public URLs while their physical files resolve from the application root; packages conventionally keep those files in their own folders.
+Package routes are canonical under `/api/<package-id>/...`; Docs uses `/api/docs/tree` and `/api/docs/document`. Package assets retain `/assets/<package-id>/...` public URLs while their physical files resolve from the owning team or member repository. Shell presents team navigation before personal member navigation.
 
 ## Develop resonance
 
-Pi Agent uses the `pi-acp@0.0.33` adapter and the ACP SDK; Resonance starts that adapter from the launch repository and does not use `npx` or `bunx`. The external Pi runtime remains a local prerequisite. Prompts are streamed over Server-Sent Events, and the in-memory transcript remains available while navigating between Pi Agent and Docs. Package routes use the package contract's request/response capabilities for JSON bodies and SSE rather than importing Node HTTP objects.
+Member packages run from their live external checkout and use the same package contract as team packages. Package routes use the package contract's request/response capabilities for JSON bodies and SSE rather than importing Node HTTP objects.
 
 ```sh
 bun install

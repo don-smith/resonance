@@ -4,8 +4,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultRepositoryConfig, loadRepositoryConfig } from './config.ts';
-import { createHost, routeKey, type HostRegistry } from './host.ts';
+import { createHost, routeKey, type HostRegistry, type PackageDiagnostic } from './host.ts';
 import { loadConfiguredPackages } from './packages/index.ts';
+import { loadMemberConfig } from './member.ts';
 import type { HttpMethod } from './package-contract.ts';
 import { createHostRequest, createHostResponse } from './http.ts';
 
@@ -27,7 +28,9 @@ export async function createApp({ root = process.cwd(), appRoot = projectRoot, c
   let resolvedRegistry = registry;
   if (!resolvedRegistry) {
     const resolvedConfig = config || await loadRepositoryConfig(root);
-    resolvedRegistry = createHost({ root, appRoot, config: resolvedConfig, packages: await loadConfiguredPackages({ config: resolvedConfig, appRoot }) });
+    const diagnostics: PackageDiagnostic[] = [];
+    const memberConfig = await loadMemberConfig(root).catch((error) => { const message = error instanceof Error ? error.message : String(error); diagnostics.push({ scope: 'member', id: 'member-config', status: 'failed', message }); console.warn(`Skipping member packages: ${message}`); return null; });
+    resolvedRegistry = createHost({ root, appRoot, config: resolvedConfig, memberConfig: memberConfig || undefined, diagnostics, packages: await loadConfiguredPackages({ config: resolvedConfig, memberConfig: memberConfig || undefined, appRoot, repositoryRoot: root, diagnostics }) });
   }
   const assetsRoot = resolvedRegistry.context.appRoot;
   const server = http.createServer(async (request, response) => {
@@ -43,7 +46,7 @@ export async function createApp({ root = process.cwd(), appRoot = projectRoot, c
       const methods = registeredMethods(resolvedRegistry, requestUrl.pathname);
       if (method !== 'GET' || methods.length > 0) { rejectMethod(response, allowFor(resolvedRegistry, requestUrl.pathname)); return; }
       const asset = resolvedRegistry.assets[requestUrl.pathname];
-      if (asset) { await serveFile(response, path.join(assetsRoot, asset.file), asset.contentType); return; }
+      if (asset) { await serveFile(response, path.join(asset.root || assetsRoot, asset.file), asset.contentType); return; }
       response.writeHead(404); response.end('Not found');
     } catch (error) {
       console.error(error);
@@ -59,7 +62,9 @@ export async function startServer({ root = process.cwd(), appRoot = projectRoot,
   let resolvedRegistry = registry;
   if (!resolvedRegistry) {
     const resolvedConfig = config || await loadRepositoryConfig(root);
-    resolvedRegistry = createHost({ root, appRoot, config: resolvedConfig, packages: await loadConfiguredPackages({ config: resolvedConfig, appRoot }) });
+    const diagnostics: PackageDiagnostic[] = [];
+    const memberConfig = await loadMemberConfig(root).catch((error) => { const message = error instanceof Error ? error.message : String(error); diagnostics.push({ scope: 'member', id: 'member-config', status: 'failed', message }); console.warn(`Skipping member packages: ${message}`); return null; });
+    resolvedRegistry = createHost({ root, appRoot, config: resolvedConfig, memberConfig: memberConfig || undefined, diagnostics, packages: await loadConfiguredPackages({ config: resolvedConfig, memberConfig: memberConfig || undefined, appRoot, repositoryRoot: root, diagnostics }) });
   }
   const attempts = port === 0 ? 1 : maxPortAttempts;
   for (let attempt = 0; attempt < attempts; attempt += 1) {

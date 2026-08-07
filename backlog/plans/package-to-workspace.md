@@ -8,7 +8,7 @@ Keep **package** and **workspace** as distinct concepts.
 
 A Resonance package is the general extensibility and implementation unit. A workspace is a user-visible surface mounted and navigated by Shell. A package may provide a workspace, but packages may also provide infrastructure or future non-UI capabilities. Shell is a required infrastructure package, not a workspace.
 
-Home, Docs, Backlog, and Pi Agent are packages that currently provide user-visible workspaces. This relationship remains descriptive for now; workspace metadata, separate workspace identifiers, and team/member workspace configuration are deferred to the Member workspaces decision.
+Home, Docs, and Backlog are packages that currently provide user-visible workspaces. External member packages may also provide workspaces. This relationship remains descriptive for now; workspace metadata and separate workspace identifiers remain deferred.
 
 ## Scope
 

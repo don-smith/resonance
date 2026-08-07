@@ -18,6 +18,13 @@ export async function startApplication({ documentRoot = document, fetchFn = fetc
   if (!navigation || !mount) throw new Error('Shell mount is missing.');
 
   const shell = createShell({ documentRoot, navigation, mount });
+  for (const diagnostic of manifest.diagnostics || []) {
+    const notice = documentRoot.createElement('p');
+    notice.className = 'shell-diagnostic'; notice.dataset.packageDiagnostic = diagnostic.id;
+    notice.textContent = `${diagnostic.id}: ${diagnostic.message}`;
+    navigation.append(notice);
+    console.warn(`Member package ${diagnostic.id}: ${diagnostic.message}`);
+  }
   const packages = new Map();
   for (const packageInfo of manifest.packages) {
     if (packageInfo.id === 'shell') continue;

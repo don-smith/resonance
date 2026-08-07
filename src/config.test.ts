@@ -17,7 +17,6 @@ test('builds install config with Shell and selected optional packages only', asy
   assert.deepEqual(Object.keys(config.packages), ['shell', 'home']);
   assert.equal(config.packages.home.source, 'README.md');
   assert.equal(config.packages.docs, undefined);
-  assert.equal(config.packages['pi-agent'], undefined);
   await writeRepositoryConfig(root, config);
   assert.deepEqual(JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')), config);
   assert.deepEqual(await loadRepositoryConfig(root), config);
@@ -36,7 +35,6 @@ test('loads package selections from .resonance/config.json', async () => {
   assert.equal(config.packages.home.source, 'docs/index.md');
   assert.deepEqual(config.packages.docs.extensions, ['.markdown']);
   assert.deepEqual(Object.keys(config.packages), ['shell', 'home', 'docs']);
-  assert.equal(config.packages['pi-agent'], undefined);
 });
 
 test('does not read or create a config from the legacy manifest', async () => {

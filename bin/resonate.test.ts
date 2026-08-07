@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { Writable } from 'node:stream';
-import { askToInstall, parseArgs, run, runFocusedPackageTest, selectOptionalPackages } from './resonate';
+import { askToInstall, parseArgs, run, runFocusedPackageTest, selectMemberPackages, selectOptionalPackages } from './resonate';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
@@ -37,11 +37,11 @@ test('first-run approval installs selected packages before starting', async () =
   const config = JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')); assert.deepEqual(Object.keys(config.packages), ['shell', 'home']); assert.equal(config.packages.home.source, 'README.md');
 });
 
-test('install subcommand creates Shell and selected optional packages without Pi Agent', async () => {
+test('install subcommand creates Shell and selected optional packages only', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'resonance-cli-')); let started = false;
   const result = await run(['install'], { root, selectPackagesFn: async () => ({ home: false, docs: true }), startServerFn: async () => { started = true; return null; }, log: () => {} });
   assert.equal(result, null); assert.equal(started, false);
-  const config = JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')); assert.deepEqual(Object.keys(config.packages), ['shell', 'docs']); assert.deepEqual(config.packages.docs.ignoredDirectories, ['.git', 'node_modules']); assert.equal(config.packages['pi-agent'], undefined);
+  const config = JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')); assert.deepEqual(Object.keys(config.packages), ['shell', 'docs']); assert.deepEqual(config.packages.docs.ignoredDirectories, ['.git', 'node_modules']);
 });
 
 test('install subcommand preserves an existing repository configuration', async () => {
@@ -49,6 +49,53 @@ test('install subcommand preserves an existing repository configuration', async 
   await run(['install'], { root, selectPackagesFn: async () => ({ home: true, docs: false }), log: () => {} });
   await run(['install'], { root, selectPackagesFn: async () => { throw new Error('must not prompt'); }, log: () => {} });
   const config = JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')); assert.deepEqual(Object.keys(config.packages), ['shell', 'home']);
+});
+
+test('member install records the external source and narrow ignored state paths', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-member-cli-')); const source = await mkdtemp(path.join(tmpdir(), 'resonance-member-source-'));
+  try {
+    await writeFile(path.join(source, 'member-packages.json'), JSON.stringify({ version: 1, packages: { personal: { module: 'src/packages/personal/index.ts' } } }));
+    await run(['member', 'install', source], { root, selectMemberPackagesFn: async ({ manifest }) => { assert.ok(manifest.packages.personal); return { personal: {} }; }, log: () => {} });
+    const config = JSON.parse(await readFile(path.join(root, '.resonance/member-config.json'), 'utf8'));
+    assert.equal(config.source, await realpath(source)); assert.deepEqual(config.packages, { personal: {} });
+    assert.match(await readFile(path.join(root, '.gitignore'), 'utf8'), /\.resonance\/member-config\.json/); assert.match(await readFile(path.join(root, '.gitignore'), 'utf8'), /\.resonance\/member-state\//);
+    assert.deepEqual(parseArgs(['member', 'install', source]), { command: 'member-install', packageId: null, memberSource: source, port: 4317, host: '127.0.0.1' });
+  } finally { await rm(root, { recursive: true, force: true }); await rm(source, { recursive: true, force: true }); }
+});
+
+test('member init and member package create dispatch without viewed-repository startup', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-member-cli-')); const target = path.join(root, 'member-packages'); const logs = [];
+  try {
+    let initialized = false;
+    await run(['member', 'init', target], {
+      root, log: (message) => logs.push(message),
+      planMemberRepositoryFn: ({ directory }) => ({ directory, files: [path.join(directory, 'member-packages.json')] }),
+      createMemberRepositoryFn: async ({ directory }) => { initialized = directory === target; return { directory, files: [] }; },
+      isInstalledFn: async () => { throw new Error('must not inspect viewed repository installation'); },
+    });
+    assert.equal(initialized, true);
+    let created = false;
+    await run(['member', 'package', 'create', 'personal-tools'], {
+      root, log: () => {},
+      planMemberPackageScaffoldFn: ({ memberRoot, id }) => ({ id, files: [path.join(memberRoot, 'src/packages', id, 'index.ts')], testFile: path.join(memberRoot, 'src/packages', id, `${id}.test.ts`) }),
+      createMemberPackageScaffoldFn: async ({ memberRoot, id, verify }) => { created = memberRoot === root && id === 'personal-tools'; await verify({ testFile: path.join(root, 'member.test.ts') }); return { id, manifestSnippet: '"personal-tools": {}' }; },
+      runFocusedTestFn: async (plan, { appRoot }) => { assert.equal(plan.testFile, path.join(root, 'member.test.ts')); assert.equal(appRoot, root); },
+      isInstalledFn: async () => { throw new Error('must not inspect viewed repository installation'); },
+    });
+    assert.equal(created, true);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('interactive member package selection completes on Enter and cancels on control keys', async () => {
+  const manifest = { version: 1, packages: { personal: { module: 'src/packages/personal/index.ts' } } };
+  const input = new EventEmitter(); input.isTTY = true; input.rawMode = false; input.setRawMode = (value) => { input.rawMode = value; }; const output = new Writable({ write(_chunk, _encoding, callback) { callback(); } }); output.isTTY = true;
+  const selection = selectMemberPackages({ manifest, input, output }); input.emit('data', ' \r');
+  assert.deepEqual(await selection, { personal: {} }); assert.equal(input.rawMode, false);
+  for (const key of ['\x03', '\x04']) {
+    const cancelInput = new EventEmitter(); cancelInput.isTTY = true; cancelInput.rawMode = false; cancelInput.setRawMode = (value) => { cancelInput.rawMode = value; }; const cancelOutput = new Writable({ write(_chunk, _encoding, callback) { callback(); } }); cancelOutput.isTTY = true;
+    const cancelled = selectMemberPackages({ manifest, input: cancelInput, output: cancelOutput }); cancelInput.emit('data', key);
+    assert.equal(await cancelled, null); assert.equal(cancelInput.rawMode, false);
+  }
 });
 
 test('non-interactive package selection accepts Home and Docs answers', async () => {

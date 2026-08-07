@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import process from 'node:process';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface, clearLine, cursorTo, moveCursor } from 'node:readline';
@@ -8,6 +9,8 @@ import { openBrowser } from '../src/browser.ts';
 import { createRepositoryConfig, loadRepositoryConfig, repositoryConfigExists, writeRepositoryConfig } from '../src/config.ts';
 import { startServer } from '../src/server.ts';
 import { createPackageScaffold, planPackageScaffold } from '../src/package-scaffold.ts';
+import { loadMemberManifest, resolveMemberRepository, writeMemberConfig } from '../src/member.ts';
+import { createMemberPackageScaffold, createMemberRepository, planMemberPackageScaffold, planMemberRepository } from '../src/member-scaffold.ts';
 
 const applicationRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -18,10 +21,16 @@ Usage:
   resonate [options]
   resonate install
   resonate package create <id>
+  resonate member init <folder>
+  resonate member install <member-repository>
+  resonate member package create <id>
 
 Commands:
   install              Set up Resonance in the current repository
   package create <id>  Create a package starter below the Resonance application root
+  member init <folder>    Bootstrap a member-package repository
+  member install <path>   Register and select packages from an external member repository
+  member package create <id> Create a package in the current member repository
 
 Options:
   --port <number>  Port to listen on (default: 4317)
@@ -38,6 +47,17 @@ export function parseArgs(argumentsList) {
     if (argumentsList[1] !== 'create') throw new Error(`Unknown package command: ${argumentsList[1] || '(missing)'}`);
     if (!argumentsList[2] || argumentsList[2].startsWith('--')) throw new Error('Package create requires an <id>.');
     options.command = 'package-create'; options.packageId = argumentsList[2]; index = 3;
+  } else if (argumentsList[0] === 'member') {
+    if (argumentsList[1] === 'init') {
+      if (!argumentsList[2] || argumentsList[2].startsWith('--')) throw new Error('Member init requires a <folder>.');
+      options.command = 'member-init'; options.memberSource = argumentsList[2]; index = 3;
+    } else if (argumentsList[1] === 'install') {
+      if (!argumentsList[2] || argumentsList[2].startsWith('--')) throw new Error('Member install requires a <member-repository>.');
+      options.command = 'member-install'; options.memberSource = argumentsList[2]; index = 3;
+    } else if (argumentsList[1] === 'package' && argumentsList[2] === 'create') {
+      if (!argumentsList[3] || argumentsList[3].startsWith('--')) throw new Error('Member package create requires an <id>.');
+      options.command = 'member-package-create'; options.packageId = argumentsList[3]; index = 4;
+    } else throw new Error(`Unknown member command: ${argumentsList[1] || '(missing)'}`);
   }
   for (; index < argumentsList.length; index += 1) {
     const argument = argumentsList[index];
@@ -60,6 +80,10 @@ export async function runFocusedPackageTest(plan, { appRoot = applicationRoot, s
 function logPackagePlan(plan, appRoot, log) {
   log(`Package files to create for ${plan.id}:`);
   for (const filename of plan.files) log(`  ${path.relative(appRoot, filename)}`);
+}
+function logMemberRepositoryPlan(plan, log) {
+  log(`Member repository files to create in ${plan.directory}:`);
+  for (const filename of plan.files) log(`  ${path.relative(plan.directory, filename)}`);
 }
 
 function askQuestion(prompt, question) {
@@ -87,6 +111,22 @@ export async function askToInstall({ input = process.stdin, output = process.std
 }
 
 const OPTIONAL_PACKAGES = [{ id: 'home', label: 'Home (README.md)' }, { id: 'docs', label: 'Docs' }];
+
+export async function selectMemberPackages({ manifest, input = process.stdin, output = process.stdout } = {}) {
+  const packages = Object.entries(manifest.packages).map(([id, value]) => ({ id, label: value.label || id }));
+  if (!input.isTTY || !output.isTTY || typeof input.setRawMode !== 'function') {
+    const reader = createInputLineReader(input); const selected = {};
+    try { for (const item of packages) { output.write(`Install ${item.label}? [y/N] `); if (/^(y|yes)$/i.test((await reader.next()).trim())) selected[item.id] = {}; } return selected; }
+    finally { reader.close(); }
+  }
+  return new Promise((resolve) => {
+    let cursor = 0; const selected = Object.fromEntries(packages.map((item) => [item.id, false])); let rendered = false; let inputBuffer = '';
+    const render = () => { if (rendered) moveCursor(output, 0, -packages.length); for (const [index, item] of packages.entries()) { cursorTo(output, 0); clearLine(output, 0); output.write(`${index === cursor ? '❯' : ' '} [${selected[item.id] ? 'x' : ' '}] ${item.label}\n`); } rendered = true; };
+    const finish = (cancelled) => { input.setRawMode(false); input.off('data', onData); if (!cancelled) output.write('\n'); resolve(cancelled ? null : Object.fromEntries(Object.entries(selected).filter(([, value]) => value).map(([id]) => [id, {}]))); };
+    const onData = (chunk) => { inputBuffer += String(chunk); while (inputBuffer.length > 0) { if (inputBuffer.startsWith('\x1b[') && inputBuffer.length < 3) return; let action = inputBuffer[0]; if (inputBuffer.startsWith('\x1b[A') || inputBuffer.startsWith('\x1b[D')) { action = 'up'; inputBuffer = inputBuffer.slice(3); } else if (inputBuffer.startsWith('\x1b[B') || inputBuffer.startsWith('\x1b[C')) { action = 'down'; inputBuffer = inputBuffer.slice(3); } else inputBuffer = inputBuffer.slice(1); if (action === '\x03' || action === '\x04' || action === '\x1b') { finish(true); return; } if (action === 'up') cursor = (cursor + packages.length - 1) % packages.length; else if (action === 'down') cursor = (cursor + 1) % packages.length; else if (action === ' ') selected[packages[cursor].id] = !selected[packages[cursor].id]; else if (action === '\r' || action === '\n') { finish(false); return; } else continue; render(); } };
+    output.write('Select member packages (↑/↓ to move, space to select, enter to continue):\n'); input.setRawMode(true); input.on('data', onData); render();
+  });
+}
 
 function checkboxLines(cursor, selected) {
   return OPTIONAL_PACKAGES.map((item, index) => `${index === cursor ? '❯' : ' '} [${selected[item.id] ? 'x' : ' '}] ${item.label}`);
@@ -149,10 +189,44 @@ export async function installRepository(root, { selectPackagesFn = selectOptiona
   return config;
 }
 
-export async function run(argumentsList, { root = process.cwd(), appRoot = applicationRoot, startServerFn = startServer, openBrowserFn = openBrowser, log = console.log, isInstalledFn = repositoryConfigExists, confirmInstallFn = askToInstall, selectPackagesFn = selectOptionalPackages, loadConfigFn = loadRepositoryConfig, planPackageScaffoldFn = planPackageScaffold, createPackageScaffoldFn = createPackageScaffold, runFocusedTestFn = runFocusedPackageTest } = {}) {
+async function addMemberGitignore(root) {
+  const filename = path.join(root, '.gitignore');
+  let current = '';
+  try { current = await readFile(filename, 'utf8'); } catch (error) { if (error?.code !== 'ENOENT') throw error; }
+  const entries = ['.resonance/member-config.json', '.resonance/member-state/'];
+  const lines = current.split(/\\r?\\n/);
+  for (const entry of entries) if (!lines.includes(entry)) lines.push(entry);
+  while (lines.length > 0 && lines.at(-1) === '') lines.pop();
+  await writeFile(filename, `${lines.join('\\n')}\\n`, 'utf8');
+}
+
+export async function installMemberPackages(root, source, { selectPackagesFn = selectMemberPackages, log = console.log } = {}) {
+  const memberRoot = await resolveMemberRepository(source);
+  const manifest = await loadMemberManifest(memberRoot);
+  const selection = await selectPackagesFn({ manifest, source: memberRoot });
+  if (!selection) { log('Member package installation cancelled.'); return null; }
+  const packages = Array.isArray(selection) ? Object.fromEntries(selection.map((id) => [id, {}])) : selection;
+  const config = await writeMemberConfig(root, { version: 1, source: memberRoot, packages });
+  await addMemberGitignore(root);
+  log(`Member packages registered from ${memberRoot}.`);
+  return config;
+}
+
+export async function run(argumentsList, { root = process.cwd(), appRoot = applicationRoot, startServerFn = startServer, openBrowserFn = openBrowser, log = console.log, isInstalledFn = repositoryConfigExists, confirmInstallFn = askToInstall, selectPackagesFn = selectOptionalPackages, selectMemberPackagesFn = selectMemberPackages, installMemberPackagesFn = installMemberPackages, createMemberRepositoryFn = createMemberRepository, planMemberRepositoryFn = planMemberRepository, planMemberPackageScaffoldFn = planMemberPackageScaffold, createMemberPackageScaffoldFn = createMemberPackageScaffold, loadConfigFn = loadRepositoryConfig, planPackageScaffoldFn = planPackageScaffold, createPackageScaffoldFn = createPackageScaffold, runFocusedTestFn = runFocusedPackageTest } = {}) {
   const options = parseArgs(argumentsList);
   if (options.help) { printHelp(log); return null; }
   if (options.command === 'install') { await installRepository(root, { selectPackagesFn, log }); return null; }
+  if (options.command === 'member-init') {
+    const plan = planMemberRepositoryFn({ directory: options.memberSource }); logMemberRepositoryPlan(plan, log);
+    await createMemberRepositoryFn({ directory: options.memberSource, appRoot });
+    log(`Created member repository ${plan.directory}.`); log('Run `resonate member package create <id>` from that repository.'); return null;
+  }
+  if (options.command === 'member-install') { await installMemberPackagesFn(root, options.memberSource, { selectPackagesFn: selectMemberPackagesFn, log }); return null; }
+  if (options.command === 'member-package-create') {
+    const plan = planMemberPackageScaffoldFn({ memberRoot: root, id: options.packageId }); logPackagePlan(plan, root, log);
+    const created = await createMemberPackageScaffoldFn({ memberRoot: root, id: options.packageId, verify: (scaffoldPlan) => runFocusedTestFn(scaffoldPlan, { appRoot: root }) });
+    log(`Created member package ${created.id}.`); log('Add this explicit entry to member-packages.json:'); log(created.manifestSnippet); log('Full regression: bun test'); return null;
+  }
   if (options.command === 'package-create') {
     const plan = planPackageScaffoldFn({ appRoot, id: options.packageId });
     logPackagePlan(plan, appRoot, log);

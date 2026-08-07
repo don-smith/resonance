@@ -28,14 +28,11 @@ function packageDefinition(id, { order = 1, assetFile = 'src/packages/shell/app.
 
 test('loads configured built-in modules and assembles a deterministic registry', async () => {
   const appRoot = fileURLToPath(new URL('../', import.meta.url));
-  const config = { ...createRepositoryConfig({ home: true, docs: true }), packages: {
-    ...createRepositoryConfig({ home: true, docs: true }).packages,
-    'pi-agent': { module: 'src/packages/pi-agent/index.ts' },
-  } };
+  const config = createRepositoryConfig({ home: true, docs: true });
   const packages = await loadConfiguredPackages({ config, appRoot });
   const registry = createHost({ appRoot, config, packages });
-  assert.deepEqual(registry.manifest.navigation.map((item) => item.id), ['home', 'docs', 'pi-agent']);
-  assert.deepEqual(registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs', 'pi-agent']);
+  assert.deepEqual(registry.manifest.navigation.map((item) => item.id), ['home', 'docs']);
+  assert.deepEqual(registry.manifest.packages.map((item) => item.id), ['shell', 'home', 'docs']);
   assert.equal(registry.assets['/assets/home/home.js'].file, 'src/packages/home/home.js');
   assert.ok(Object.isFrozen(registry.manifest));
 });

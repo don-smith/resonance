@@ -1,5 +1,6 @@
 export const MANIFEST_VERSION = 1;
 export type PackageInput = Record<string, unknown>;
+export type PackageScope = 'team' | 'member';
 export type PackageConfig = PackageInput & { module?: string; enabled?: boolean };
 export type RepositoryConfig = { version: typeof MANIFEST_VERSION; packages: Record<string, PackageConfig> };
 export type PackageMetadata = { id: string; version: string; hostVersion: string; label: string; order: number };
@@ -17,16 +18,18 @@ export type HostResponse = {
   onClose(listener: () => void): void;
   readonly closed: boolean;
 };
+export type PackageState = { read<T = unknown>(): Promise<T | null>; write(value: unknown): Promise<void> };
 export type HostContext = {
   repositoryRoot: string;
   appRoot: string;
+  state?: PackageState;
   resolveRepositoryPath(relativePath: string): string | null;
 };
 export type RouteHandler = (request: HostRequest, response: HostResponse, context: HostContext) => Promise<void>;
 export type HttpMethod = 'GET' | 'POST';
 export type RouteContribution = { method: HttpMethod; path: string; handler: RouteHandler };
-export type AssetContribution = { path: string; file: string; contentType: string };
-export type NavigationContribution = { id: string; label: string; order: number };
+export type AssetContribution = { path: string; file: string; contentType: string; root?: string };
+export type NavigationContribution = { id: string; label: string; order: number; scope?: PackageScope };
 export type BrowserContribution = { id: string; entry: string; stylesheet: string };
 export type PackageRegistration = {
   metadata: PackageMetadata;
@@ -38,5 +41,7 @@ export type PackageRegistration = {
 };
 export type PackageDefinition = {
   metadata: PackageMetadata;
+  scope?: PackageScope;
+  packageRoot?: string;
   register(context: HostContext, input: PackageInput): PackageRegistration;
 };

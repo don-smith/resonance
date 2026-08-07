@@ -70,8 +70,6 @@ test('serves package-local assets through preserved public URLs', async () => {
     assert.equal(home.status, 200); assert.match(await home.text(), /export default/);
     assert.equal(docs.status, 200); assert.match(await docs.text(), /docs-layout/);
     assert.equal(shell.status, 200); assert.match(await shell.text(), /import\(packageInfo\.entry\)/);
-    assert.equal((await fetch(`${baseUrl}/api/pi-agent/state`)).status, 404);
-    assert.equal((await fetch(`${baseUrl}/assets/pi-agent/pi-agent.js`)).status, 404);
     assert.equal((await fetch(`${baseUrl}/not-registered.js`)).status, 404);
   }, { config: moduleConfig });
 });
@@ -105,13 +103,12 @@ test('dispatches methods, bounds JSON bodies, and protects streamed responses', 
   assert.equal(log.disposed, 1);
 });
 
-test('starts from an explicitly installed Shell+Docs config without Pi Agent', async () => {
+test('starts from an explicitly installed Shell+Docs config', async () => {
   const root = await mkdtemp(`${tmpdir()}/resonance-generated-`);
   await writeRepositoryConfig(root, createRepositoryConfig({ docs: true }));
   await withServer(async (baseUrl) => {
     const manifest = await fetch(`${baseUrl}/api/manifest`).then((response) => response.json());
     assert.deepEqual(manifest.packages.map((item) => item.id), ['shell', 'docs']);
-    assert.equal((await fetch(`${baseUrl}/api/pi-agent/state`)).status, 404);
   }, { root });
 });
 

@@ -7,7 +7,12 @@ description: Use when creating, scaffolding, configuring, or changing a Resonanc
 
 ## Core Rule
 
-A Resonance package is Resonance's general extensibility and implementation unit: application-root source plus an explicit viewed-repository manifest opt-in. A package may provide a user-visible workspace mounted by Shell, but package and workspace are not synonyms. Never create package source below the viewed repository, auto-load a package, or edit `.resonance/config.json` on the developer’s behalf.
+A Resonance package is Resonance's general extensibility and implementation unit. Packages have one of two explicit scopes:
+
+- Team packages live in the Resonance application root and are selected by the viewed repository’s checked-in `.resonance/config.json`.
+- Member packages live in a member-package repository and are selected by the viewed repository’s ignored `.resonance/member-config.json`.
+
+A package may provide a user-visible workspace mounted by Shell, but package and workspace are not synonyms. Never auto-load a package, add a package to a manifest on the developer’s behalf, or put member-package source below the viewed repository.
 
 ## Capture the Brief First
 
@@ -21,14 +26,19 @@ Ask targeted questions for missing items. Record the answers in a brief. Do not 
 
 ## Start with the Starter
 
-For a normal single package, after the brief, run:
+For a team package, after the brief, run:
 ```sh
 resonate package create <lowercase-kebab-id>
 ```
 
-The command creates only `src/packages/<id>` under the Resonance application root, lists its files, runs its focused test, and prints a manifest snippet. It must return before installation/config loading/server startup/browser launch. Do not skip the focused test or replace it with a Docs package.
+For a member package, initialize or enter the member repository, then run:
+```sh
+resonate member package create <lowercase-kebab-id>
+```
 
-After reviewing the output, the developer—not the command—may add the printed `"<id>": { "module": "src/packages/<id>/index.ts" }` entry to the viewed repository’s authoritative package allowlist. The starter never edits that manifest.
+Each command creates only `src/packages/<id>` in its owning repository, lists its files, runs its focused test, and prints the appropriate manifest snippet. It must return before installation/config loading/server startup/browser launch. Do not skip the focused test or replace the package with a Docs package.
+
+After reviewing the output, the developer—not the command—may add the printed entry to the owning explicit manifest: `.resonance/config.json` for team packages or `member-packages.json` for member packages. Starters never edit either manifest.
 
 ## Hand Off Bespoke Work
 
@@ -40,4 +50,4 @@ Add colocated tests for registration/input validation, route/error behavior, con
 
 ## Sharing This Skill
 
-This canonical skill is `.agents/skills/package-authoring/SKILL.md`. Pi discovers it from the working directory or its ancestors after trust. When the packaged skill is outside the viewed repository ancestry, use a repeatable explicit `--skill <path>` or a Pi settings `skills` entry. Do not claim cross-repository auto-discovery and do not add a skill/agent runtime manager.
+This canonical skill is `.agents/skills/package-authoring/SKILL.md`. `resonate member init <folder>` copies it into the new member repository so package authors have the same guidance there. Pi discovers it from the working directory or its ancestors after trust. When the packaged skill is outside the viewed repository ancestry, use a repeatable explicit `--skill <path>` or a Pi settings `skills` entry. Do not claim cross-repository auto-discovery and do not add a skill/agent runtime manager.

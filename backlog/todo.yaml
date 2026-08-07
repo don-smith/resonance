@@ -40,7 +40,7 @@ decisions:
     plan: plans/backlog-evals.md
     status: in-planning
     priority: P3
-  - title: Member workspaces
+  - title: Member packages
+    plan: plans/member-packages.md
     status: is-ready
     priority: P2
-    plan: plans/member-workspaces.md

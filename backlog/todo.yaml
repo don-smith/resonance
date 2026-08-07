@@ -1,17 +1,21 @@
 version: 1
 decisions:
-  - title: Backlog package
-    plan: plans/backlog-package.md
-    status: recently-done
-    priority: P1
   - title: Backlog Agent and Skill
     plan: plans/backlog-agent-skill.md
     status: recently-done
     priority: P2
-  - title: Markdown linking
-    plan: plans/markdown-linking.md
+  - title: Member packages
+    plan: plans/member-packages.md
     status: recently-done
     priority: P2
+  - title: Telemetry
+    plan: plans/telemetry.md
+    status: is-ready
+    priority: P1
+  - title: Git status package
+    plan: plans/git-package.md
+    status: is-ready
+    priority: P3
   - title: Architecture package
     plan: plans/architecture-package.md
     status: in-planning
@@ -20,27 +24,7 @@ decisions:
     plan: plans/team-chat-package.md
     status: in-planning
     priority: P2
-  - title: Agents package
-    plan: plans/agents-package.md
-    status: in-planning
-    priority: P2
-  - title: Git status package
-    plan: plans/git-package.md
+  - title: Eval System
+    plan: plans/eval-system.md
     status: in-planning
     priority: P3
-  - title: Skills package
-    plan: plans/skills-package.md
-    status: in-planning
-    priority: P3
-  - title: Package to workspace
-    plan: plans/package-to-workspace.md
-    status: recently-done
-    priority: P2
-  - title: Backlog evals
-    plan: plans/backlog-evals.md
-    status: in-planning
-    priority: P3
-  - title: Member packages
-    plan: plans/member-packages.md
-    status: is-ready
-    priority: P2

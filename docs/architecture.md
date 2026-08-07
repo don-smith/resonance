@@ -6,10 +6,10 @@ Packages are Resonance's general extensibility and implementation units. A works
 
 ## Package boundaries
 
-- **Shell** owns the fixed browser bootstrap, primary navigation, workspace mounts, activation rollback, and shared layout.
-- **Home** reads the configured repository landing source and renders the Home workspace in the browser.
-- **Docs** discovers Markdown beneath `HostContext.repositoryRoot`, exposes the tree/document routes, and renders the Docs workspace whenever Docs is activated.
-- **Pi Agent** owns the developer-specific server-side Pi ACP session, prompt submission, incremental activity events, transcript, and local recovery controls for the Pi Agent workspace.
+- [**Shell**](../src/packages/shell/README.md) owns the fixed browser bootstrap, primary navigation, workspace mounts, activation rollback, and shared layout.
+- [**Home**](../src/packages/home/README.md) reads the configured repository landing source and renders the Home workspace in the browser.
+- [**Docs**](../src/packages/docs/README.md) discovers Markdown beneath `HostContext.repositoryRoot`, exposes the tree/document routes, renders the Docs workspace whenever Docs is activated, and navigates relative links between discovered documents.
+- [**Pi Agent**](../src/packages/pi-agent/README.md) owns the developer-specific server-side Pi ACP session, prompt submission, incremental activity events, transcript, and local recovery controls for the Pi Agent workspace.
 
 Packages contribute method-aware routes, assets, navigation metadata, and one browser module through the shared package contract. The host validates contributions transactionally, keys routes by `METHOD pathname`, and keeps optional package failures isolated. Route handlers receive package-safe request/response capabilities: bounded JSON parsing, JSON responses, request-abort notifications, and SSE streams. They do not receive Node HTTP objects. Package cleanup callbacks run in reverse registration order when the HTTP server closes; disposal is idempotent.
 

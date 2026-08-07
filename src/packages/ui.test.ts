@@ -28,10 +28,13 @@ test('the Shell keeps primary navigation fixed while the package area scrolls', 
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.package-mount \{[^}]*height: auto;/s);
 });
 
-test('the Docs keeps its tree fixed while the document pane scrolls', async () => {
+test('the Docs keeps its tree fixed while both panes scroll when needed', async () => {
   const css = await readFile(new URL('./docs/docs.css', import.meta.url), 'utf8');
   assert.match(css, /\.docs-layout \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
-  assert.match(css, /\.document-sidebar \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
+  assert.match(css, /\.document-sidebar \{[^}]*display: flex;[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;[^}]*padding: 32px 10px 20px 20px;/s);
+  assert.match(css, /\.document-tree \{[^}]*min-height: 0;[^}]*flex: 1;[^}]*overflow-y: auto;[^}]*scrollbar-width: thin;[^}]*scrollbar-color: var\(--line\) transparent;/s);
+  assert.match(css, /\.document-tree::-webkit-scrollbar \{[^}]*width: 4px;/s);
+  assert.match(css, /\.document-tree::-webkit-scrollbar-thumb \{[^}]*background: var\(--line\);/s);
   assert.match(css, /\.document-pane \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.docs-layout \{[^}]*height: auto;[^}]*overflow: visible;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.document-sidebar \{[^}]*height: auto;[^}]*overflow: visible;/s);

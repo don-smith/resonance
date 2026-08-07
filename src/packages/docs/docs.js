@@ -8,6 +8,18 @@ function escapeHtml(value) {
   }[character]));
 }
 
+function resolveDocumentLink(href, currentPath, documents) {
+  if (!href || !currentPath || href.startsWith('/') || href.startsWith('#')) return null;
+  let target;
+  try { target = new URL(href, `https://resonance.local/${currentPath}`); }
+  catch { return null; }
+  if (target.origin !== 'https://resonance.local' || target.search || target.hash) return null;
+  let documentPath;
+  try { documentPath = decodeURIComponent(target.pathname.slice(1)); }
+  catch { return null; }
+  return documents.includes(documentPath) ? documentPath : null;
+}
+
 function renderTree(nodes) {
   return nodes.map((node) => {
     if (node.type === 'folder') {
@@ -75,6 +87,15 @@ export default function createDocsPackage({ fetchFn = fetch } = {}) {
       projectNameElement = root.querySelector('.project-name');
       countElement = root.querySelector('.count');
       pathElement = root.querySelector('.document-path');
+      contentElement.addEventListener('click', async (event) => {
+        const link = event.target?.closest?.('a[href]');
+        if (!link || !contentElement.contains(link)) return;
+        const documentPath = resolveDocumentLink(link.getAttribute('href'), selectedPath, repository.documents);
+        if (!documentPath) return;
+        event.preventDefault();
+        try { await showDocument(documentPath); }
+        catch (error) { showError(contentElement, error); }
+      });
       treeElement.addEventListener('click', async (event) => {
         const button = event.target.closest('[data-path]');
         if (!button || !treeElement.contains(button)) return;

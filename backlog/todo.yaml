@@ -10,7 +10,7 @@ decisions:
     priority: P2
   - title: Markdown linking
     plan: plans/markdown-linking.md
-    status: is-ready
+    status: recently-done
     priority: P2
   - title: Architecture package
     plan: plans/architecture-package.md

@@ -1,10 +1,14 @@
 .docs-layout { display: grid; grid-template-columns: minmax(230px, 280px) 1fr; height: 100%; min-height: 0; overflow: hidden; }
-.document-sidebar { min-width: 0; height: 100%; min-height: 0; overflow: hidden; padding: 32px 20px 20px; border-right: 1px solid var(--line); background: var(--paper-deep); }
+.document-sidebar { display: flex; flex-direction: column; min-width: 0; height: 100%; min-height: 0; overflow: hidden; padding: 32px 10px 20px 20px; border-right: 1px solid var(--line); background: var(--paper-deep); }
 .document-sidebar-head { margin-bottom: 30px; }
 .document-sidebar .eyebrow { margin-bottom: 12px; }
 .document-sidebar h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 25px/1 var(--display); letter-spacing: -.03em; }
 .document-count { margin: 10px 0 0; color: var(--muted); font: 10px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
-.document-tree { min-height: 120px; }
+.document-tree { min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.document-tree::-webkit-scrollbar { width: 4px; }
+.document-tree::-webkit-scrollbar-track { background: transparent; }
+.document-tree::-webkit-scrollbar-thumb { background: var(--line); border-radius: 0; }
+.document-tree::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 .tree-folder { margin: 0; }
 .tree-folder summary { padding: 7px 0; color: var(--muted); cursor: pointer; font: 11px/1.4 var(--mono); list-style: none; text-transform: uppercase; letter-spacing: .08em; }
 .tree-folder summary::-webkit-details-marker { display: none; }
@@ -32,10 +36,10 @@
 .docs-error { color: #a94325; font: 12px/1.5 var(--mono); }
 @media (max-width: 720px) {
   .docs-layout { display: block; height: auto; min-height: 0; overflow: visible; }
-  .document-sidebar { height: auto; min-height: auto; overflow: visible; padding: 20px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .document-sidebar { height: auto; min-height: auto; overflow: visible; padding: 20px 10px 20px 20px; border-right: 0; border-bottom: 1px solid var(--line); }
   .document-pane { height: auto; min-height: 0; overflow: visible; }
   .document-sidebar-head { margin-bottom: 16px; }
-  .document-tree { max-height: 230px; overflow: auto; }
+  .document-tree { flex: none; max-height: 230px; overflow: auto; }
   .document-header { padding: 20px; }
   .document-content { padding: 48px 20px 72px; font-size: 17px; }
 }

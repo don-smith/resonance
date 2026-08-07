@@ -9,6 +9,7 @@ import { createHost } from './host.ts';
 import { loadConfiguredPackages } from './packages/index.ts';
 import { homeInput } from './packages/home/index.ts';
 import { docsPackage } from './packages/docs/index.ts';
+import { createTelemetry } from './telemetry.ts';
 
 function packageDefinition(id, { order = 1, assetFile = 'src/packages/shell/app.js', extraRoute = false } = {}) {
   const metadata = { id, version: '1.0.0', hostVersion: '1', label: id.toUpperCase(), order };
@@ -119,6 +120,17 @@ test('registers distinct methods on one pathname and disposes packages idempoten
   assert.ok(registry.routes['POST /api/methods/value']);
   await registry.dispose();
   await registry.dispose();
+});
+
+test('passes one host-owned telemetry interface to packages and flushes it on disposal', async () => {
+  const records: any[] = []; let flushes = 0;
+  const telemetry = createTelemetry({ config: { mode: 'console' }, console: null, exporter: { record(record) { records.push(record); }, async flush() { flushes += 1; } } });
+  const definition = packageDefinition('telemetry');
+  definition.register = (context) => { context.telemetry.info('package ready'); return packageDefinition('telemetry').register(); };
+  const registry = createHost({ config: { version: 1, packages: { telemetry: { module: 'test.ts' } } }, packages: [definition], telemetry });
+  assert.equal(registry.context.telemetry, telemetry);
+  await registry.dispose(); await registry.dispose();
+  assert.equal(records[0].message, 'package ready'); assert.equal(flushes, 1);
 });
 
 test('rejects a lexically contained symlink that physically escapes the repository', async () => {

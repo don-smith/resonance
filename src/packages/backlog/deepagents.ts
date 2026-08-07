@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import type { Telemetry } from '../../package-contract.ts';
 import { createDeepAgent, type BackendProtocolV2 } from 'deepagents';
 import { ChatOpenAI } from '@langchain/openai';
 import { tool } from 'langchain';
@@ -79,18 +80,29 @@ function textOf(chunk: unknown): string {
 }
 
 class DeepAgentsRuntime implements BacklogAgentRuntime {
-  constructor(private readonly agent: any) {}
+  constructor(private readonly agent: any, private readonly telemetry: Telemetry) {}
   async *stream(turn: BacklogAgentTurn): AsyncIterable<BacklogAgentUpdate> {
+    const streamSpan = this.telemetry.span('backlog.model.stream');
+    this.telemetry.info('Backlog model stream started', { threadId: turn.threadId });
+    let chunks = 0;
+    try {
     const messages = turn.messages.map((message, index) => ({
       role: message.role,
       content: message.role === 'user' && index === turn.messages.length - 1 ? `${selectedContext(turn.selected)}\n\n<user-request>\n${message.content}\n</user-request>` : message.content,
     }));
     const stream = await this.agent.stream({ messages }, { configurable: { thread_id: turn.threadId }, streamMode: 'messages' });
-    for await (const value of stream) {
-      const [chunk, metadata] = value as [unknown, { langgraph_node?: unknown }];
-      if (metadata?.langgraph_node !== 'model') continue;
-      const text = textOf(chunk);
-      if (text) yield { kind: 'assistant', text };
+      for await (const value of stream) {
+        const [chunk, metadata] = value as [unknown, { langgraph_node?: unknown }];
+        if (metadata?.langgraph_node !== 'model') continue;
+        const text = textOf(chunk);
+        if (text) { chunks += 1; yield { kind: 'assistant', text }; }
+      }
+      streamSpan.end({ status: 'ok', chunks });
+      this.telemetry.info('Backlog model stream completed', { chunks });
+    } catch (error) {
+      streamSpan.fail(error, { chunks });
+      this.telemetry.error('Backlog model stream failed', { error, chunks });
+      throw error;
     }
   }
   async dispose() {}
@@ -99,6 +111,7 @@ class DeepAgentsRuntime implements BacklogAgentRuntime {
 export function createDeepAgentsRuntimeFactory({ provider, model }: { provider: 'openai' | 'openrouter'; model: string }): BacklogAgentRuntimeFactory {
   return async (options) => {
     const skill = await readFile(new URL('./skills/manage-backlog/SKILL.md', import.meta.url), 'utf8');
+    const runtimeTelemetry = options.telemetry.child({ provider, model });
     const agent = createDeepAgent({
       model: new ChatOpenAI({
         model,
@@ -112,6 +125,6 @@ export function createDeepAgentsRuntimeFactory({ provider, model }: { provider: 
       checkpointer: false,
       systemPrompt: 'You are Resonance Backlog Agent. Read /skills/manage-backlog/SKILL.md before acting. Only package-owned domain tools may access or change Backlog data; generic filesystem tools have no repository authority.',
     });
-    return new DeepAgentsRuntime(agent);
+    return new DeepAgentsRuntime(agent, runtimeTelemetry);
   };
 }

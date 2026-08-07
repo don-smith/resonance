@@ -1,3 +1,5 @@
+import type { Telemetry } from '../../package-contract.ts';
+import { createTelemetry } from '../../telemetry.ts';
 import type { BacklogDecision, BacklogMutation, BacklogStore } from './backlog-store.ts';
 
 export type BacklogAgentStatus = 'idle' | 'working' | 'error';
@@ -7,7 +9,7 @@ export type BacklogAgentSnapshot = { messages: BacklogAgentMessage[]; status: Ba
 export type BacklogAgentUpdate = { kind: 'assistant'; text: string };
 export type BacklogAgentTurn = { messages: readonly BacklogAgentMessage[]; selected: BacklogDecision; threadId: string };
 export type BacklogAgentRuntime = { stream(turn: BacklogAgentTurn): AsyncIterable<BacklogAgentUpdate>; dispose(): Promise<void> };
-export type BacklogAgentRuntimeFactoryOptions = { apiKey: string; store: BacklogStore; onMutation(result: BacklogMutation): void; requestDeletion(decision: BacklogDecision): Promise<BacklogDeletionConfirmation> };
+export type BacklogAgentRuntimeFactoryOptions = { apiKey: string; store: BacklogStore; telemetry: Telemetry; onMutation(result: BacklogMutation): void; requestDeletion(decision: BacklogDecision): Promise<BacklogDeletionConfirmation> };
 export type BacklogAgentRuntimeFactory = (options: BacklogAgentRuntimeFactoryOptions) => Promise<BacklogAgentRuntime>;
 export type BacklogAgentEvent =
   | { type: 'snapshot'; snapshot: BacklogAgentSnapshot }
@@ -36,7 +38,10 @@ class CredentialRequiredError extends Error {}
 const messageId = () => crypto.randomUUID();
 const newThreadId = () => crypto.randomUUID();
 
-export function createBacklogAgentSession({ store, credentialProvider, runtimeFactory }: { store: BacklogStore; credentialProvider(): Promise<string | null>; runtimeFactory: BacklogAgentRuntimeFactory }) {
+export function createBacklogAgentSession({ store, credentialProvider, runtimeFactory, telemetry: providedTelemetry }: { store: BacklogStore; credentialProvider(): Promise<string | null>; runtimeFactory: BacklogAgentRuntimeFactory; telemetry?: Telemetry }) {
+  const telemetry = providedTelemetry || createTelemetry({ config: { mode: 'off' } });
+  const threadId = newThreadId();
+  const agentTelemetry = telemetry.child({ package: 'backlog', component: 'agent' }).session(threadId);
   let runtime: BacklogAgentRuntime | null = null;
   let status: BacklogAgentStatus = 'idle';
   let error: string | null = null;
@@ -47,7 +52,6 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
   let starting = false;
   let closing: Promise<void> | null = null;
   let assistantId: string | null = null;
-  const threadId = newThreadId();
   const listeners = new Set<(event: BacklogAgentEvent) => void>();
 
   const snapshot = (): BacklogAgentSnapshot => ({
@@ -60,10 +64,12 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
   const emit = (event: BacklogAgentEvent) => listeners.forEach((listener) => listener(event));
   const setStatus = (next: BacklogAgentStatus) => { status = next; emit({ type: 'status', status }); };
   const close = async (current: BacklogAgentRuntime, reportFailure = false) => {
+    agentTelemetry.debug('Disposing Backlog agent runtime', { reportFailure });
     const pending = current.dispose();
     closing = pending;
     try { await pending; }
-    catch {
+    catch (cause) {
+      agentTelemetry.error('Backlog agent runtime disposal failed', { error: cause });
       if (reportFailure) {
         error = 'Backlog agent cleanup failed.';
         setStatus('error');
@@ -72,6 +78,7 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
     } finally { if (closing === pending) closing = null; }
   };
   const commit = (result: BacklogMutation) => {
+    agentTelemetry.info('Backlog mutation committed', { affectedPaths: result.affectedPaths });
     if (pendingDeletion) {
       pendingDeletion = null;
       emit({ type: 'snapshot', snapshot: snapshot() });
@@ -99,15 +106,18 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
   };
   const ensure = async (turn: number): Promise<BacklogAgentRuntime> => {
     if (runtime) return runtime;
+    agentTelemetry.debug('Creating Backlog agent runtime');
     try {
       const apiKey = await credentialProvider();
       if (!apiKey?.trim()) {
+        agentTelemetry.warn('Backlog agent credential is required');
         emit({ type: 'credential-required' });
         throw new CredentialRequiredError();
       }
       const next = await runtimeFactory({
         apiKey,
         store,
+        telemetry: agentTelemetry,
         onMutation: (result) => { if (turn === generation) commit(result); },
         requestDeletion: async (decision) => {
           if (turn !== generation) throw new BacklogAgentConfirmationError('Deletion confirmation is no longer valid.');
@@ -123,19 +133,25 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
     } catch (cause) {
       if (cause instanceof CredentialRequiredError) throw cause;
       if (cause instanceof BacklogAgentUnavailableError) throw cause;
+      agentTelemetry.error('Backlog agent runtime creation failed', { error: cause });
       throw new BacklogAgentUnavailableError('Backlog agent is unavailable.', { cause });
     }
   };
-  const run = async (turn: number, current: BacklogAgentRuntime, selected: BacklogDecision) => {
+  const run = async (turn: number, current: BacklogAgentRuntime, selected: BacklogDecision, turnSpan: ReturnType<Telemetry['span']>) => {
+    agentTelemetry.info('Backlog agent stream started', { selectedPath: selected.path });
     try {
       for await (const update of current.stream({ messages: messages.map((message) => ({ ...message })), selected, threadId })) onUpdate(turn, update);
       if (turn === generation && status === 'working') {
         assistantId = null;
         setStatus('idle');
+        turnSpan.end({ status: 'ok' });
+        agentTelemetry.info('Backlog agent stream completed', { selectedPath: selected.path });
         emit({ type: 'done' });
       }
-    } catch {
+    } catch (cause) {
       if (turn !== generation) return;
+      turnSpan.fail(cause, { status: 500 });
+      agentTelemetry.error('Backlog agent stream failed', { error: cause, selectedPath: selected.path });
       if (runtime === current) { runtime = null; void close(current); }
       error = 'Backlog agent request failed.';
       setStatus('error');
@@ -156,12 +172,15 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
       if (!content) throw new Error('Prompt must not be empty.');
       if (status === 'working' || starting) throw new BacklogAgentBusyError();
       const turn = generation;
+      const turnSpan = agentTelemetry.span('backlog.agent.turn', { selectedPath });
       starting = true;
       error = null;
       pendingDeletion = null;
+      agentTelemetry.info('Backlog prompt accepted', { selectedPath });
       emit({ type: 'snapshot', snapshot: snapshot() });
       try {
         const selected = await store.readDecision(selectedPath);
+        turnSpan.event('selected decision loaded');
         const current = await ensure(turn);
         if (turn !== generation) throw new Error('Backlog agent session was reset.');
         const user = { id: messageId(), role: 'user' as const, content };
@@ -169,14 +188,17 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
         assistantId = null;
         emit({ type: 'message', message: { ...user } });
         setStatus('working');
-        void run(turn, current, selected);
+        void run(turn, current, selected, turnSpan);
         return { accepted: true as const };
       } catch (cause) {
         if (turn === generation && cause instanceof CredentialRequiredError) {
+          turnSpan.end({ status: 'credential-required' });
           setStatus('idle');
           return { accepted: false as const, credentialRequired: true as const };
         }
         if (turn === generation) {
+          turnSpan.fail(cause, { status: 500 });
+          agentTelemetry.error('Backlog prompt setup failed', { error: cause, selectedPath });
           error = cause instanceof BacklogAgentUnavailableError ? cause.message : 'Selected Backlog decision is unavailable.';
           setStatus('error');
           emit({ type: 'error', message: error });
@@ -195,6 +217,7 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
       return { ok: true as const, revision };
     },
     async reset() {
+      agentTelemetry.info('Resetting Backlog agent session');
       if (closing) await closing;
       generation += 1;
       starting = false;

@@ -1,5 +1,25 @@
 export const MANIFEST_VERSION = 1;
 export type PackageInput = Record<string, unknown>;
+export type TelemetryLevel = 'debug' | 'info' | 'warn' | 'error';
+export type TelemetryFields = Readonly<Record<string, unknown>>;
+export type TelemetrySpan = {
+  event(name: string, fields?: TelemetryFields): void;
+  end(fields?: TelemetryFields): void;
+  fail(error: unknown, fields?: TelemetryFields): void;
+};
+export type Telemetry = {
+  child(fields?: TelemetryFields): Telemetry;
+  session(id: string, fields?: TelemetryFields): Telemetry;
+  debug(message: string, fields?: TelemetryFields): void;
+  info(message: string, fields?: TelemetryFields): void;
+  warn(message: string, fields?: TelemetryFields): void;
+  error(message: string, fields?: TelemetryFields): void;
+  span(name: string, fields?: TelemetryFields): TelemetrySpan;
+};
+export type TelemetryController = Telemetry & {
+  flush(): Promise<void>;
+  dispose(): Promise<void>;
+};
 export type PackageScope = 'team' | 'member';
 export type PackageConfig = PackageInput & { module?: string; enabled?: boolean };
 export type RepositoryConfig = { version: typeof MANIFEST_VERSION; packages: Record<string, PackageConfig> };
@@ -22,6 +42,7 @@ export type PackageState = { read<T = unknown>(): Promise<T | null>; write(value
 export type HostContext = {
   repositoryRoot: string;
   appRoot: string;
+  telemetry: Telemetry;
   state?: PackageState;
   resolveRepositoryPath(relativePath: string): string | null;
 };

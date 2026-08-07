@@ -1,15 +1,16 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AssetContribution, BrowserContribution, HostContext, HttpMethod, NavigationContribution, PackageDefinition, PackageInput, PackageRegistration, RepositoryConfig, RouteContribution } from './package-contract.ts';
+import type { AssetContribution, BrowserContribution, HostContext, HttpMethod, NavigationContribution, PackageDefinition, PackageInput, PackageRegistration, RepositoryConfig, RouteContribution, Telemetry, TelemetryController } from './package-contract.ts';
 import { MANIFEST_VERSION } from './package-contract.ts';
+import { createTelemetry } from './telemetry.ts';
 import { defaultRepositoryConfig } from './config.ts';
 import { createPackageState, validatePackageState } from './state.ts';
 
 function toPath(value: string | URL): string { return value instanceof URL ? fileURLToPath(value) : value; }
-function createContext(repositoryRoot: string, appRoot: string): HostContext {
+function createContext(repositoryRoot: string, appRoot: string, telemetry: Telemetry): HostContext {
   const context: HostContext = {
-    repositoryRoot, appRoot,
+    repositoryRoot, appRoot, telemetry,
     resolveRepositoryPath(relativePath) {
       if (!relativePath || path.posix.isAbsolute(relativePath) || path.win32.isAbsolute(relativePath) || /\\/.test(relativePath)) return null;
       const root = path.resolve(repositoryRoot); const absolute = path.resolve(root, relativePath); const relative = path.relative(root, absolute);
@@ -107,9 +108,9 @@ function addRegistration(registry: MutableRegistry, registration: PackageRegistr
   nextSeen.forEach((id) => seenPackages.add(id));
 }
 
-export function createHost({ root = process.cwd(), appRoot = process.cwd(), config = defaultRepositoryConfig(), memberConfig, packages = [], diagnostics = [], warn = console.warn }: { root?: string | URL; appRoot?: string | URL; config?: RepositoryConfig; memberConfig?: { packages: Record<string, PackageInput> }; packages?: PackageDefinition[]; diagnostics?: PackageDiagnostic[]; warn?: (message: string) => void } = {}): HostRegistry {
+export function createHost({ root = process.cwd(), appRoot = process.cwd(), config = defaultRepositoryConfig(), memberConfig, packages = [], diagnostics = [], warn = console.warn, telemetry = createTelemetry({ root }) }: { root?: string | URL; appRoot?: string | URL; config?: RepositoryConfig; memberConfig?: { packages: Record<string, PackageInput> }; packages?: PackageDefinition[]; diagnostics?: PackageDiagnostic[]; warn?: (message: string) => void; telemetry?: TelemetryController } = {}): HostRegistry {
   const repositoryRoot = toPath(root); const applicationRoot = toPath(appRoot);
-  const context = createContext(repositoryRoot, applicationRoot);
+  const context = createContext(repositoryRoot, applicationRoot, telemetry);
   const mutable: MutableRegistry = { context, routes: Object.create(null), assets: Object.create(null), navigation: [], packages: [], disposers: [], diagnostics: [...diagnostics] };
   const seenPackages = new Set<string>();
   for (const definition of packages) {
@@ -130,6 +131,7 @@ export function createHost({ root = process.cwd(), appRoot = process.cwd(), conf
       addRegistration(mutable, registration, seenPackages, path.resolve(definition.packageRoot || applicationRoot), scope, packageContext);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      telemetry.error(`Unable to register ${scope} package ${definition.metadata.id}.`, { error, packageId: definition.metadata.id, scope });
       if (definition.metadata.id === 'shell') throw new Error(`Unable to register Shell package: ${message}`, { cause: error });
       if (scope === 'member') mutable.diagnostics.push({ scope, id: definition.metadata.id, status: 'failed', message });
       warn(`Skipping ${scope} package ${definition.metadata.id}: ${message}`);
@@ -147,6 +149,7 @@ export function createHost({ root = process.cwd(), appRoot = process.cwd(), conf
       try { await cleanup(); }
       catch (error) { warn(`Package cleanup failed: ${error instanceof Error ? error.message : String(error)}`); }
     }
+    await telemetry.dispose();
   }
   return Object.freeze({ context, routes: Object.freeze({ ...mutable.routes }), assets: Object.freeze({ ...mutable.assets }), manifest, dispose });
 }

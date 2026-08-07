@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPackagedSkillBackend } from './deepagents.ts';
+import { createTelemetry } from '../../telemetry.ts';
 import { BacklogAgentBusyError, createBacklogAgentSession, type BacklogAgentRuntimeFactory } from './agent-session.ts';
 
 const decision = { path: 'backlog/plans/queue.md', title: 'Queue', status: 'in-planning' as const, priority: 'P2' as const, markdown: '# Queue' };
@@ -33,10 +34,14 @@ test('is lazy, requests a missing credential without serializing it, and only cr
 
 test('rehydrates selected decision for sequential prompts in one shared runtime and rejects overlap', async () => {
   const { store, calls } = fakeStore(); const log = { created: 0, apiKeys: [] as string[], turns: [] as any[], dispose: 0 };
-  const session = createBacklogAgentSession({ store, credentialProvider: async () => 'sk-local-secret', runtimeFactory: fakeFactory(log) });
+  const records: any[] = [];
+  const telemetry = createTelemetry({ config: { mode: 'console' }, console: null, exporter: { record(record) { records.push(record); }, async flush() {} } });
+  const session = createBacklogAgentSession({ store, telemetry, credentialProvider: async () => 'sk-local-secret', runtimeFactory: fakeFactory(log) });
   await session.submitPrompt({ prompt: 'Review this.', selectedPath: decision.path }); await assert.rejects(() => session.submitPrompt({ prompt: 'Again.', selectedPath: decision.path }), BacklogAgentBusyError); log.release!(); await new Promise((resolve) => setTimeout(resolve, 0));
   await session.submitPrompt({ prompt: 'Now edit it.', selectedPath: decision.path }); log.release!(); await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(log.created, 1); assert.deepEqual(calls, [decision.path, decision.path]); assert.equal(log.turns[1].selected.markdown, '# Queue'); assert.equal(log.turns[1].messages.filter((message: any) => message.role === 'user').length, 2); assert.equal(session.snapshot().messages.filter((message) => message.role === 'assistant').length, 2); assert.doesNotMatch(JSON.stringify(session.snapshot()), /sk-local-secret/);
+  const sessionIds = new Set(records.map((record) => record.fields.sessionId).filter(Boolean));
+  assert.equal(sessionIds.size, 1); assert.equal(sessionIds.values().next().value, log.turns[0].threadId);
 });
 
 test('emits committed revisions, invalidates old confirmations, and ignores stale output after reset', async () => {
@@ -45,6 +50,18 @@ test('emits committed revisions, invalidates old confirmations, and ignores stal
   await session.submitPrompt({ prompt: 'Remove this.', selectedPath: decision.path }); const confirmation = await log.requestDeletion!(decision); log.release!(); await new Promise((resolve) => setTimeout(resolve, 0));
   await session.confirmDeletion(confirmation.id); assert.deepEqual(calls.at(-1), `delete:${decision.path}`); assert.deepEqual(events.find((event) => event.type === 'mutation-committed'), { type: 'mutation-committed', revision: 1, affectedPaths: ['backlog/todo.yaml', decision.path] });
   await session.submitPrompt({ prompt: 'Remove it again.', selectedPath: decision.path }); const stale = await log.requestDeletion!(decision); log.release!(); await new Promise((resolve) => setTimeout(resolve, 0)); await session.reset(); await assert.rejects(() => session.confirmDeletion(stale.id), /no longer valid/); const committedBeforeStaleCallback = events.filter((event) => event.type === 'mutation-committed').length; log.onMutation!({ affectedPaths: ['backlog/todo.yaml'] }); assert.equal(events.filter((event) => event.type === 'mutation-committed').length, committedBeforeStaleCallback); log.release!(); await new Promise((resolve) => setTimeout(resolve, 0)); assert.equal(session.snapshot().messages.length, 0); assert.equal(log.dispose, 1);
+});
+
+test('records the original model failure while preserving the generic user-facing state', async () => {
+  const { store } = fakeStore(); const records: any[] = [];
+  const telemetry = createTelemetry({ config: { mode: 'console' }, console: null, exporter: { record(record) { records.push(record); }, async flush() {} } });
+  const runtimeFactory: BacklogAgentRuntimeFactory = async () => ({ async *stream() { throw new Error('provider unavailable'); }, async dispose() {} });
+  const session = createBacklogAgentSession({ store, telemetry, credentialProvider: async () => 'local-secret', runtimeFactory });
+  await session.submitPrompt({ prompt: 'Review this.', selectedPath: decision.path });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(session.snapshot().error, 'Backlog agent request failed.');
+  assert.ok(records.some((record) => record.kind === 'log' && record.message === 'Backlog agent stream failed' && record.fields.error.message === 'provider unavailable'));
+  assert.ok(records.some((record) => record.kind === 'span' && record.name === 'backlog.agent.turn' && record.error.message === 'provider unavailable'));
 });
 
 test('exposes only the packaged runtime skill through its virtual backend', async () => {

@@ -10,7 +10,7 @@ decisions:
     priority: P2
   - title: Telemetry
     plan: plans/telemetry.md
-    status: is-ready
+    status: recently-done
     priority: P1
   - title: Git status package
     plan: plans/git-package.md
@@ -28,3 +28,7 @@ decisions:
     plan: plans/eval-system.md
     status: in-planning
     priority: P3
+  - title: Telemetry agent
+    status: is-ready
+    priority: P2
+    plan: plans/telemetry-agent.md

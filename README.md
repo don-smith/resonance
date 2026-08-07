@@ -30,9 +30,13 @@ resonate
 
 The command reads `.resonance/config.json` from the current repository. If it is absent, Resonance reports that the repository is not installed and asks whether to install it. Approval runs the same setup as `resonate install`: Shell is always installed, while Home and Docs can be selected interactively. Existing config files are authoritative: omitted packages are not imported or registered. Member packages are never added by team installation. Select them from an external member repository with `resonate member install /path/to/member-packages`; the ignored `.resonance/member-config.json` selects them for the current repository. The server starts at port 4317, moves to the next available port if needed, and opens the selected URL.
 
+## Telemetry
+
+Resonance logs structured request and package events to the console by default. Telemetry includes the viewed repository's Git origin name (or its directory name when no origin is available) as the `repository` field, so traces from multiple repositories can be distinguished in one Langfuse instance. Agent consumers can group related traces with `telemetry.session(sessionId)`; the Backlog agent uses its conversation thread as the session. Copy `.resonance/.env.example` to `.resonance/.env` in the viewed repository and fill in the local telemetry settings. Resonance loads that file at startup; it is gitignored. Configure process telemetry with `RESONANCE_TELEMETRY=off`, `console`, or `langfuse`; use `RESONANCE_TELEMETRY_LEVEL=debug|info|warn|error` for the console threshold. Langfuse uses `LANGFUSE_BASE_URL` (default `http://127.0.0.1:13000`), `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`. Prompt and model content is not captured unless `RESONANCE_TELEMETRY_CAPTURE_CONTENT=true`.
+
 ## Repository configuration
 
-Use `resonate install` to create `.resonance/config.json`. Each package entry explicitly names an app-root-relative server module, and the entries form the authoritative package allowlist. Package modules own routes and assets; remaining fields are passed to that package as inputs.
+Use `resonate install` to create `.resonance/config.json`. Each package entry explicitly names an app-root-relative server module, and the entries form the authoritative package allowlist. Package modules own routes and assets; remaining fields are passed to that package as inputs. Package code receives Resonance-owned structured telemetry through its host context and does not read telemetry credentials directly.
 
 ```json
 {

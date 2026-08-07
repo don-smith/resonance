@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { createApp, startServer } from './server.ts';
 import { createHost } from './host.ts';
 import { createRepositoryConfig, loadRepositoryConfig, writeRepositoryConfig } from './config.ts';
+import { createTelemetry } from './telemetry.ts';
 
 
 const fixtureRoot = new URL('../test/fixtures/repository/', import.meta.url);
@@ -84,6 +85,15 @@ test('serves injected routes/assets and generic failures', async () => {
     const post = await fetch(`${baseUrl}/`, { method: 'POST' });
     assert.equal(post.status, 405); assert.equal(post.headers.get('allow'), 'GET');
   }, { registry });
+});
+
+test('emits request status and route fields through host telemetry', async () => {
+  const records: any[] = [];
+  const telemetry = createTelemetry({ config: { mode: 'console' }, console: null, exporter: { record(record) { records.push(record); }, async flush() {} } });
+  const registry = createHost({ root: fixtureRoot, config: { version: 1, packages: { test: { module: 'test.ts' } } }, packages: [packageDefinition()], telemetry });
+  await withServer(async (baseUrl) => { assert.equal((await fetch(`${baseUrl}/api/test/value`)).status, 200); }, { registry });
+  const request = records.find((record) => record.kind === 'span' && record.name === 'http.request');
+  assert.equal(request.fields.path, '/api/test/value'); assert.equal(request.fields.status, 200);
 });
 
 test('dispatches methods, bounds JSON bodies, and protects streamed responses', async () => {

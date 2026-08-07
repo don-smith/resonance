@@ -4,7 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { createMarkdownRenderer } from '../../markdown.ts';
-import type { HostContext, HostResponse, PackageDefinition, PackageInput, PackageRegistration } from '../../package-contract.ts';
+import type { HostContext, HostResponse, PackageDefinition, PackageInput, PackageRegistration, Telemetry } from '../../package-contract.ts';
 import { createBacklogAgentSession, type BacklogAgentRuntimeFactory } from './agent-session.ts';
 import { createDeepAgentsRuntimeFactory } from './deepagents.ts';
 import { BacklogSourceError, BacklogStoreError, createBacklogStore, parseBacklogItems } from './backlog-store.ts';
@@ -26,12 +26,14 @@ export function backlogInput(input: PackageInput) {
   return parsed.data;
 }
 
-function sendError(response: HostResponse, error: unknown): void {
+function sendError(response: HostResponse, error: unknown, telemetry?: Telemetry): void {
   const status = isRecord(error) && typeof error.status === 'number' ? error.status : error instanceof BacklogSourceError ? 422 : error instanceof BacklogStoreError ? 404 : 500;
   const message = error instanceof Error ? error.message : String(error);
+  telemetry?.error('Backlog route failed', { error, status });
   response.json(status, { error: message });
 }
-function sendReadFailure(response: HostResponse, error: unknown, fallback: string) {
+function sendReadFailure(response: HostResponse, error: unknown, fallback: string, telemetry?: Telemetry) {
+  telemetry?.warn('Backlog source read failed', { error });
   if (error instanceof BacklogSourceError) response.json(422, { error: error.message });
   else response.json(404, { error: fallback });
 }
@@ -109,10 +111,13 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
     metadata,
     register(context, input): PackageRegistration {
       const config = backlogInput(input);
+      const telemetry = context.telemetry.child({ package: metadata.id });
+      telemetry.info('Backlog package registered', { provider: config.provider, model: config.model });
       const store = createBacklogStore({ repositoryRoot: context.repositoryRoot });
       const renderer = createMarkdownRenderer();
       const session = createBacklogAgentSession({
         store,
+        telemetry,
         credentialProvider: () => readCredential(context.repositoryRoot, config.provider),
         runtimeFactory: runtimeFactory || createDeepAgentsRuntimeFactory({ provider: config.provider, model: config.model }),
       });
@@ -124,7 +129,7 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
           {
             method: 'GET', path: '/api/backlog/items', handler: async (_request, response) => {
               try { response.json(200, { items: await items() }); }
-              catch (error) { sendReadFailure(response, error, 'Backlog source not found'); }
+              catch (error) { sendReadFailure(response, error, 'Backlog source not found', telemetry); }
             },
           },
           {
@@ -133,7 +138,7 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
               try {
                 const item = await store.readDecision(requested);
                 response.json(200, { path: item.path, title: item.title, html: renderer.render(item.markdown) });
-              } catch (error) { sendReadFailure(response, error, 'Backlog item not found'); }
+              } catch (error) { sendReadFailure(response, error, 'Backlog item not found', telemetry); }
             },
           },
           { method: 'GET', path: '/api/backlog/agent/state', handler: async (_request, response) => response.json(200, session.snapshot()) },
@@ -170,7 +175,7 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
                 }
                 const result = await session.submitPrompt({ prompt: body.prompt, selectedPath: body.selectedPath });
                 response.json(202, result);
-              } catch (error) { sendError(response, error); }
+              } catch (error) { sendError(response, error, telemetry); }
             },
           },
           {
@@ -180,7 +185,7 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
                 if (!isRecord(body) || typeof body.apiKey !== 'string') { response.json(400, { error: 'apiKey must be a string.' }); return; }
                 await writeCredential(context.repositoryRoot, config.provider, body.apiKey);
                 response.json(200, { ok: true });
-              } catch (error) { sendError(response, error); }
+              } catch (error) { sendError(response, error, telemetry); }
             },
           },
           {
@@ -189,13 +194,13 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
                 const body = await request.readJson<{ id?: unknown }>(8 * 1024);
                 if (!isRecord(body) || typeof body.id !== 'string' || !body.id) { response.json(400, { error: 'Confirmation id must be a non-empty string.' }); return; }
                 response.json(200, await session.confirmDeletion(body.id));
-              } catch (error) { sendError(response, error); }
+              } catch (error) { sendError(response, error, telemetry); }
             },
           },
           {
             method: 'POST', path: '/api/backlog/agent/reset', handler: async (_request, response) => {
               try { response.json(200, { ok: true, state: await session.reset() }); }
-              catch (error) { sendError(response, error); }
+              catch (error) { sendError(response, error, telemetry); }
             },
           },
         ],

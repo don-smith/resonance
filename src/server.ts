@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { access } from 'node:fs/promises';
 import http from 'node:http';
@@ -35,11 +36,13 @@ export async function createApp({ root = process.cwd(), appRoot = projectRoot, c
   const assetsRoot = resolvedRegistry.context.appRoot;
   const server = http.createServer(async (request, response) => {
     const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
+    const requestTelemetry = resolvedRegistry.context.telemetry.child({ requestId: randomUUID(), method: request.method || 'UNKNOWN', path: requestUrl.pathname });
+    const requestSpan = requestTelemetry.span('http.request');
     const method = methodOf(request.method);
-    if (!method) { rejectMethod(response, allowFor(resolvedRegistry, requestUrl.pathname)); return; }
     const hostRequest = createHostRequest(request);
     const hostResponse = createHostResponse(response);
     try {
+      if (!method) { rejectMethod(response, allowFor(resolvedRegistry, requestUrl.pathname)); return; }
       if (method === 'GET' && requestUrl.pathname === '/api/manifest') { hostResponse.json(200, resolvedRegistry.manifest); return; }
       const route = resolvedRegistry.routes[routeKey(method, requestUrl.pathname)];
       if (route) { await route.handler(hostRequest, hostResponse, resolvedRegistry.context); return; }
@@ -49,9 +52,13 @@ export async function createApp({ root = process.cwd(), appRoot = projectRoot, c
       if (asset) { await serveFile(response, path.join(asset.root || assetsRoot, asset.file), asset.contentType); return; }
       response.writeHead(404); response.end('Not found');
     } catch (error) {
-      console.error(error);
+      requestSpan.fail(error, { status: 500 });
       if (response.headersSent || response.writableEnded) { if (!response.writableEnded) response.end(); return; }
       hostResponse.json(500, { error: 'Internal server error' });
+    } finally {
+      const status = response.statusCode || 500;
+      requestSpan.end({ status });
+      requestTelemetry.info('HTTP request complete', { status });
     }
   });
   server.once('close', () => { void resolvedRegistry.dispose(); });
@@ -69,7 +76,11 @@ export async function startServer({ root = process.cwd(), appRoot = projectRoot,
   const attempts = port === 0 ? 1 : maxPortAttempts;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const candidatePort = port + attempt; const server = await createApp({ root, appRoot, registry: resolvedRegistry });
-    try { await new Promise((resolve, reject) => { server.once('error', reject); server.listen(candidatePort, host, resolve); }); return server; }
+    try {
+      await new Promise((resolve, reject) => { server.once('error', reject); server.listen(candidatePort, host, resolve); });
+      resolvedRegistry.context.telemetry.info('Resonance server listening', { host, port: candidatePort });
+      return server;
+    }
     catch (error) { if (error.code !== 'EADDRINUSE' || port === 0 || candidatePort >= 65535 || attempt === attempts - 1) throw error; }
   }
   throw new Error('Unable to find an available port.');

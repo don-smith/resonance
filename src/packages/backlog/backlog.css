@@ -21,9 +21,10 @@
 .backlog-plan { min-width: 0; overflow-y: auto; }
 .backlog-plan header { position: relative; display: flex; align-items: center; gap: 14px; padding: 28px 52px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
 .backlog-plan header span:first-child { color: var(--accent); }
-.backlog-agent-toggle { position: absolute; top: 50%; right: 52px; width: 28px; height: 28px; padding: 5px; border: 1px solid transparent; background: transparent; color: var(--ink); cursor: pointer; line-height: 1; transform: translateY(-50%); }
+.backlog-agent-toggle { position: absolute; top: 50%; right: 52px; width: 28px; height: 28px; padding: 5px; border: 1px solid transparent; background: transparent; color: var(--muted); cursor: pointer; line-height: 1; transform: translateY(-50%); }
+.backlog-agent-toggle[aria-expanded="true"] { color: var(--accent); }
 .backlog-agent-toggle svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.backlog-agent-toggle:hover { border-color: var(--accent); }
+.backlog-agent-toggle:hover, .backlog-agent-toggle:focus-visible { border-color: transparent; color: var(--ink); }
 .backlog-agent-hidden { grid-template-columns: minmax(220px, 270px) minmax(0, 1fr); }
 .backlog-rule { width: 28px; height: 1px; background: var(--line); }
 .backlog-content { max-width: 900px; margin: 0 auto; padding: 28px 52px 72px; font-size: 18px; line-height: 1.7; }

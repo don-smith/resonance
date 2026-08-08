@@ -14,7 +14,7 @@ decisions:
     priority: P1
   - title: Git status package
     plan: plans/git-package.md
-    status: is-ready
+    status: in-planning
     priority: P3
   - title: Architecture package
     plan: plans/architecture-package.md
@@ -48,3 +48,7 @@ decisions:
     plan: plans/theme-support.md
     status: recently-done
     priority: P1
+  - title: Prezzos
+    status: is-ready
+    priority: P3
+    plan: plans/prezzos.md

@@ -125,7 +125,9 @@ test('keeps plan and agent header separators aligned', async () => {
   assert.match(css, /\.backlog-plan header \{[^}]*padding: 28px 52px 20px;/s);
   assert.match(sharedCss, /\.resonance-agent-header \{[^}]*padding: 28px 20px 20px;/s);
   assert.match(css, /\.backlog-agent-toggle \{[^}]*border: 1px solid transparent;/s);
-  assert.match(css, /\.backlog-agent-toggle:hover \{[^}]*border-color: var\(--accent\);/s);
+  assert.match(css, /\.backlog-agent-toggle \{[^}]*color: var\(--muted\);/s);
+  assert.match(css, /\.backlog-agent-toggle\[aria-expanded="true"\] \{[^}]*color: var\(--accent\);/s);
+  assert.match(css, /\.backlog-agent-toggle:hover, \.backlog-agent-toggle:focus-visible \{[^}]*color: var\(--ink\);/s);
   assert.match(css, /\.backlog-agent-toggle svg \{[^}]*stroke: currentColor;/s);
   assert.match(css, /\.backlog-agent\[hidden\] \{[^}]*display: none !important;/s);
   assert.match(css, /\.backlog-content \{[^}]*padding: 28px 52px 72px;/s);

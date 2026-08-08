@@ -14,7 +14,7 @@
 .tree-folder summary::before { content: '＋'; display: inline-block; width: 20px; color: var(--accent); }
 .tree-folder[open] > summary::before { content: '−'; }
 .tree-children { padding-left: 20px; border-left: 1px solid var(--line); }
-.tree-file { display: block; width: 100%; padding: 7px 10px; border: 0; border-left: 2px solid transparent; background: transparent; color: #5c5a55; cursor: pointer; text-align: left; font: 12px/1.4 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-file { display: block; width: 100%; padding: 7px 10px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--ink-soft); cursor: pointer; text-align: left; font: 12px/1.4 var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-file:hover { color: var(--ink); }
 .tree-file.active { border-left-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
 .document-pane { min-width: 0; height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; }
@@ -28,11 +28,11 @@
 .document-content h3 { margin-top: 2.2em; font-size: 1.5em; font-weight: 400; }
 .document-content p { max-width: 700px; }
 .document-content a { color: var(--accent); }
-.document-content blockquote { margin: 28px 0; padding-left: 22px; border-left: 3px solid var(--accent); color: #5e5b56; }
-.document-content pre { overflow: auto; padding: 20px; background: var(--sidebar); color: #e7e3dc; font: 13px/1.6 var(--mono); }
+.document-content blockquote { margin: 28px 0; padding-left: 22px; border-left: 3px solid var(--accent); color: var(--ink-soft); }
+.document-content pre { overflow: auto; padding: 20px; background: var(--sidebar); color: var(--code-ink); font: 13px/1.6 var(--mono); }
 .document-content code { font-family: var(--mono); font-size: .82em; }
 .docs-loading { color: var(--muted); font: 12px var(--mono); }
-.docs-error { color: #a94325; font: 12px/1.5 var(--mono); }
+.docs-error { color: var(--danger); font: 12px/1.5 var(--mono); }
 @media (max-width: 720px) {
   .docs-layout { display: block; height: auto; min-height: 0; overflow: visible; }
   .document-sidebar { height: auto; min-height: auto; overflow: visible; padding: 20px 10px 20px 20px; border-right: 0; border-bottom: 1px solid var(--line); }

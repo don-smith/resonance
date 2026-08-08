@@ -10,6 +10,7 @@ function register(): PackageRegistration {
       { path: '/', file: 'src/packages/shell/index.html', contentType: 'text/html; charset=utf-8' },
       { path: '/assets/app.js', file: 'src/packages/shell/app.js', contentType: 'text/javascript; charset=utf-8' },
       { path: '/assets/styles.css', file: 'src/packages/shell/styles.css', contentType: 'text/css; charset=utf-8' },
+      { path: '/assets/shell/theme-bootstrap.js', file: 'src/packages/shell/theme-bootstrap.js', contentType: 'text/javascript; charset=utf-8' },
       { path: '/assets/shell/shell.js', file: 'src/packages/shell/shell.js', contentType: 'text/javascript; charset=utf-8' },
       { path: '/assets/shell/shell.css', file: 'src/packages/shell/styles.css', contentType: 'text/css; charset=utf-8' },
     ],

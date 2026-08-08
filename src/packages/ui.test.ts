@@ -15,6 +15,10 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
   assert.doesNotMatch(html, /RESONANCE \/ WORKSPACE/);
   assert.doesNotMatch(html, /WORKSPACE 0\.1/);
   assert.match(html, /<span>v<span data-shell-runtime-version><\/span><\/span>/);
+  assert.match(html, /data-shell-theme="light"[^>]*aria-label="Use light theme"/);
+  assert.match(html, /data-shell-theme="dark"[^>]*aria-label="Use dark theme"/);
+  assert.match(html, /data-shell-theme="system"[^>]*aria-label="Use system theme"/);
+  assert.match(html, /assets\/shell\/theme-bootstrap\.js[\s\S]*assets\/shell\/shell\.css/);
   assert.match(html, /id="package-mount"/);
   assert.match(html, /assets\/shell\/shell\.css/);
   assert.match(html, /assets\/app\.js/);
@@ -25,12 +29,15 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
 
 test('the Shell keeps primary navigation fixed while the package area scrolls', async () => {
   const css = await readFile(new URL('./shell/styles.css', import.meta.url), 'utf8');
-  assert.match(css, /\.repository-version \{[^}]*color: #f2eee7;/);
+  assert.match(css, /\.repository-version \{[^}]*color: var\(--sidebar-ink\);/);
   assert.doesNotMatch(css, /\.repository-title \{[^}]*all: unset;/);
   assert.match(css, /\.repository-title \{[^}]*appearance: none;[^}]*margin: 0;[^}]*padding: 0;[^}]*border: 0;[^}]*background: transparent;[^}]*font: inherit;[^}]*line-height: inherit;/s);
   assert.match(css, /\.repository-title:not\(:disabled\) \{[^}]*cursor: pointer;/);
   assert.match(css, /\.nav-section-label \{[^}]*font: 600 11px/);
-  assert.match(css, /\.primary-footer \{[^}]*justify-content: flex-start;/);
+  assert.match(css, /:root\[data-theme="dark"\] \{[^}]*color-scheme: dark;[^}]*--ink: #ece8e1;[^}]*--paper: #181a1c;/s);
+  assert.match(css, /\.primary-footer \{[^}]*justify-content: space-between;/);
+  assert.match(css, /\.theme-selector button\[aria-pressed="true"\] \{[^}]*color: var\(--accent\);/);
+  assert.doesNotMatch(css, /\.theme-selector button\[aria-pressed="true"\] \{[^}]*border/);
   assert.doesNotMatch(css, /\.primary-footer \{[^}]*border-top:/);
   assert.match(css, /\.app-shell \{[^}]*height: 100vh;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.primary-sidebar \{[^}]*height: 100vh;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
@@ -39,6 +46,7 @@ test('the Shell keeps primary navigation fixed while the package area scrolls', 
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.primary-sidebar \{[^}]*height: auto;[^}]*overflow: visible;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.package-mount-region \{[^}]*height: auto;[^}]*overflow: visible;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.package-mount \{[^}]*height: auto;/s);
+  assert.doesNotMatch(css, /@media \(max-width: 720px\)[\s\S]*\.primary-footer \{[^}]*display: none;/s);
 });
 
 test('the Docs keeps its tree fixed while both panes scroll when needed', async () => {

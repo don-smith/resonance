@@ -78,6 +78,48 @@ test('renders repository and runtime metadata in the Shell frame', async () => {
   } finally { cleanup(); }
 });
 
+test('persists light, dark, and system theme preferences in the Shell', async () => {
+  const { window, document } = parseHTML('<!doctype html><html><head></head><body><nav id="primary-navigation"></nav><div data-shell-theme-selector><button data-shell-theme="light"></button><button data-shell-theme="dark"></button><button data-shell-theme="system"></button></div><main id="package-mount"></main></body></html>');
+  const values = new Map([['resonance:theme', 'system']]);
+  const listeners = new Set();
+  let systemIsDark = true;
+  window.localStorage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)) };
+  window.matchMedia = () => ({
+    get matches() { return systemIsDark; },
+    addEventListener: (_event, listener) => listeners.add(listener),
+    removeEventListener: (_event, listener) => listeners.delete(listener),
+  });
+  const fetchFn = async (url) => {
+    if (url === '/api/manifest') return response({ version: 1, navigation: [], packages: [{ id: 'shell', entry: '/assets/app.js', stylesheet: '/assets/shell/shell.css' }] });
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const coordinator = await loadCoordinator(window, document);
+    const application = await coordinator.startApplication({ documentRoot: document, windowRoot: window, fetchFn });
+    assert.equal(document.documentElement.dataset.themePreference, 'system');
+    assert.equal(document.documentElement.dataset.theme, 'dark');
+    assert.equal(document.querySelector('[data-shell-theme="system"]').getAttribute('aria-pressed'), 'true');
+
+    document.querySelector('[data-shell-theme="dark"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+    assert.equal(values.get('resonance:theme'), 'dark');
+    assert.equal(document.documentElement.dataset.theme, 'dark');
+    assert.equal(document.querySelector('[data-shell-theme="dark"]').getAttribute('aria-pressed'), 'true');
+
+    document.querySelector('[data-shell-theme="light"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+    assert.equal(values.get('resonance:theme'), 'light');
+    assert.equal(document.documentElement.dataset.theme, 'light');
+    assert.equal(document.querySelector('[data-shell-theme="light"]').getAttribute('aria-pressed'), 'true');
+
+    document.querySelector('[data-shell-theme="system"]').dispatchEvent(new window.Event('click', { bubbles: true }));
+    systemIsDark = false;
+    for (const listener of listeners) listener({ matches: false });
+    assert.equal(values.get('resonance:theme'), 'system');
+    assert.equal(document.documentElement.dataset.theme, 'light');
+    application.theme.dispose();
+    assert.equal(listeners.size, 0);
+  } finally { cleanup(); }
+});
+
 test('navigates relative Markdown links inside the Docs workspace', async () => {
   const { window, document } = parseHTML('<!doctype html><head></head><body><nav id="primary-navigation"></nav><main id="package-mount"></main></body>');
   const calls = [];

@@ -44,3 +44,7 @@ decisions:
     plan: plans/arch-validation.md
     status: in-progress
     priority: P1
+  - title: Theme support
+    plan: plans/theme-support.md
+    status: in-progress
+    priority: P1

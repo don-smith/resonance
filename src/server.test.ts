@@ -67,10 +67,11 @@ test('serves configured repository Home content and preserves HTML', async () =>
 
 test('serves package-local assets through preserved public URLs', async () => {
   await withServer(async (baseUrl) => {
-    const home = await fetch(`${baseUrl}/assets/home/home.js`); const docs = await fetch(`${baseUrl}/assets/docs/docs.css`); const shell = await fetch(`${baseUrl}/assets/app.js`);
+    const home = await fetch(`${baseUrl}/assets/home/home.js`); const docs = await fetch(`${baseUrl}/assets/docs/docs.css`); const shell = await fetch(`${baseUrl}/assets/app.js`); const theme = await fetch(`${baseUrl}/assets/shell/theme-bootstrap.js`);
     assert.equal(home.status, 200); assert.match(await home.text(), /export default/);
     assert.equal(docs.status, 200); assert.match(await docs.text(), /docs-layout/);
     assert.equal(shell.status, 200); assert.match(await shell.text(), /import\(packageInfo\.entry\)/);
+    assert.equal(theme.status, 200); assert.match(await theme.text(), /prefers-color-scheme: dark/);
     assert.equal((await fetch(`${baseUrl}/not-registered.js`)).status, 404);
   }, { config: moduleConfig });
 });

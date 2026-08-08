@@ -1,9 +1,9 @@
 .home-content { max-width: 900px; margin: 0 auto; padding: 72px 52px 96px; font-size: 18px; line-height: 1.7; }
 .home-content h2 { max-width: 720px; margin: 0 0 28px; color: var(--ink); font: 400 clamp(38px, 5vw, 68px)/.98 var(--display); letter-spacing: -.055em; }
-.home-content .lead { max-width: 610px; color: #5e5b56; font-size: 23px; line-height: 1.45; }
+.home-content .lead { max-width: 610px; color: var(--ink-soft); font-size: 23px; line-height: 1.45; }
 .home-body { min-height: 120px; }
 .home-loading, .home-error { color: var(--muted); font: 12px/1.5 var(--mono); }
-.home-error { color: #a94325; }
+.home-error { color: var(--danger); }
 .welcome-line { display: flex; align-items: center; gap: 9px; margin-top: 52px; color: var(--muted); font: 11px var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .signal-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 @media (max-width: 720px) { .home-content { padding: 48px 20px 72px; font-size: 17px; } }

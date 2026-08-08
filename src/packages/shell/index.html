@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>resonance</title>
+    <script src="/assets/shell/theme-bootstrap.js"></script>
     <link rel="stylesheet" href="/assets/shell/shell.css">
   </head>
   <body>
@@ -16,7 +17,20 @@
           <p class="repository-version" data-shell-repository-version hidden></p>
         </div>
         <nav id="primary-navigation" class="primary-navigation" aria-label="Workspaces"></nav>
-        <div class="primary-footer"><span>v<span data-shell-runtime-version></span></span></div>
+        <div class="primary-footer">
+          <span>v<span data-shell-runtime-version></span></span>
+          <div class="theme-selector" role="group" aria-label="Theme" data-shell-theme-selector>
+            <button type="button" data-shell-theme="light" aria-label="Use light theme" title="Light theme" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path></svg>
+            </button>
+            <button type="button" data-shell-theme="dark" aria-label="Use dark theme" title="Dark theme" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path></svg>
+            </button>
+            <button type="button" data-shell-theme="system" aria-label="Use system theme" title="System theme" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="1.5"></rect><path d="M8 21h8M12 17v4"></path></svg>
+            </button>
+          </div>
+        </div>
       </aside>
       <main id="package-mount" class="package-mount-region" aria-live="polite"></main>
     </div>

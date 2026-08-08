@@ -34,14 +34,14 @@
 .backlog-content h1 { font: 400 clamp(42px, 6vw, 82px)/.98 var(--display); letter-spacing: -.055em; }
 .backlog-content a { color: var(--accent); }
 .backlog-loading, .backlog-empty, .backlog-chat-empty { color: var(--muted); font: 12px var(--mono); }
-.backlog-error, .backlog-chat-error { color: #a94325; font: 12px/1.5 var(--mono); }
+.backlog-error, .backlog-chat-error { color: var(--danger); font: 12px/1.5 var(--mono); }
 .backlog-agent { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--paper-deep); }
 .backlog-agent[hidden] { display: none !important; }
 .backlog-agent-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 28px 20px 20px; border-bottom: 1px solid var(--line); }
 .backlog-agent-header .eyebrow { margin: 0; }
 .backlog-status { margin: 0; color: var(--muted); font: 11px var(--mono); }
 .backlog-status[data-status="working"] { color: var(--accent); }
-.backlog-status[data-status="error"] { color: #a94325; }
+.backlog-status[data-status="error"] { color: var(--danger); }
 .backlog-transcript { flex: 1; min-height: 180px; overflow: auto; padding: 20px; }
 .backlog-message { display: flex; flex-direction: column; gap: 5px; margin: 0 0 18px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .backlog-message strong { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
@@ -58,7 +58,7 @@
 .backlog-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .backlog-agent button:disabled { cursor: not-allowed; opacity: .45; }
 .backlog-reset, .backlog-retry { border: 1px solid var(--line) !important; background: transparent !important; color: var(--ink) !important; }
-.backlog-confirm-delete { align-self: start !important; background: #a94325 !important; border-color: #a94325 !important; }
+.backlog-confirm-delete { align-self: start !important; background: var(--danger) !important; border-color: var(--danger) !important; }
 
 @media (max-width: 1100px) {
   .backlog-workspace { grid-template-columns: minmax(190px, 230px) minmax(0, 1fr) minmax(250px, 300px); }

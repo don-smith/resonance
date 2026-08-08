@@ -32,3 +32,15 @@ decisions:
     plan: plans/telemetry-agent.md
     status: is-ready
     priority: P2
+  - title: Express architecture
+    plan: plans/express-architecture.md
+    status: in-progress
+    priority: P1
+  - title: Design System
+    plan: plans/design-system.md
+    status: is-ready
+    priority: P2
+  - title: Arch validation
+    plan: plans/arch-validation.md
+    status: in-progress
+    priority: P1

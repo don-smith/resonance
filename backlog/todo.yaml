@@ -18,7 +18,7 @@ decisions:
     priority: P3
   - title: Architecture package
     plan: plans/architecture-package.md
-    status: in-planning
+    status: recently-done
     priority: P2
   - title: Team chat package
     plan: plans/team-chat-package.md
@@ -29,6 +29,6 @@ decisions:
     status: in-planning
     priority: P3
   - title: Telemetry agent
+    plan: plans/telemetry-agent.md
     status: is-ready
     priority: P2
-    plan: plans/telemetry-agent.md

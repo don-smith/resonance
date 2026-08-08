@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "views": [
+    {
+      "id": "index",
+      "name": "Landscape view",
+      "description": "All modeled elements across the Resonance architecture."
+    },
+    {
+      "id": "systemContext",
+      "name": "System context",
+      "description": "Resonance Runtime, Resonance Packages, and the context around the repository they operate on."
+    },
+    {
+      "id": "runtimeContainers",
+      "name": "Runtime containers",
+      "description": "The containers that make up the Resonance Runtime and their repository boundary."
+    },
+    {
+      "id": "packageContainers",
+      "name": "Package containers",
+      "description": "The package containers that extend Resonance and their external dependencies."
+    },
+    {
+      "id": "hostComponents",
+      "name": "Host components",
+      "description": "The components inside the Host registry container."
+    },
+    {
+      "id": "serverComponents",
+      "name": "Server components",
+      "description": "The components inside the HTTP server container."
+    },
+    {
+      "id": "memberComponents",
+      "name": "Member components",
+      "description": "The components inside the Member loader container."
+    },
+    {
+      "id": "contentComponents",
+      "name": "Content engine components",
+      "description": "The components inside the Content engine container."
+    },
+    {
+      "id": "shellComponents",
+      "name": "Shell components",
+      "description": "The components inside the Shell package container."
+    },
+    {
+      "id": "homeComponents",
+      "name": "Home components",
+      "description": "The components inside the Home package container."
+    },
+    {
+      "id": "docsComponents",
+      "name": "Docs components",
+      "description": "The components inside the Docs package container."
+    },
+    {
+      "id": "architectureComponents",
+      "name": "Architecture components",
+      "description": "The components inside the Architecture package container."
+    },
+    {
+      "id": "backlogComponents",
+      "name": "Backlog components",
+      "description": "The components inside the Backlog package container."
+    }
+  ]
+}

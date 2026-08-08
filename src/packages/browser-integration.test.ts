@@ -59,6 +59,30 @@ test('navigates relative Markdown links inside the Docs workspace', async () => 
   } finally { cleanup(); }
 });
 
+test('remembers collapsed Docs folders in browser storage', async () => {
+  const { window, document } = parseHTML('<!doctype html><head></head><body><nav id="primary-navigation"></nav><main id="package-mount"></main></body>');
+  const values = new Map();
+  window.localStorage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)) };
+  const fetchFn = async (url) => {
+    if (url === '/api/manifest') return response({ version: 1, navigation: [{ id: 'docs', label: 'Docs', order: 20 }], packages: [{ id: 'shell', entry: '/assets/app.js', stylesheet: '/assets/shell/shell.css' }, { id: 'docs', entry: '/assets/docs/docs.js', stylesheet: '/assets/docs/docs.css' }] });
+    if (url === '/api/docs/tree') return response({ rootName: 'fixture', documents: ['README.md', 'docs/guide.md'], tree: [{ type: 'file', name: 'README.md', path: 'README.md' }, { type: 'folder', name: 'docs', children: [{ type: 'file', name: 'guide.md', path: 'docs/guide.md' }] }] });
+    if (url === '/api/docs/document?path=README.md') return response({ path: 'README.md', html: '<h1>README</h1>' });
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const coordinator = await loadCoordinator(window, document);
+    const application = await coordinator.startApplication({ documentRoot: document, fetchFn });
+    let folder = document.querySelector('.package-docs .tree-folder[data-folder-path="docs"]');
+    assert.equal(folder.hasAttribute('open'), true);
+    folder.removeAttribute('open');
+    folder.dispatchEvent(new window.Event('toggle'));
+    assert.deepEqual(JSON.parse(values.get('resonance:docs:collapsed-folders:fixture')), ['docs']);
+    await application.activate('docs');
+    folder = document.querySelector('.package-docs .tree-folder[data-folder-path="docs"]');
+    assert.equal(folder.hasAttribute('open'), false);
+  } finally { cleanup(); }
+});
+
 test('leaves external, fragment, and unsupported Markdown links to the browser', async () => {
   const { window, document } = parseHTML('<!doctype html><head></head><body><nav id="primary-navigation"></nav><main id="package-mount"></main></body>');
   const fetchFn = async (url) => {

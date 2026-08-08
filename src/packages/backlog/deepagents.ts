@@ -79,7 +79,7 @@ function textOf(chunk: unknown): string {
   return content.flatMap((part) => typeof part === 'string' ? [part] : part && typeof part === 'object' && typeof (part as { text?: unknown }).text === 'string' ? [(part as { text: string }).text] : []).join('');
 }
 
-class DeepAgentsRuntime implements BacklogAgentRuntime {
+export class DeepAgentsRuntime implements BacklogAgentRuntime {
   constructor(private readonly agent: any, private readonly telemetry: Telemetry) {}
   async *stream(turn: BacklogAgentTurn): AsyncIterable<BacklogAgentUpdate> {
     const streamSpan = this.telemetry.span('backlog.model.stream');
@@ -93,7 +93,7 @@ class DeepAgentsRuntime implements BacklogAgentRuntime {
     const stream = await this.agent.stream({ messages }, { configurable: { thread_id: turn.threadId }, streamMode: 'messages' });
       for await (const value of stream) {
         const [chunk, metadata] = value as [unknown, { langgraph_node?: unknown }];
-        if (metadata?.langgraph_node !== 'model') continue;
+        if (metadata?.langgraph_node !== 'model' && metadata?.langgraph_node !== 'model_request') continue;
         const text = textOf(chunk);
         if (text) { chunks += 1; yield { kind: 'assistant', text }; }
       }

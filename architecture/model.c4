@@ -1,0 +1,359 @@
+specification {
+  element system
+  element container
+  element component {
+    style {
+      shape component
+    }
+  }
+  element actor {
+    style {
+      shape person
+    }
+  }
+  element database {
+    style {
+      shape storage
+    }
+  }
+}
+
+model {
+  teamMember = actor "Team member" {
+    description "A team member exploring and evolving the repository."
+  }
+
+  targetRepository = database "Target repository" {
+    description "The repository Resonance is operating on."
+    link ./docs/architecture.md "Architecture boundaries"
+  }
+
+  llmProvider = system "LLM provider" {
+    description "An external language model provider used by configured packages for agent and other AI-assisted capabilities. Resonance Runtime does not require an LLM to serve the workspace."
+  }
+
+  resonanceRuntime = system "Resonance Runtime" {
+    description "The core runtime that serves the workspace HTTP server, validates and composes package contributions, and loads member packages."
+
+    host = container "Host registry" {
+      description "Validates package contributions and composes the application."
+      technology "TypeScript"
+      link ./src/host.ts "Source"
+
+      registry = component "Package registry" {
+        description "Loads the explicit package allowlist and validates contributions."
+        technology "TypeScript"
+        link ./src/host.ts "Source"
+      }
+      transport = component "Package transport" {
+        description "Dispatches namespaced routes and bounded package-safe requests."
+        technology "TypeScript"
+        link ./src/package-contract.ts "Source"
+      }
+      telemetry = component "Telemetry" {
+        description "Structured logging and span export (console / Langfuse) with credential redaction."
+        technology "TypeScript"
+        link ./src/telemetry.ts "Source"
+      }
+      stateManager = component "State manager" {
+        description "Persists per-package JSON state to .resonance/state/ with atomic writes, size validation, and corrupt-state isolation."
+        technology "TypeScript"
+        link ./src/state.ts "Source"
+      }
+    }
+
+    server = container "HTTP server" {
+      description "Creates the Node HTTP server, dispatches requests to host routes, serves assets, and manages SSE connections."
+      technology "TypeScript"
+      link ./src/server.ts "Source"
+
+      requestRouter = component "Request router" {
+        description "Parses incoming HTTP requests, matches method+path against registered routes and assets, and dispatches to handlers."
+        technology "TypeScript"
+        link ./src/server.ts "Source"
+      }
+      assetServer = component "Asset server" {
+        description "Serves package-registered static files from disk with content-type headers and caching control."
+        technology "TypeScript"
+        link ./src/server.ts "Source"
+      }
+    }
+
+    member = container "Member loader" {
+      description "Loads developer-specific package manifests from external checkouts and scaffolds member packages."
+      technology "TypeScript"
+      link ./src/member.ts "Source"
+
+      configLoader = component "Member config loader" {
+        description "Reads and validates .resonance/member-config.json and resolves the external member repository path."
+        technology "TypeScript"
+        link ./src/member.ts "Source"
+      }
+      manifestLoader = component "Member manifest loader" {
+        description "Discovers and loads the member package manifest from the external checkout."
+        technology "TypeScript"
+        link ./src/member.ts "Source"
+      }
+      scaffolder = component "Member scaffolder" {
+        description "Generates member package templates and repository scaffolds with Git initialization."
+        technology "TypeScript"
+        link ./src/member-scaffold.ts "Source"
+      }
+    }
+
+    content = container "Content engine" {
+      description "Provides shared Markdown rendering, file discovery, and document tree building used by the Home and Docs packages."
+      technology "TypeScript + markdown-it"
+      link ./src/markdown.ts "Source"
+
+      markdownRenderer = component "Markdown renderer" {
+        description "Wraps markdown-it to convert Markdown source into HTML with configurable options."
+        technology "TypeScript + markdown-it"
+        link ./src/markdown.ts "Source"
+      }
+      fileDiscovery = component "File discovery" {
+        description "Recursively scans the repository for Markdown files, builds a sorted folder/file tree, and reads document content."
+        technology "TypeScript"
+        link ./src/content.ts "Source"
+      }
+    }
+  }
+
+  resonancePackages = system "Resonance Packages" {
+    description "Pluggable packages that extend the workspace with domain-specific capabilities. Packages register through the Runtime host and may read repository sources or make LLM calls."
+
+    shell = container "Shell" {
+      description "Owns the browser frame, navigation, mounts, and bootstrap."
+      technology "TypeScript"
+      link ./src/packages/shell/index.ts "Source"
+
+      htmlFrame = component "HTML shell" {
+        description "Serves the index.html page that defines the application frame, navigation skeleton, and package mount points."
+        technology "HTML"
+        link ./src/packages/shell/index.html "Source"
+      }
+      appBootstrap = component "Application bootstrap" {
+        description "Serves the shell JavaScript entrypoint that initialises the client-side router, mounts, and navigation controller."
+        technology "TypeScript"
+        link ./src/packages/shell/app.js "Source"
+      }
+    }
+
+    home = container "Home" {
+      description "Renders the configured repository landing source."
+      technology "TypeScript"
+      link ./src/packages/home/index.ts "Source"
+
+      landingHandler = component "Landing handler" {
+        description "Reads and renders the configured landing document (README.md by default) as HTML via the Content engine."
+        technology "TypeScript"
+        link ./src/packages/home/index.ts "Source"
+      }
+    }
+
+    docs = container "Docs" {
+      description "Discovers and renders repository Markdown documents."
+      technology "TypeScript"
+      link ./src/packages/docs/index.ts "Source"
+
+      treeHandler = component "Document tree handler" {
+        description "Serves the full repository document tree as JSON including root name, flat document list, and nested folder structure."
+        technology "TypeScript"
+        link ./src/packages/docs/index.ts "Source"
+      }
+      documentHandler = component "Document handler" {
+        description "Resolves a repository-relative path, reads the Markdown source, and returns both raw content and rendered HTML."
+        technology "TypeScript"
+        link ./src/packages/docs/index.ts "Source"
+      }
+    }
+
+    backlog = container "Backlog" {
+      description "Owns the canonical backlog projection and constrained backlog agent."
+      technology "TypeScript"
+      link ./src/packages/backlog/index.ts "Source"
+
+      store = component "Backlog data store" {
+        description "Reads and writes the todo.yaml decision registry and plan Markdown documents."
+        technology "TypeScript"
+        link ./src/packages/backlog/backlog-store.ts "Source"
+      }
+      agent = component "Backlog agent session" {
+        description "Manages the LLM agent lifecycle: credentials, streaming, snapshots, and confirmation flow."
+        technology "TypeScript"
+        link ./src/packages/backlog/agent-session.ts "Source"
+      }
+      deepagents = component "Backlog DeepAgents runtime" {
+        description "Domain tools for the backlog agent: list, read, create, edit, set status, set priority, and request delete."
+        technology "TypeScript + LangChain"
+        link ./src/packages/backlog/deepagents.ts "Source"
+      }
+    }
+
+    architecture = container "Architecture" {
+      description "Projects LikeC4 architecture sources and runs bounded validation."
+      technology "TypeScript + LikeC4"
+      link ./src/packages/architecture/index.ts "Source"
+
+      store = component "Architecture data store" {
+        description "Reads and writes model, views, rules, patterns, and decisions artifacts; parses LikeC4 DSL sources."
+        technology "TypeScript + Zod"
+        link ./src/packages/architecture/architecture-store.ts "Source"
+      }
+      checkers = component "Validation checkers" {
+        description "Six deterministic checkers: authoritative config, shell required, package ownership, namespaced routes, evidence containment, and Git revision."
+        technology "TypeScript"
+        link ./src/packages/architecture/architecture-checkers.ts "Source"
+      }
+      agent = component "Architecture agent session" {
+        description "Manages the LLM agent lifecycle: credential provisioning, stream management, snapshots, and architecture edit confirmation."
+        technology "TypeScript"
+        link ./src/packages/architecture/architecture-agent.ts "Source"
+      }
+      deepagents = component "Architecture DeepAgents runtime" {
+        description "Virtual filesystem over the repository with ls, read, glob, grep, and bounded write; bundles the C4 architecture skill."
+        technology "TypeScript + LangChain + DeepAgents"
+        link ./src/packages/architecture/architecture-deepagents.ts "Source"
+      }
+      renderer = component "LikeC4 diagram renderer" {
+        description "React component wrapping @likec4/diagram for browser rendering with view navigation and validation panel."
+        technology "TypeScript + React"
+        link ./src/packages/architecture/architecture-likec4.tsx "Source"
+      }
+    }
+  }
+
+  teamMember -> resonanceRuntime "Uses"
+  resonanceRuntime -> targetRepository "Reads committed sources and configuration"
+  resonanceRuntime -> resonancePackages "Provides services to"
+  resonancePackages -> resonanceRuntime "Registers through"
+  resonancePackages -> targetRepository "Reads committed sources and configuration"
+  resonancePackages -> llmProvider "Configured packages make LLM calls through"
+
+  resonanceRuntime.server -> resonanceRuntime.host "Dispatches requests through"
+  resonanceRuntime.member -> resonanceRuntime.host "Supplies member package manifests to"
+
+  resonancePackages.shell -> resonanceRuntime.host "Registers through"
+  resonancePackages.home -> resonanceRuntime.host "Registers through"
+  resonancePackages.docs -> resonanceRuntime.host "Registers through"
+  resonancePackages.backlog -> resonanceRuntime.host "Registers through"
+  resonancePackages.architecture -> resonanceRuntime.host "Uses package-safe host capabilities"
+
+  resonancePackages.home -> targetRepository "Reads landing source"
+  resonancePackages.docs -> targetRepository "Reads Markdown"
+  resonancePackages.backlog -> targetRepository "Reads backlog decisions"
+  resonancePackages.architecture -> targetRepository "Reads LikeC4 model and evidence"
+  resonancePackages.architecture -> llmProvider "Makes LLM calls through"
+  resonancePackages.backlog -> llmProvider "Makes LLM calls through"
+
+  resonancePackages.home -> resonanceRuntime.content "Uses content engine"
+  resonancePackages.docs -> resonanceRuntime.content "Uses content engine"
+
+  resonanceRuntime.server.requestRouter -> resonanceRuntime.server.assetServer "Delegates asset requests to"
+
+  resonanceRuntime.host.registry -> resonanceRuntime.host.transport "Composes through"
+  resonanceRuntime.host.registry -> resonanceRuntime.host.telemetry "Creates and injects"
+  resonanceRuntime.host.registry -> resonanceRuntime.host.stateManager "Validates and creates state for"
+
+  resonanceRuntime.content.fileDiscovery -> resonanceRuntime.content.markdownRenderer "Provides source for"
+
+  resonancePackages.architecture.store -> resonancePackages.architecture.checkers "Provides model for"
+  resonancePackages.architecture.store -> resonancePackages.architecture.agent "Provides artifacts to"
+  resonancePackages.architecture.store -> resonancePackages.architecture.renderer "Provides graph data to"
+  resonancePackages.architecture.agent -> resonancePackages.architecture.deepagents "Delegates tool execution to"
+  resonancePackages.architecture.deepagents -> resonancePackages.architecture.store "Reads and writes artifacts through"
+  resonancePackages.architecture.checkers -> resonancePackages.architecture.store "Validates model from"
+
+  resonancePackages.backlog.store -> resonancePackages.backlog.agent "Provides decisions to"
+  resonancePackages.backlog.agent -> resonancePackages.backlog.deepagents "Delegates tool execution to"
+  resonancePackages.backlog.deepagents -> resonancePackages.backlog.store "Reads and writes decisions through"
+}
+
+views {
+  view systemContext of resonanceRuntime {
+    title "System context"
+    description "Resonance Runtime, Resonance Packages, and the context around the repository they operate on."
+    include
+      teamMember,
+      resonanceRuntime,
+      resonancePackages,
+      targetRepository,
+      llmProvider
+  }
+
+  view runtimeContainers of resonanceRuntime {
+    title "Runtime containers"
+    description "The containers that make up the Resonance Runtime and their repository boundary."
+
+    include
+      targetRepository
+
+    include resonanceRuntime.*
+  }
+
+  view packageContainers of resonancePackages {
+    title "Package containers"
+    description "The package containers that extend Resonance and their external dependencies."
+
+    include
+      targetRepository,
+      llmProvider,
+      resonanceRuntime
+
+    include resonancePackages.*
+  }
+
+  view hostComponents of resonanceRuntime.host {
+    title "Host components"
+    description "The components inside the Host registry container."
+    include *
+  }
+
+  view serverComponents of resonanceRuntime.server {
+    title "Server components"
+    description "The components inside the HTTP server container."
+    include *
+  }
+
+  view memberComponents of resonanceRuntime.member {
+    title "Member components"
+    description "The components inside the Member loader container."
+    include *
+  }
+
+  view contentComponents of resonanceRuntime.content {
+    title "Content engine components"
+    description "The components inside the Content engine container."
+    include *
+  }
+
+  view shellComponents of resonancePackages.shell {
+    title "Shell components"
+    description "The components inside the Shell package container."
+    include *
+  }
+
+  view homeComponents of resonancePackages.home {
+    title "Home components"
+    description "The components inside the Home package container."
+    include *
+  }
+
+  view docsComponents of resonancePackages.docs {
+    title "Docs components"
+    description "The components inside the Docs package container."
+    include *
+  }
+
+  view architectureComponents of resonancePackages.architecture {
+    title "Architecture components"
+    description "The components inside the Architecture package container."
+    include *
+  }
+
+  view backlogComponents of resonancePackages.backlog {
+    title "Backlog components"
+    description "The components inside the Backlog package container."
+    include *
+  }
+}

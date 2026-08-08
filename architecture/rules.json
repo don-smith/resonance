@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "authoritative-package-configuration", "name": "Authoritative package configuration", "description": "The viewed repository uses a checked-in version 1 package allowlist.", "appliesTo": ["repository-manifest"], "checker": "authoritative-config", "severity": "error" },
+    { "id": "shell-is-required", "name": "Shell is required", "description": "Shell is configured and enabled because it owns the application frame.", "appliesTo": ["shell"], "checker": "authoritative-config", "severity": "error" },
+    { "id": "package-ownership", "name": "Configured package ownership", "description": "Every modeled package has an explicit corresponding manifest entry and module path.", "appliesTo": ["package"], "checker": "package-ownership", "severity": "error" },
+    { "id": "namespaced-package-contributions", "name": "Namespaced package contributions", "description": "Package API routes and browser assets stay below their package namespace.", "appliesTo": ["package-routes"], "checker": "route-asset-namespacing", "severity": "error" },
+    { "id": "repository-evidence-contained", "name": "Repository evidence is contained", "description": "Architecture evidence links remain within the viewed repository.", "appliesTo": ["repository-containment"], "checker": "repository-containment", "severity": "error" },
+    { "id": "review-has-git-revision", "name": "Reviews identify a Git revision", "description": "A local Git HEAD is available when architecture results are reviewed.", "appliesTo": ["resonanceRuntime"], "checker": "git-revision", "severity": "info" }
+  ]
+}

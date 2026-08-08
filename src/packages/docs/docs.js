@@ -8,6 +8,8 @@ function escapeHtml(value) {
   }[character]));
 }
 
+const COLLAPSED_FOLDERS_STORAGE_PREFIX = 'resonance:docs:collapsed-folders:';
+
 function resolveDocumentLink(href, currentPath, documents) {
   if (!href || !currentPath || href.startsWith('/') || href.startsWith('#')) return null;
   let target;
@@ -20,10 +22,31 @@ function resolveDocumentLink(href, currentPath, documents) {
   return documents.includes(documentPath) ? documentPath : null;
 }
 
-function renderTree(nodes) {
+function getStorage() {
+  try { return typeof window !== 'undefined' ? window.localStorage || null : null; }
+  catch { return null; }
+}
+
+function readCollapsedFolders(storage, key) {
+  if (!storage) return new Set();
+  try {
+    const value = JSON.parse(storage.getItem(key) || '[]');
+    return new Set(Array.isArray(value) ? value.filter((folder) => typeof folder === 'string') : []);
+  } catch { return new Set(); }
+}
+
+function writeCollapsedFolders(storage, key, folders) {
+  if (!storage || !key) return;
+  try { storage.setItem(key, JSON.stringify([...folders].sort())); }
+  catch { /* Browser storage may be unavailable or full. */ }
+}
+
+function renderTree(nodes, parentPath = '', collapsedFolders = new Set()) {
   return nodes.map((node) => {
     if (node.type === 'folder') {
-      return `<details class="tree-folder" open><summary>${escapeHtml(node.name)}</summary><div class="tree-children">${renderTree(node.children)}</div></details>`;
+      const folderPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+      const open = collapsedFolders.has(folderPath) ? '' : ' open';
+      return `<details class="tree-folder" data-folder-path="${escapeHtml(folderPath)}"${open}><summary>${escapeHtml(node.name)}</summary><div class="tree-children">${renderTree(node.children, folderPath, collapsedFolders)}</div></details>`;
     }
     return `<button class="tree-file" type="button" data-path="${escapeHtml(node.path)}">${escapeHtml(node.name)}</button>`;
   }).join('');
@@ -38,6 +61,9 @@ export default function createDocsPackage({ fetchFn = fetch } = {}) {
   let projectNameElement;
   let countElement;
   let pathElement;
+  let collapsedFolders = new Set();
+  let collapsedFoldersStorage;
+  let collapsedFoldersStorageKey;
 
   function showError(element, error) {
     element.innerHTML = '<p class="docs-error"></p>';
@@ -66,7 +92,22 @@ export default function createDocsPackage({ fetchFn = fetch } = {}) {
     repository = await response.json();
     projectNameElement.textContent = repository.rootName;
     countElement.textContent = repository.documents.length;
-    treeElement.innerHTML = renderTree(repository.tree);
+    collapsedFoldersStorage = getStorage();
+    collapsedFoldersStorageKey = `${COLLAPSED_FOLDERS_STORAGE_PREFIX}${encodeURIComponent(repository.rootName)}`;
+    collapsedFolders = readCollapsedFolders(collapsedFoldersStorage, collapsedFoldersStorageKey);
+    treeElement.innerHTML = renderTree(repository.tree, '', collapsedFolders);
+    const folderPaths = new Set([...treeElement.querySelectorAll('.tree-folder')].map((folder) => folder.dataset.folderPath));
+    collapsedFolders = new Set([...collapsedFolders].filter((folder) => folderPaths.has(folder)));
+    writeCollapsedFolders(collapsedFoldersStorage, collapsedFoldersStorageKey, collapsedFolders);
+    treeElement.querySelectorAll('.tree-folder').forEach((folder) => {
+      folder.addEventListener('toggle', () => {
+        const folderPath = folder.dataset.folderPath;
+        if (!folderPath) return;
+        if (folder.hasAttribute('open')) collapsedFolders.delete(folderPath);
+        else collapsedFolders.add(folderPath);
+        writeCollapsedFolders(collapsedFoldersStorage, collapsedFoldersStorageKey, collapsedFolders);
+      });
+    });
 
     const remembered = selectedPath && repository.documents.includes(selectedPath) ? selectedPath : null;
     const first = remembered || repository.documents.find((path) => /^readme\.md$/i.test(path)) || repository.documents[0];

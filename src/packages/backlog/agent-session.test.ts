@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPackagedSkillBackend } from './deepagents.ts';
+import { createPackagedSkillBackend, DeepAgentsRuntime } from './deepagents.ts';
 import { createTelemetry } from '../../telemetry.ts';
 import { BacklogAgentBusyError, createBacklogAgentSession, type BacklogAgentRuntimeFactory } from './agent-session.ts';
 
@@ -62,6 +62,18 @@ test('records the original model failure while preserving the generic user-facin
   assert.equal(session.snapshot().error, 'Backlog agent request failed.');
   assert.ok(records.some((record) => record.kind === 'log' && record.message === 'Backlog agent stream failed' && record.fields.error.message === 'provider unavailable'));
   assert.ok(records.some((record) => record.kind === 'span' && record.name === 'backlog.agent.turn' && record.error.message === 'provider unavailable'));
+});
+
+test('forwards assistant chunks from the current DeepAgents model node', async () => {
+  const telemetry = createTelemetry({ config: { mode: 'off' }, console: null });
+  const runtime = new DeepAgentsRuntime({
+    async stream() {
+      return (async function* () { yield [{ content: 'Hello from the model.' }, { langgraph_node: 'model_request' }]; })();
+    },
+  }, telemetry);
+  const updates = [];
+  for await (const update of runtime.stream({ messages: [], selected: decision, threadId: 'test-thread' })) updates.push(update);
+  assert.deepEqual(updates, [{ kind: 'assistant', text: 'Hello from the model.' }]);
 });
 
 test('exposes only the packaged runtime skill through its virtual backend', async () => {

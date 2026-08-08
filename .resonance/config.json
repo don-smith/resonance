@@ -24,6 +24,12 @@
       "module": "src/packages/backlog/index.ts",
       "provider": "openrouter",
       "model": "deepseek/deepseek-v4-flash"
+    },
+    "architecture": {
+      "module": "src/packages/architecture/index.ts",
+      "artifactRoot": "architecture",
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-pro"
     }
   }
 }

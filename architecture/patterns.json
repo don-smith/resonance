@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "patterns": [
+    { "id": "explicit-package-contract", "name": "Explicit package contract", "description": "Packages contribute routes, assets, navigation, and browser entries through one shared host contract.", "evidence": [{ "path": "src/package-contract.ts" }, { "path": "src/host.ts" }] },
+    { "id": "manifest-allowlist", "name": "Manifest allowlist", "description": "Only packages explicitly selected by repository configuration are loaded.", "evidence": [{ "path": "src/packages/index.ts" }, { "path": "src/config.ts" }] },
+    { "id": "package-safe-repository-read", "name": "Package-safe repository read", "description": "Package handlers resolve repository paths through HostContext before reading files.", "evidence": [{ "path": "src/host.ts" }, { "path": "src/packages/docs/index.ts" }] },
+    { "id": "agent-capable-package", "name": "Agent-capable package", "description": "Packages with LLM agents expose SSE streaming, credential management, and a prompt submission route following the same contract pattern.", "evidence": [{ "path": "src/packages/architecture/index.ts" }, { "path": "src/packages/backlog/index.ts" }, { "path": "src/packages/architecture/architecture-agent.ts" }, { "path": "src/packages/backlog/agent-session.ts" }] },
+    { "id": "dual-scope-packages", "name": "Dual-scope package loading", "description": "Team packages load from checked-in config first; member packages load from an external live checkout and lose conflicts.", "evidence": [{ "path": "src/packages/index.ts" }, { "path": "src/member.ts" }] }
+  ]
+}

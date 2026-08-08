@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "decisions": [
+    { "id": "architecture-hybrid-authority", "title": "Architecture uses hybrid authority", "status": "accepted", "summary": "Implementation facts establish what exists; authored assertions establish intended structure; views remain projections.", "path": "backlog/plans/architecture-package.md", "evidence": [{ "path": "backlog/plans/architecture-package.md" }] },
+    { "id": "shell-required", "title": "Shell remains required infrastructure", "status": "accepted", "summary": "Shell owns the browser bootstrap, navigation, and mounts; packages do not replace it.", "path": "docs/architecture.md", "evidence": [{ "path": "src/packages/shell/README.md" }, { "path": "docs/architecture.md" }] }
+  ]
+}

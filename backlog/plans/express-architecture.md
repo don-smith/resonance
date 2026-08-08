@@ -45,7 +45,7 @@ Wire these into the workspace collapsible context/validation panel so results ar
 
 Build out the Architecture agent's domain skills:
 
-- **Explain skill** — Describe entities, relationships, and views from the canonical model. Answer "what is X?", "how does Y relate to Z?", "show me the deployment view."
+- **Explain skill** — Describe entities, relationships, and views from the canonical model. Answer "what is X?", "how does Y relate to Z?", "show me the deployment view." The skill requires the agent to read the canonical model and requested view first, preserve relationship direction, distinguish modeled intent from implementation evidence and assessment, and report missing facts instead of inventing them.
 - **Authoring skill** — Create and edit views, diagrams, and model elements through conversation, with schema validation and stable IDs.
 - **Review skill** — Perform architecture reviews using repository-wide read-only inspection. Distinguish verified conformance, verified violations, unresolved questions, and qualitative agent assessment.
 - **Validation skill** — Run checkers on demand, explain results, and suggest fixes for violations.
@@ -96,14 +96,8 @@ This decision is complete when a developer can:
 5. 🟢 **Open the validation panel and see `pass`/`fail`/`unknown` results for the implemented checkers.**
    → Six checkers (authoritative-config, shell, ownership, routes, containment, git) are fully wired — server API, UI button, result rendering with color-coded statuses, and CSS styling are all present and functional.
 
-6. 🟡 **Ask the Architecture agent "explain the system context" and receive a coherent explanation grounded in the canonical model.**
-   → The agent has `read_model`, `read_view`, `read_entity`, and `read_evidence` tools to access the model, plus the likec4-dsl reference skill. **There is no dedicated "explain" skill** — the agent relies on general conversation + tools. It can answer, but the quality/coherence depends on the agent's general capabilities rather than a structured explain skill.
-
-7. 🟡 **Ask the Architecture agent to review package ownership and see a structured report with distinct findings.**
-   → The agent has `validate_architecture` which runs the ownership checker. **There is no dedicated "review" skill** that produces a structured report distinguishing verified conformance, verified violations, unresolved questions, and qualitative assessment. The agent can run validation, but the output format isn't enforced.
-
-8. 🟡 **Propose a model change through the agent and have it applied with validation.**
-   → The agent has write_file/edit_file capabilities for architecture files, and the system prompt instructs it to repair model issues. LikeC4 parse errors are returned as recoverable context. **There is no dedicated "authoring" skill** with schema validation and stable ID enforcement. The agent can do it, but with higher risk of inconsistent edits.
+6. 🟢 **Ask the Architecture agent "explain the system context" and receive a coherent explanation grounded in the canonical model.**
+   → The dedicated `explain` skill is mounted alongside `likec4-dsl` and `code-structural-view`. It directs the agent to call `read_model`, select and call `read_view` for the system-context view, use `read_entity` and linked `read_evidence` when needed, preserve relationship direction, and structure the response around scope, participants, relationships, boundaries, and grounding. It distinguishes modeled intent, implementation evidence, and agent assessment, and reports missing facts instead of inventing them.
 
 ### Legend
 
@@ -113,4 +107,4 @@ This decision is complete when a developer can:
 
 ### Note on relationship to Arch validation
 
-The **Arch validation** decision (`backlog/plans/arch-validation.md`) is a separate, complementary workstream. It repairs trust defects in the existing validation pipeline (checker dispatch, false passes, LikeC4 parsing path) and introduces the intended-vs-observed graph model with dependency-cruiser integration. Where this decision establishes the **scaffolding and content** (diagrams, model, checkers, agent, UI), Arch validation makes the **results trustworthy** and adds dependency-level analysis. The yellow criteria above that involve the agent (6, 7, 8) are not addressed by Arch validation — they are gaps specific to this decision.
+The **Arch validation** decision (`backlog/plans/arch-validation.md`) is a separate, complementary workstream. It repairs trust defects in the existing validation pipeline (checker dispatch, false passes, LikeC4 parsing path) and introduces the intended-vs-observed graph model with dependency-cruiser integration. Where this decision establishes the **scaffolding and content** (diagrams, model, checkers, agent, UI), Arch validation makes the **results trustworthy** and adds dependency-level analysis. Criteria 7 and 8 (agent review and authoring) have been moved to Arch validation; criterion 6 (agent explain) is now addressed by the dedicated explain skill.

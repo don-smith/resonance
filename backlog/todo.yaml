@@ -34,11 +34,11 @@ decisions:
     priority: P2
   - title: Express architecture
     plan: plans/express-architecture.md
-    status: in-progress
+    status: recently-done
     priority: P1
   - title: Design System
     plan: plans/design-system.md
-    status: is-ready
+    status: in-progress
     priority: P2
   - title: Arch validation
     plan: plans/arch-validation.md
@@ -46,5 +46,5 @@ decisions:
     priority: P1
   - title: Theme support
     plan: plans/theme-support.md
-    status: in-progress
+    status: recently-done
     priority: P1

@@ -7,6 +7,11 @@
       "description": "All modeled elements across the Resonance architecture."
     },
     {
+      "id": "landscape",
+      "name": "Landscape",
+      "description": "Draft system landscape showing where Resonance sits in the broader developer ecosystem. Resonance connects individual developers to multiple projects, and brings developers together through teams — providing a common application view that replaces the fragmented experience of using disparate tools. Teams balance shared assets and capabilities with individual exploration, learning, and personal workspaces."
+    },
+    {
       "id": "systemContext",
       "name": "System context",
       "description": "Resonance Runtime, Resonance Packages, and the context around the repository they operate on."
@@ -34,12 +39,32 @@
     {
       "id": "memberComponents",
       "name": "Member components",
-      "description": "The components inside the Member loader container."
+      "description": "Member loader components and the member scaffolder used during package creation."
+    },
+    {
+      "id": "configComponents",
+      "name": "Config components",
+      "description": "The components inside the Repository config container."
     },
     {
       "id": "contentComponents",
       "name": "Content engine components",
       "description": "The components inside the Content engine container."
+    },
+    {
+      "id": "browserComponents",
+      "name": "Browser components",
+      "description": "Placeholder view for the client-side browser runtime components. Currently serves as a structural anchor — the browser runtime loads shell bootstrap, renders package UIs, manages client-side navigation, and communicates with the server via HTTP and SSE. Specific internal components will be modelled as browser-side patterns emerge."
+    },
+    {
+      "id": "fileDiscoveryCode",
+      "name": "File discovery",
+      "description": "Functions, types, and calling patterns inside the File Discovery component: discoverMarkdownFiles() recursively walks the directory tree, buildMarkdownTree() transforms sorted paths into a nested folder/file tree, and readMarkdown() reads file content from disk. DiscoveryOptions and default constants configure extension filtering and directory exclusions."
+    },
+    {
+      "id": "markdownRendererCode",
+      "name": "Markdown renderer",
+      "description": "Functions and calling patterns inside the Markdown Renderer component: createMarkdownRenderer() configures a markdown-it instance with optional html, linkify, and typographer overrides; renderMarkdown() provides a one-shot convenience wrapper that calls createMarkdownRenderer() with defaults."
     },
     {
       "id": "shellComponents",
@@ -62,9 +87,59 @@
       "description": "The components inside the Architecture package container."
     },
     {
+      "id": "deepagentsCode",
+      "name": "Architecture DeepAgents runtime",
+      "description": "Functions, types, and calling patterns inside the Architecture DeepAgents runtime: createDeepAgentsRuntimeFactory() wires ArchitectureChatOpenAI, createArchitectureTools() (five tools), and createPackagedSkillBackend() into a DeepAgentsRuntime. Includes ReadonlyRepositoryBackend, PackagedSkills, and providerFetch(). Excludes textOf/inputTokensOf/recoverableArchitectureToolError/selectedContext helpers."
+    },
+    {
+      "id": "storeCode",
+      "name": "Architecture data store",
+      "description": "Functions, types, and calling patterns inside the Architecture data store: createArchitectureStore() returns an ArchitectureStore with read/likec4/graph/readEvidence/replace. Shows the artifact types (ArchitectureModel, Views, Rules, Patterns, Decisions), ArchitectureArtifacts, LikeC4Snapshot, ArchitectureMutation, and the error hierarchy. Excludes parse/hash/safeRoot and Zod schemas."
+    },
+    {
+      "id": "checkersCode",
+      "name": "Validation checkers",
+      "description": "Functions, types, and calling patterns inside the Validation checkers: validateArchitecture() dispatches to six deterministic checkers and returns ArchitectureValidation with ArchitectureFinding[] results. Excludes individual checker implementations (checkAuthoritativeConfig, checkShell, checkOwnership, checkRoutes, checkContainment, checkGit)."
+    },
+    {
+      "id": "agentCode",
+      "name": "Architecture agent session",
+      "description": "Functions, types, and calling patterns inside the Architecture agent session: createArchitectureAgentSession() manages the agent lifecycle with snapshot/subscribe/submitPrompt/applyEdit/reset/dispose/runValidation. Shows ArchitectureAgentRuntime contract, ArchitectureAgentSnapshot, ArchitectureAgentTurn, ArchitectureAgentUpdate, ArchitectureAgentEvent, ArchitectureAgentRuntimeFactory, and ArchitectureAgentBusyError. Excludes internal state-machine helpers."
+    },
+    {
+      "id": "rendererCode",
+      "name": "LikeC4 diagram renderer",
+      "description": "Functions, types, and calling patterns inside the LikeC4 diagram renderer: createLikeC4Renderer() accepts RendererOptions (root, dump, viewId, onNodeClick, onNavigate) and mounts a ReactLikeC4 component with pan/zoom/select/navigate into a DOM element, returning an unmount handle."
+    },
+    {
       "id": "backlogComponents",
       "name": "Backlog components",
       "description": "The components inside the Backlog package container."
+    },
+    {
+      "id": "requestRouterCode",
+      "name": "Request router",
+      "description": "Request routing internals show the startServer() entry point delegating to createApp(), which calls createHost() and wires http.createServer with methodOf()→HttpMethod normalisation, allowFor()/registeredMethods() Allow-header computation consuming HostRegistry, rejectMethod() 405 responses, routeKey() dispatch, and asset serving via serveFile(). HttpMethod is the single type that flows through the routing pipeline."
+    },
+    {
+      "id": "assetServerCode",
+      "name": "Asset server",
+      "description": "Static file serving internals: serveFile() checks existence via access(), streams files with createReadStream().pipe(response), sets content-type and cache-control: no-cache headers, and falls back to 404. Called by createApp() during asset dispatch with data resolved from HostRegistry.assets."
+    },
+    {
+      "id": "configLoaderCode",
+      "name": "Member config loader",
+      "description": "Config loading and persistence: loadMemberConfig() reads and validates .resonance/member-config.json returning null when absent; writeMemberConfig() validates and atomically writes it. Both delegate to validateMemberConfig() which produces the MemberConfig type with version, absolute source path, and validated packages map. resolveMemberRepository() resolves the source to a canonical realpath, and packageInput() strips module/enabled keys for the host registry."
+    },
+    {
+      "id": "manifestLoaderCode",
+      "name": "Member manifest loader",
+      "description": "Manifest discovery and loading: loadMemberManifest() tries a priority-ordered list of candidate filenames, reads and parses the first one found, and validates through validateMemberManifest(). Both produce the MemberManifest type with version and validated package map where each package must include a module field."
+    },
+    {
+      "id": "scaffolderCode",
+      "name": "Member scaffolder",
+      "description": "Plan-then-create scaffolding for member packages and repositories. planMemberPackageScaffold() validates the package id and returns a frozen MemberPackagePlan; createMemberPackageScaffold() writes templates, runs a caller-supplied VerifyMemberPackage callback, and rolls back on failure. planMemberRepository() computes the full file list; createMemberRepository() copies the package contract and authoring skill, writes all files, and runs git init with rollback on failure."
     }
   ]
 }

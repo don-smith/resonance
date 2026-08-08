@@ -10,7 +10,9 @@ import type { ArchitectureAgentRuntime, ArchitectureAgentRuntimeFactory, Archite
 import { validateArchitecture } from './architecture-checkers.ts';
 import { getArchitectureModelProfile } from './architecture-model-profiles.ts';
 
-const skillPath = '/skills/likec4-dsl/SKILL.md';
+const skillRoot = '/skills';
+const defaultSkillName = 'likec4-dsl';
+type PackagedSkills = string | Readonly<Record<string, string>>;
 const denied = (requestedPath: string) => `Permission denied: ${requestedPath} is not available to the Architecture agent.`;
 const readOnlyDenied = (requestedPath: string) => `Permission denied: ${requestedPath} is read-only for the Architecture agent.`;
 const maxRepositoryFileBytes = 10 * 1024 * 1024;
@@ -263,19 +265,29 @@ export function createReadonlyRepositoryBackend(repositoryRoot: string): Backend
   return new ReadonlyRepositoryBackend(repositoryRoot);
 }
 
-export function createPackagedSkillBackend(skill: string, repositoryRoot?: string, writableRoot = 'architecture'): BackendProtocolV2 {
+export function createPackagedSkillBackend(skills: PackagedSkills, repositoryRoot?: string, writableRoot = 'architecture'): BackendProtocolV2 {
   const now = new Date(0).toISOString();
+  const packagedSkills = typeof skills === 'string' ? { [defaultSkillName]: skills } : skills;
+  const names = Object.keys(packagedSkills).sort();
+  if (names.some((name) => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))) throw new Error('Packaged skill names must be lowercase kebab-case.');
+  const skillFile = (name: string) => `${skillRoot}/${name}/SKILL.md`;
+  const skillNameForFile = (requestedPath: string) => names.find((name) => requestedPath === skillFile(name));
   const directory = (requestedPath: string) => requestedPath.endsWith('/') ? requestedPath : `${requestedPath}/`;
   const skillBackend: BackendProtocolV2 = {
     ls(requestedPath) {
-      switch (directory(requestedPath)) {
-        case '/skills/': return { files: [{ path: '/skills/likec4-dsl/', is_dir: true }] };
-        case '/skills/likec4-dsl/': return { files: [{ path: skillPath, is_dir: false }] };
-        default: return { error: denied(requestedPath) };
-      }
+      const requestedDirectory = directory(requestedPath);
+      if (requestedDirectory === `${skillRoot}/`) return { files: names.map((name) => ({ path: `${skillRoot}/${name}/`, is_dir: true })) };
+      const name = names.find((candidate) => requestedDirectory === `${skillRoot}/${candidate}/`);
+      return name ? { files: [{ path: skillFile(name), is_dir: false }] } : { error: denied(requestedPath) };
     },
-    read(requestedPath) { return requestedPath === skillPath ? { content: skill, mimeType: 'text/markdown' } : { error: denied(requestedPath) }; },
-    readRaw(requestedPath) { return requestedPath === skillPath ? { data: { content: skill, mimeType: 'text/markdown', created_at: now, modified_at: now } } : { error: denied(requestedPath) }; },
+    read(requestedPath) {
+      const name = skillNameForFile(requestedPath);
+      return name ? { content: packagedSkills[name], mimeType: 'text/markdown' } : { error: denied(requestedPath) };
+    },
+    readRaw(requestedPath) {
+      const name = skillNameForFile(requestedPath);
+      return name ? { data: { content: packagedSkills[name], mimeType: 'text/markdown', created_at: now, modified_at: now } } : { error: denied(requestedPath) };
+    },
     grep(_pattern, requestedPath = '/') { return { error: denied(requestedPath || '/') }; },
     glob(_pattern, requestedPath = '/') { return { error: denied(requestedPath) }; },
     write(requestedPath) { return { error: denied(requestedPath) }; },
@@ -283,12 +295,12 @@ export function createPackagedSkillBackend(skill: string, repositoryRoot?: strin
   };
   if (!repositoryRoot) return skillBackend;
   const repositoryBackend = new ReadonlyRepositoryBackend(repositoryRoot, writableRoot);
-  const isSkillPath = (requestedPath: string) => requestedPath === '/skills' || requestedPath.startsWith('/skills/');
+  const isSkillPath = (requestedPath: string) => requestedPath === skillRoot || requestedPath.startsWith(`${skillRoot}/`);
   return {
     async ls(requestedPath) {
       if (requestedPath === '/') {
         const result = await repositoryBackend.ls('/');
-        return result.files ? { files: [...result.files.filter((file) => file.path !== '/skills/'), { path: '/skills/', is_dir: true }] } : result;
+        return result.files ? { files: [...result.files.filter((file) => file.path !== `${skillRoot}/`), { path: `${skillRoot}/`, is_dir: true }] } : result;
       }
       return isSkillPath(requestedPath) ? skillBackend.ls(requestedPath) : repositoryBackend.ls(requestedPath);
     },
@@ -296,8 +308,8 @@ export function createPackagedSkillBackend(skill: string, repositoryRoot?: strin
     readRaw(requestedPath) { return isSkillPath(requestedPath) ? skillBackend.readRaw(requestedPath) : repositoryBackend.readRaw(requestedPath); },
     grep(pattern, requestedPath = '/', glob) { const basePath = requestedPath || '/'; return isSkillPath(basePath) ? skillBackend.grep(pattern, basePath, glob || undefined) : repositoryBackend.grep(pattern, basePath, glob || undefined); },
     glob(pattern, requestedPath = '/') { return isSkillPath(requestedPath) ? skillBackend.glob(pattern, requestedPath) : repositoryBackend.glob(pattern, requestedPath); },
-    write(requestedPath, content) { return repositoryBackend.write(requestedPath, content); },
-    edit(requestedPath, oldString, newString, replaceAll) { return repositoryBackend.edit(requestedPath, oldString, newString, replaceAll); },
+    write(requestedPath, content) { return isSkillPath(requestedPath) ? skillBackend.write(requestedPath, content) : repositoryBackend.write(requestedPath, content); },
+    edit(requestedPath, oldString, newString, replaceAll) { return isSkillPath(requestedPath) ? skillBackend.edit(requestedPath, oldString, newString, replaceAll) : repositoryBackend.edit(requestedPath, oldString, newString, replaceAll); },
   };
 }
 
@@ -370,15 +382,17 @@ function selectedContext(turn: ArchitectureAgentTurn): string {
 }
 
 export class DeepAgentsRuntime implements ArchitectureAgentRuntime {
-  constructor(private readonly agent: any, private readonly telemetry: Telemetry, private readonly maxInputTokens?: number) {}
-  async *stream(turn: ArchitectureAgentTurn): AsyncIterable<ArchitectureAgentUpdate> {
-    const streamSpan = this.telemetry.span('architecture.model.stream');
+  constructor(private readonly agent: any, private readonly telemetry: Telemetry, private readonly maxInputTokens?: number, private readonly systemPrompt?: string) {}
+  async *stream(turn: ArchitectureAgentTurn, signal: AbortSignal): AsyncIterable<ArchitectureAgentUpdate> {
+    const messages = turn.messages.map((message, index) => ({ role: message.role, content: message.role === 'user' && index === turn.messages.length - 1 ? `${selectedContext(turn)}\n\n<user-request>\n${message.content}\n</user-request>` : message.content }));
+    const input = [...(this.systemPrompt ? [{ role: 'system', content: this.systemPrompt }] : []), ...messages];
+    const streamSpan = this.telemetry.span('architecture.model.stream', { observationType: 'generation', input });
     this.telemetry.info('Architecture model stream started', { threadId: turn.threadId });
     let chunks = 0;
     let assistantResponseOpen = false;
+    const responses: string[] = [];
     try {
-      const messages = turn.messages.map((message, index) => ({ role: message.role, content: message.role === 'user' && index === turn.messages.length - 1 ? `${selectedContext(turn)}\n\n<user-request>\n${message.content}\n</user-request>` : message.content }));
-      const stream = await this.agent.stream({ messages }, { configurable: { thread_id: turn.threadId }, streamMode: 'messages' });
+      const stream = await this.agent.stream({ messages }, { configurable: { thread_id: turn.threadId }, streamMode: 'messages', signal });
       for await (const value of stream) {
         const [chunk, metadata] = value as [unknown, { langgraph_node?: unknown }];
         const isModelResponse = metadata?.langgraph_node === 'model' || metadata?.langgraph_node === 'model_request';
@@ -388,16 +402,30 @@ export class DeepAgentsRuntime implements ArchitectureAgentRuntime {
         const text = textOf(chunk);
         if (text) {
           const newParagraph = chunks > 0 && !assistantResponseOpen;
+          if (assistantResponseOpen) responses[responses.length - 1] += text;
+          else responses.push(text);
           chunks += 1;
           assistantResponseOpen = true;
           yield { kind: 'assistant', text, ...(newParagraph ? { newParagraph: true } : {}) };
         }
       }
-      streamSpan.end({ status: 'ok', chunks });
+      const output = responses.map((content) => ({ role: 'assistant', content }));
+      if (signal.aborted) {
+        streamSpan.end({ status: 'stopped', chunks, output });
+        this.telemetry.info('Architecture model stream stopped', { chunks });
+        return;
+      }
+      streamSpan.end({ status: 'ok', chunks, output });
       this.telemetry.info('Architecture model stream completed', { chunks });
     } catch (error) {
-      streamSpan.fail(error, { chunks });
-      this.telemetry.error('Architecture model stream failed', { error, chunks });
+      const output = responses.map((content) => ({ role: 'assistant', content }));
+      if (signal.aborted) {
+        streamSpan.end({ status: 'stopped', chunks, output });
+        this.telemetry.info('Architecture model stream stopped', { chunks });
+      } else {
+        streamSpan.fail(error, { chunks, output });
+        this.telemetry.error('Architecture model stream failed', { error, chunks });
+      }
       throw error;
     }
   }
@@ -429,17 +457,21 @@ export async function providerFetch(input: RequestInfo | URL, init: RequestInit 
 
 export function createDeepAgentsRuntimeFactory({ provider, model, artifactRoot = 'architecture' }: { provider: 'openai' | 'openrouter'; model: string; artifactRoot?: string }): ArchitectureAgentRuntimeFactory {
   return async (options) => {
-    const skill = await readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8');
+    const [likec4Skill, codeStructuralViewSkill] = await Promise.all([
+      readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8'),
+      readFile(new URL('./skills/code-structural-view/SKILL.md', import.meta.url), 'utf8'),
+    ]);
     const runtimeTelemetry = options.telemetry.child({ provider, model });
     const chatModel = new ArchitectureChatOpenAI({ model, apiKey: options.apiKey, temperature: 0, configuration: provider === 'openrouter' ? { baseURL: 'https://openrouter.ai/api/v1', maxRetries: 5, fetch: (input, init) => providerFetch(input, init, runtimeTelemetry) } : { maxRetries: 5, fetch: (input, init) => providerFetch(input, init, runtimeTelemetry) } });
+    const systemPrompt = `You are Resonance Architecture Agent. Read /skills/likec4-dsl/SKILL.md before answering. Read and follow /skills/code-structural-view/SKILL.md when the user asks to understand or improve a code-level structural architecture view. The whole viewed repository is mounted at /. Use ls, read_file, glob, and grep to inspect any repository file needed for an assessment. You may use write_file and edit_file for files under /${artifactRoot} and for Markdown documents anywhere in the repository. Use those write capabilities to keep the LikeC4 model and architecture metadata current, and to correct or improve repository documentation when asked. If an Architecture tool reports a LikeC4 parse or reference error, do not stop at reporting it: inspect the relevant source under /${artifactRoot}, repair it with edit_file or write_file, and retry the Architecture tool. All other repository files are read-only. Credential files such as .env files and repository-local agent credential files are intentionally unavailable; never modify .git or credentials, and never use shell or network access. Use Architecture tools for model facts and distinguish evidence, intent, and assessment.`;
     const agent = createDeepAgent({
       model: chatModel,
       tools: createArchitectureTools(options),
-      backend: createPackagedSkillBackend(skill, options.context.repositoryRoot, artifactRoot),
+      backend: createPackagedSkillBackend({ 'likec4-dsl': likec4Skill, 'code-structural-view': codeStructuralViewSkill }, options.context.repositoryRoot, artifactRoot),
       skills: ['/skills/'],
       checkpointer: false,
-      systemPrompt: `You are Resonance Architecture Agent. Read /skills/likec4-dsl/SKILL.md before answering. The whole viewed repository is mounted at /. Use ls, read_file, glob, and grep to inspect any repository file needed for an assessment. You may use write_file and edit_file for files under /${artifactRoot} and for Markdown documents anywhere in the repository. Use those write capabilities to keep the LikeC4 model and architecture metadata current, and to correct or improve repository documentation when asked. If an Architecture tool reports a LikeC4 parse or reference error, do not stop at reporting it: inspect the relevant source under /${artifactRoot}, repair it with edit_file or write_file, and retry the Architecture tool. All other repository files are read-only. Credential files such as .env files and repository-local agent credential files are intentionally unavailable; never modify .git or credentials, and never use shell or network access. Use Architecture tools for model facts and distinguish evidence, intent, and assessment.`,
+      systemPrompt,
     });
-    return new DeepAgentsRuntime(agent, runtimeTelemetry, chatModel.profile.maxInputTokens);
+    return new DeepAgentsRuntime(agent, runtimeTelemetry, chatModel.profile.maxInputTokens, systemPrompt);
   };
 }

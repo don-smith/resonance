@@ -6,6 +6,11 @@ specification {
       shape component
     }
   }
+  element code {
+    style {
+      shape rectangle
+    }
+  }
   element actor {
     style {
       shape person
@@ -14,6 +19,11 @@ specification {
   element database {
     style {
       shape storage
+    }
+  }
+  element browser {
+    style {
+      shape browser
     }
   }
 }
@@ -44,21 +54,252 @@ model {
         description "Loads the explicit package allowlist and validates contributions."
         technology "TypeScript"
         link ./src/host.ts "Source"
+
+        hostRegistryType = code "HostRegistry" {
+          description """
+            Frozen registry shape returned by `createHost()`:
+            `context`, `routes`, `assets`, `manifest`, and `dispose()`.
+          """
+          technology "TypeScript"
+        }
+        hostManifest = code "HostManifest" {
+          description """
+            Serialisable manifest payload:
+            `version`, `repository`, `runtime`, `navigation`, `packages`, `diagnostics`.
+          """
+          technology "TypeScript"
+        }
+        createHostFn = code "createHost()" {
+          description """
+            Factory function: resolves repository/app roots, creates HostContext,
+            iterates package definitions, validates state, registers contributions,
+            assembles the frozen manifest, and returns a HostRegistry.
+          """
+          technology "TypeScript"
+        }
+        registrationValidator = code "Registration assertion helpers" {
+          description """
+            Path, file, route, asset, and browser assertion guards:
+            `assertPath`, `assertAssetFile`, `assertRoutePath`,
+            `assertAssetPath`, `assertBrowserContribution`.
+          """
+          technology "TypeScript"
+        }
+        routeKeyFn = code "routeKey()" {
+          description "Derives a stable route key from method + pathname for de-duplication."
+          technology "TypeScript"
+        }
+
+        isPackageRegistrationFn = code "isPackageRegistration()" {
+          description "Runtime type guard: structurally checks metadata shape, route/asset/navigation arrays, and browser entry on a registration object."
+          technology "TypeScript"
+        }
+
+        createContextFn = code "createContext()" {
+          description "Factory for the per-package HostContext: resolves repository/app roots, injects telemetry, and installs a bounded `resolveRepositoryPath` guard."
+          technology "TypeScript"
+        }
+
+        addRegistrationFn = code "addRegistration()" {
+          description "Merges a validated PackageRegistration into the mutable registry: registers routes with `routeKey()`, validates asset/route uniqueness, adds navigation and browser entries, and collects disposers."
+          technology "TypeScript"
+        }
+
+        mutableRegistryType = code "MutableRegistry" {
+          description "Internal mutable accumulator: `context`, `routes`, `assets`, `navigation`, `packages`, `disposers`, `diagnostics` — frozen into `HostRegistry` when `createHost()` completes."
+          technology "TypeScript"
+        }
+
+        packageDiagnosticType = code "PackageDiagnostic" {
+          description "Per-package diagnostic entry: `scope` (team | member), `id`, `status` (disabled | failed), and `message`."
+          technology "TypeScript"
+        }
+
+        createHostFn -> hostRegistryType "produces"
+        createHostFn -> hostManifest "assembles"
+        createHostFn -> packageDiagnosticType "collects"
+
+        createHostFn -> createContextFn "calls"
+        createHostFn -> isPackageRegistrationFn "validates with"
+        createHostFn -> addRegistrationFn "delegates to"
+
+        addRegistrationFn -> routeKeyFn "keys routes with"
+        addRegistrationFn -> mutableRegistryType "mutates"
+        addRegistrationFn -> registrationValidator "asserts with"
+
+        mutableRegistryType -> hostRegistryType "freezes into"
       }
       transport = component "Package transport" {
         description "Dispatches namespaced routes and bounded package-safe requests."
         technology "TypeScript"
         link ./src/package-contract.ts "Source"
+
+        hostContext = code "HostContext" {
+          description """
+            Injectable per-package context: `repositoryRoot`, `appRoot`,
+            `telemetry`, optional `state`, and path-resolve guard.
+          """
+          technology "TypeScript"
+        }
+        hostRequest = code "HostRequest" {
+          description """
+            HTTP request abstraction: `url`, `headers`, `readJson<T>(maxBytes?)`,
+            and `onAbort` listener.
+          """
+          technology "TypeScript"
+        }
+        hostResponse = code "HostResponse" {
+          description """
+            HTTP response abstraction: `json(status, body)`, SSE stream via
+            `sse()`, and `onClose` lifecycle.
+          """
+          technology "TypeScript"
+        }
+        packageDefinition = code "PackageDefinition" {
+          description """
+            Contract each package implements: `metadata`, optional `scope` and
+            `packageRoot`, and `register(context, input) → PackageRegistration`.
+          """
+          technology "TypeScript"
+        }
+        packageRegistration = code "PackageRegistration" {
+          description """
+            Struct returned by `register()`: `metadata`, `routes[]`, `assets[]`,
+            `navigation[]`, `browser`, and optional `dispose`.
+          """
+          technology "TypeScript"
+        }
+        telemetryInterface = code "Telemetry" {
+          description """
+            Observability surface: child/session scoping, level-gated
+            debug/info/warn/error, and span lifecycle (event/end/fail).
+            Extended by `TelemetryController` with `flush()` + `dispose()`.
+          """
+          technology "TypeScript"
+        }
+        routeContribution = code "RouteContribution" {
+          description "Single route: `method` (GET | POST), `path`, and `handler`."
+          technology "TypeScript"
+        }
+
+        packageDefinition -> packageRegistration "produces"
+        packageRegistration -> hostContext "receives"
+        packageRegistration -> routeContribution "contains"
+        hostRequest -> hostResponse "paired with"
+        hostContext -> telemetryInterface "references"
       }
       telemetry = component "Telemetry" {
         description "Structured logging and span export (console / Langfuse) with credential redaction."
         technology "TypeScript"
         link ./src/telemetry.ts "Source"
+
+        telemetryImpl = code "TelemetryImplementation" {
+          description """
+            Core class implementing `TelemetryController`: child/session scoping,
+            level-gated logging, span lifecycle with start/event/end/fail,
+            and flush/dispose with timeout.
+          """
+          technology "TypeScript"
+        }
+        nullExporter = code "NullExporter" {
+          description """
+            No-op `Exporter` used when telemetry mode is `'off'`.
+          """
+          technology "TypeScript"
+        }
+        langfuseExporter = code "LangfuseExporter" {
+          description """
+            Batched OTLP/JSON exporter to Langfuse: microtask-scheduled flush,
+            deduplicated sends, OTel trace/span ID formatting, and Basic-auth
+            credential injection.
+          """
+          technology "TypeScript"
+        }
+        exporterInterface = code "Exporter" {
+          description """
+            Contract: `record(TelemetryRecord)` + `flush()`.
+          """
+          technology "TypeScript"
+        }
+        createTelemetryFn = code "createTelemetry()" {
+          description """
+            Resolves environment config (`.resonance/.env` + `process.env`),
+            selects exporter (`NullExporter` | `LangfuseExporter`),
+            and returns a configured `TelemetryController`.
+          """
+          technology "TypeScript"
+        }
+        sanitizeFn = code "sanitize()" {
+          description """
+            Recursively redacts credential keys (`secretKey` regex),
+            secret value patterns (`sk-…`, `Bearer …`), and optionally
+            content keys when capture is disabled.
+          """
+          technology "TypeScript"
+        }
+        envConfigFn = code "environmentConfig()" {
+          description """
+            Reads `.resonance/.env` and `process.env` to produce a
+            `TelemetryConfig` (mode, level, Langfuse keys, capture toggle).
+          """
+          technology "TypeScript"
+        }
+
+        createTelemetryFn -> telemetryImpl "instantiates"
+        createTelemetryFn -> langfuseExporter "optionally instantiates"
+        createTelemetryFn -> nullExporter "falls back to"
+        createTelemetryFn -> envConfigFn "reads"
+        telemetryImpl -> exporterInterface "delegates to"
+        langfuseExporter -> exporterInterface "implements"
+        nullExporter -> exporterInterface "implements"
+        sanitizeFn -> telemetryImpl "redacts for"
       }
       stateManager = component "State manager" {
         description "Persists per-package JSON state to .resonance/state/ with atomic writes, size validation, and corrupt-state isolation."
         technology "TypeScript"
         link ./src/state.ts "Source"
+
+        packageStateInterface = code "PackageState" {
+          description """
+            Per-package JSON read/write contract:
+            `read<T>()` and `write(value)`.
+          """
+          technology "TypeScript"
+        }
+        createStateFn = code "createPackageState()" {
+          description """
+            Creates a `PackageState` backed by `.resonance/state/<pkg>/state.json`
+            with atomic write (tmp file + rename) and `PACKAGE_STATE_MAX_BYTES` cap.
+          """
+          technology "TypeScript"
+        }
+        validateStateFn = code "validatePackageState()" {
+          description """
+            Startup guard: parse existing state file synchronously so corrupt
+            state isolates the package before routes are registered.
+          """
+          technology "TypeScript"
+        }
+        stateSerializer = code "State serializer" {
+          description """
+            `encode()` – JSON.stringify with 64 KiB size check.
+            `parse()` – JSON.parse with size check and typed error messages.
+          """
+          technology "TypeScript"
+        }
+        stateFilenameFn = code "stateFilename()" {
+          description """
+            Derives the per-package state path under `.resonance/state/`
+            or `.resonance/member-state/` with id validation.
+          """
+          technology "TypeScript"
+        }
+
+        createStateFn -> packageStateInterface "produces"
+        createStateFn -> stateSerializer "uses"
+        validateStateFn -> stateSerializer "uses"
+        stateFilenameFn -> createStateFn "resolves path for"
+        stateFilenameFn -> validateStateFn "resolves path for"
       }
     }
 
@@ -71,11 +312,86 @@ model {
         description "Parses incoming HTTP requests, matches method+path against registered routes and assets, and dispatches to handlers."
         technology "TypeScript"
         link ./src/server.ts "Source"
+
+        createAppFn = code "createApp()" {
+          description """
+            Factory: resolves repository config, creates the Host registry,
+            wires `http.createServer` with route matching, method validation,
+            Allow-header computation, asset dispatch, and SSE-aware error handling.
+          """
+          technology "TypeScript"
+        }
+        startServerFn = code "startServer()" {
+          description """
+            Entry point: calls `createApp()`, binds to a port with
+            `maxPortAttempts` retry, and logs the listening address.
+          """
+          technology "TypeScript"
+        }
+        methodOfFn = code "methodOf()" {
+          description """
+            Normalizes an HTTP method string to `HttpMethod` (`GET` | `POST`)
+            or returns `null` for unsupported methods.
+          """
+          technology "TypeScript"
+        }
+        registeredMethodsFn = code "registeredMethods()" {
+          description """
+            Returns the sorted unique HTTP methods registered for a
+            given pathname from the HostRegistry routes table.
+          """
+          technology "TypeScript"
+        }
+        allowForFn = code "allowFor()" {
+          description """
+            Computes the `Allow` header value for a pathname:
+            unions registered route methods with `GET` for assets
+            and the manifest endpoint.
+          """
+          technology "TypeScript"
+        }
+        rejectMethodFn = code "rejectMethod()" {
+          description """
+            Sends a `405 Method Not Allowed` response with the
+            computed `Allow` header.
+          """
+          technology "TypeScript"
+        }
+        httpMethodType = code "HttpMethod" {
+          description """
+            Union type: `'GET' | 'POST'`.
+            Normalized by `methodOf()` from raw HTTP method strings
+            and consumed throughout the routing pipeline.
+          """
+          technology "TypeScript"
+        }
+
+        createAppFn -> methodOfFn "calls"
+        createAppFn -> allowForFn "calls"
+        createAppFn -> rejectMethodFn "calls"
+        allowForFn -> registeredMethodsFn "calls"
+        startServerFn -> createAppFn "calls"
+        methodOfFn -> httpMethodType "produces"
+        createAppFn -> host.registry.createHostFn "calls"
+        createAppFn -> host.registry.routeKeyFn "calls"
+        registeredMethodsFn -> host.registry.hostRegistryType "consumes"
+        allowForFn -> host.registry.hostRegistryType "consumes"
+        createAppFn -> assetServer.serveFileFn "dispatches to"
       }
       assetServer = component "Asset server" {
         description "Serves package-registered static files from disk with content-type headers and caching control."
         technology "TypeScript"
         link ./src/server.ts "Source"
+
+        serveFileFn = code "serveFile()" {
+          description """
+            Checks file existence with `access()`, then streams the file
+            through `createReadStream().pipe(response)` with the given
+            `content-type` and `cache-control: no-cache` headers.
+            Falls back to 404 when the file is missing.
+          """
+          technology "TypeScript"
+        }
       }
     }
 
@@ -88,17 +404,153 @@ model {
         description "Reads and validates .resonance/member-config.json and resolves the external member repository path."
         technology "TypeScript"
         link ./src/member.ts "Source"
+
+        memberConfigType = code "MemberConfig" {
+          description """
+            Config shape: `version` (manifest version), `source` (absolute path
+            to member repository), and `packages` (id→PackageInput map).
+          """
+          technology "TypeScript"
+        }
+        validateMemberConfigFn = code "validateMemberConfig()" {
+          description """
+            Validates raw JSON into a `MemberConfig`: checks version, source,
+            and packages fields, then resolves the source to an absolute path.
+          """
+          technology "TypeScript"
+        }
+        loadMemberConfigFn = code "loadMemberConfig()" {
+          description """
+            Reads `.resonance/member-config.json` from the repository root,
+            parses and validates it, and returns `null` when the file is absent.
+          """
+          technology "TypeScript"
+        }
+        writeMemberConfigFn = code "writeMemberConfig()" {
+          description """
+            Validates a `MemberConfig`, creates the `.resonance/` directory,
+            and writes the config atomically via temp-file + rename.
+          """
+          technology "TypeScript"
+        }
+        resolveMemberRepositoryFn = code "resolveMemberRepository()" {
+          description """
+            Resolves the configured member repository source path to its
+            canonical realpath, validating it is absolute.
+          """
+          technology "TypeScript"
+        }
+        packageInputFn = code "packageInput()" {
+          description """
+            Strips `module` and `enabled` keys from a `PackageConfig`,
+            producing a `PackageInput` suitable for the host registry.
+          """
+          technology "TypeScript"
+        }
+
+        loadMemberConfigFn -> validateMemberConfigFn "validates with"
+        loadMemberConfigFn -> memberConfigType "produces"
+        writeMemberConfigFn -> validateMemberConfigFn "validates with"
+        writeMemberConfigFn -> memberConfigType "produces"
+        validateMemberConfigFn -> memberConfigType "produces"
       }
       manifestLoader = component "Member manifest loader" {
         description "Discovers and loads the member package manifest from the external checkout."
         technology "TypeScript"
         link ./src/member.ts "Source"
+
+        memberManifestType = code "MemberManifest" {
+          description """
+            Manifest shape: `version` (manifest version) and `packages`
+            (id→PackageConfig map with required `module` field).
+          """
+          technology "TypeScript"
+        }
+        validateMemberManifestFn = code "validateMemberManifest()" {
+          description """
+            Validates raw JSON into a `MemberManifest`: checks version and
+            ensures each package entry has a `module` string.
+          """
+          technology "TypeScript"
+        }
+        loadMemberManifestFn = code "loadMemberManifest()" {
+          description """
+            Discovers the member manifest by trying a priority-ordered list
+            of candidate filenames, then reads, parses, and validates the
+            first one found.
+          """
+          technology "TypeScript"
+        }
+
+        loadMemberManifestFn -> validateMemberManifestFn "validates with"
+        loadMemberManifestFn -> memberManifestType "produces"
+        validateMemberManifestFn -> memberManifestType "produces"
       }
-      scaffolder = component "Member scaffolder" {
-        description "Generates member package templates and repository scaffolds with Git initialization."
+    }
+
+    scaffolder = container "Member scaffolder" {
+      description "Generates member package templates and repository scaffolds with Git initialization."
+      technology "TypeScript"
+      link ./src/member-scaffold.ts "Source"
+
+      memberRepositoryPlanType = code "MemberRepositoryPlan" {
+        description """
+          Frozen plan: `directory` (repository root) and `files`
+          (all files that will be written).
+        """
         technology "TypeScript"
-        link ./src/member-scaffold.ts "Source"
       }
+      memberPackagePlanType = code "MemberPackagePlan" {
+        description """
+          Frozen plan for a single package: `id`, `label`, `directory`,
+          `files`, `manifestSnippet`, and `testFile`.
+        """
+        technology "TypeScript"
+      }
+      verifyMemberPackageType = code "VerifyMemberPackage" {
+        description """
+          Callback `(plan: MemberPackagePlan) => Promise<void>` that the
+          caller supplies to run focused verification after scaffolding.
+        """
+        technology "TypeScript"
+      }
+      planMemberPackageScaffoldFn = code "planMemberPackageScaffold()" {
+        description """
+          Validates the package id, computes the output directory and file
+          list, and returns a frozen `MemberPackagePlan` without writing.
+        """
+        technology "TypeScript"
+      }
+      createMemberPackageScaffoldFn = code "createMemberPackageScaffold()" {
+        description """
+          Calls `planMemberPackageScaffold()`, creates the package directory,
+          writes all template files, runs the `verify` callback, and rolls
+          back on failure.
+        """
+        technology "TypeScript"
+      }
+      planMemberRepositoryFn = code "planMemberRepository()" {
+        description """
+          Computes the repository directory and full file list (manifest,
+          package.json, .gitignore, README, contract copy, authoring skill)
+          without writing.
+        """
+        technology "TypeScript"
+      }
+      createMemberRepositoryFn = code "createMemberRepository()" {
+        description """
+          Calls `planMemberRepository()`, copies the package contract and
+          authoring skill from the app root, writes all repository files,
+          runs `git init`, and rolls back on failure.
+        """
+        technology "TypeScript"
+      }
+
+      planMemberPackageScaffoldFn -> memberPackagePlanType "produces"
+      createMemberPackageScaffoldFn -> planMemberPackageScaffoldFn "calls"
+      createMemberPackageScaffoldFn -> verifyMemberPackageType "calls"
+      createMemberRepositoryFn -> planMemberRepositoryFn "calls"
+      planMemberRepositoryFn -> memberRepositoryPlanType "produces"
     }
 
     content = container "Content engine" {
@@ -110,12 +562,181 @@ model {
         description "Wraps markdown-it to convert Markdown source into HTML with configurable options."
         technology "TypeScript + markdown-it"
         link ./src/markdown.ts "Source"
+
+        createMarkdownRendererFn = code "createMarkdownRenderer()" {
+          description """
+            Factory that creates a configured `markdown-it` instance with optional
+            override of `html`, `linkify`, and `typographer` flags.
+          """
+          technology "TypeScript"
+        }
+        renderMarkdownFn = code "renderMarkdown()" {
+          description """
+            Convenience function that calls `createMarkdownRenderer()` with defaults
+            and renders the given Markdown source to HTML.
+          """
+          technology "TypeScript"
+        }
+
+        renderMarkdownFn -> createMarkdownRendererFn "calls"
       }
       fileDiscovery = component "File discovery" {
         description "Recursively scans the repository for Markdown files, builds a sorted folder/file tree, and reads document content."
         technology "TypeScript"
         link ./src/content.ts "Source"
+
+        discoverMarkdownFilesFn = code "discoverMarkdownFiles()" {
+          description """
+            Recursively walks a directory tree, filtering for Markdown file extensions
+            and skipping ignored directories, returning a sorted array of POSIX-relative paths.
+          """
+          technology "TypeScript"
+        }
+        buildMarkdownTreeFn = code "buildMarkdownTree()" {
+          description """
+            Accepts a sorted array of file paths and builds a nested folder/file tree
+            with `type`, `name`, `path`, and `children` fields for UI rendering.
+          """
+          technology "TypeScript"
+        }
+        readMarkdownFn = code "readMarkdown()" {
+          description """
+            Reads a Markdown file from disk at a repository-relative path
+            and returns its UTF-8 content.
+          """
+          technology "TypeScript"
+        }
+        toPathFn = code "toPath()" {
+          description """
+            Converts a string or URL to a platform file path.
+            Internal helper used by `discoverMarkdownFiles()` and `readMarkdown()`.
+          """
+          technology "TypeScript"
+        }
+        discoveryOptionsType = code "DiscoveryOptions" {
+          description """
+            Optional filter config: `extensions` (default `.md`, `.markdown`)
+            and `ignoredDirectories` (default `.git`, `node_modules`).
+          """
+          technology "TypeScript"
+        }
+        defaultConstantsType = code "Default constants" {
+          description """
+            `DEFAULT_MARKDOWN_EXTENSIONS` = `['.md', '.markdown']`
+            `DEFAULT_IGNORED_DIRECTORIES` = `['.git', 'node_modules']`
+          """
+          technology "TypeScript"
+        }
+
+        discoverMarkdownFilesFn -> toPathFn "calls"
+        readMarkdownFn -> toPathFn "calls"
+        discoverMarkdownFilesFn -> discoveryOptionsType "accepts"
+        discoverMarkdownFilesFn -> defaultConstantsType "uses defaults from"
       }
+    }
+
+    config = container "Repository config" {
+      description "Creates, validates, loads, and persists the repository manifest (.resonance/config.json) that drives package allowlisting and workspace configuration."
+      technology "TypeScript"
+      link ./src/config.ts "Source"
+
+      configFactory = component "Config factory" {
+        description "Assembles RepositoryConfig objects with sensible defaults for shell, home, and docs packages."
+        technology "TypeScript"
+        link ./src/config.ts "Source"
+
+        createRepoConfigFn = code "createRepositoryConfig()" {
+          description """
+            Assembles a RepositoryConfig from optional flags (`home`, `docs`)
+            and metadata, applying defaults for shell/home/docs package entries
+            and the manifest version.
+          """
+          technology "TypeScript"
+        }
+        defaultRepoConfigFn = code "defaultRepositoryConfig()" {
+          description """
+            Convenience wrapper that calls `createRepositoryConfig()` with no
+            arguments, returning the baseline factory config.
+          """
+          technology "TypeScript"
+        }
+
+        defaultRepoConfigFn -> createRepoConfigFn "calls"
+      }
+      configValidator = component "Config validator" {
+        description "Validates the structure and types of a loaded or in-memory RepositoryConfig against the manifest schema."
+        technology "TypeScript"
+        link ./src/config.ts "Source"
+
+        validateRepoConfigFn = code "validateRepositoryConfig()" {
+          description """
+            Top-level validator: checks that the value is an object, asserts
+            MANIFEST_VERSION, delegates to `validateRepositoryMetadata()` and
+            `validatePackageInputs()`, and returns a typed RepositoryConfig.
+          """
+          technology "TypeScript"
+        }
+        validatePackageInputsFn = code "validatePackageInputs()" {
+          description """
+            Validates the `packages` object: ensures entries are records,
+            checks `enabled` and `module` types, and returns a typed
+            Record<string, PackageConfig>.
+          """
+          technology "TypeScript"
+        }
+        validateRepoMetadataFn = code "validateRepositoryMetadata()" {
+          description """
+            Validates the optional `repository` metadata block: checks
+            object shape and validates `name` and `tagline` string types,
+            returning a pruned RepositoryConfigMetadata or undefined.
+          """
+          technology "TypeScript"
+        }
+
+        validateRepoConfigFn -> validateRepoMetadataFn "calls"
+        validateRepoConfigFn -> validatePackageInputsFn "calls"
+      }
+      configPersistence = component "Config persistence" {
+        description "Reads, writes, and checks existence of .resonance/config.json on disk with atomic writes."
+        technology "TypeScript"
+        link ./src/config.ts "Source"
+
+        writeRepoConfigFn = code "writeRepositoryConfig()" {
+          description """
+            Validates the supplied config, creates the `.resonance/` directory,
+            and writes the JSON-serialised config atomically (with trailing
+            newline) to `.resonance/config.json`.
+          """
+          technology "TypeScript"
+        }
+        loadRepoConfigFn = code "loadRepositoryConfig()" {
+          description """
+            Reads `.resonance/config.json` from disk, parses the JSON, and
+            validates it through `validateRepositoryConfig()`. Throws on
+            missing file, invalid JSON, or schema mismatch.
+          """
+          technology "TypeScript"
+        }
+        repoConfigExistsFn = code "repositoryConfigExists()" {
+          description """
+            Checks whether `.resonance/config.json` exists on disk at the
+            given repository root. Returns `true`/`false`; re-throws
+            non-ENOENT errors.
+          """
+          technology "TypeScript"
+        }
+
+        writeRepoConfigFn -> configValidator.validateRepoConfigFn "validates with"
+        loadRepoConfigFn -> configValidator.validateRepoConfigFn "validates with"
+      }
+
+      configFactory -> configValidator "assembles valid config via"
+      configPersistence -> configValidator "validates with"
+    }
+
+    browser = browser "Browser" {
+      description "Client-side application runtime that loads the shell bootstrap, renders package UIs, manages navigation, and communicates with the server via HTTP and SSE."
+      technology "JavaScript + HTML + CSS"
     }
   }
 
@@ -136,6 +757,47 @@ model {
         description "Serves the shell JavaScript entrypoint that initialises the client-side router, mounts, and navigation controller."
         technology "TypeScript"
         link ./src/packages/shell/app.js "Source"
+
+        startApplicationFn = code "startApplication()" {
+          description """
+            Exported entry point: fetches the manifest, renders repository
+            metadata, creates the shell, loads package stylesheets, imports
+            and mounts browser packages, renders workspace navigation, and
+            activates Home when available (otherwise the first workspace).
+            Returns `{ manifest, packages, activate }`.
+          """
+          technology "TypeScript"
+        }
+        loadStylesheetFn = code "loadStylesheet()" {
+          description """
+            Conditionally appends a package-specific `<link>` stylesheet to the
+            document head, de-duplicating by `data-package-style` attribute.
+          """
+          technology "TypeScript"
+        }
+        renderRepoMetadataFn = code "renderRepositoryMetadata()" {
+          description """
+            Populates DOM elements decorated with `data-shell-*` attributes
+            (repository name, version, tagline, runtime version) from the
+            manifest payload.
+          """
+          technology "TypeScript"
+        }
+        createShellFn = code "createShell()" {
+          description """
+            Factory imported from shell.js: creates the navigation controller,
+            mount-region manager, and package lifecycle (register, activate,
+            deactivate) backed by internal `roots` and `packages` Maps. It also
+            binds the repository-title control to Home when configured.
+            Returns `{ renderNavigation, setHomePackage, registerPackage,
+            createMount, activate, setActive }`.
+          """
+          technology "TypeScript"
+        }
+
+        startApplicationFn -> renderRepoMetadataFn "calls"
+        startApplicationFn -> loadStylesheetFn "calls"
+        startApplicationFn -> createShellFn "calls"
       }
     }
 
@@ -148,6 +810,57 @@ model {
         description "Reads and renders the configured landing document (README.md by default) as HTML via the Content engine."
         technology "TypeScript"
         link ./src/packages/home/index.ts "Source"
+
+        homeInputFn = code "homeInput()" {
+          description """
+            Validates the `source` field from PackageInput: must be a non-empty
+            relative path ending in `.md`, `.markdown`, `.html`, or `.htm`.
+            Returns the normalised `{ source }`.
+          """
+          technology "TypeScript"
+        }
+
+        createHomeHandlerFn = code "createHomeHandler()" {
+          description """
+            Factory that produces the GET /api/home request handler. Validates
+            input, instantiates the Markdown renderer, resolves the repository
+            source path through HostContext, reads the file, and returns JSON
+            with `path`, raw `content`, and rendered `html`.
+          """
+          technology "TypeScript"
+        }
+
+        registerFn = code "register()" {
+          description """
+            Package entry point called by the host. Validates input, creates the
+            handler, and returns a PackageRegistration with the GET /api/home
+            route, browser assets (home.js, home.css), no workspace navigation
+            entry, and browser mount configuration.
+          """
+          technology "TypeScript"
+        }
+
+        homePackageDef = code "homePackage" {
+          description """
+            Exported PackageDefinition: `{ metadata, register }`.
+          """
+          technology "TypeScript"
+        }
+
+        metadataConst = code "metadata" {
+          description """
+            Immutable package identity: `id: 'home'`, `version: '1.0.0'`,
+            `hostVersion: '1'`, `label: 'Home'`, `order: 10`.
+          """
+          technology "TypeScript"
+        }
+
+        registerFn -> homeInputFn "calls"
+        registerFn -> createHomeHandlerFn "calls"
+        createHomeHandlerFn -> homeInputFn "calls"
+        createHomeHandlerFn -> resonanceRuntime.content.markdownRenderer.createMarkdownRendererFn "calls"
+        homePackageDef -> registerFn "wraps"
+        homePackageDef -> metadataConst "references"
       }
     }
 
@@ -160,12 +873,89 @@ model {
         description "Serves the full repository document tree as JSON including root name, flat document list, and nested folder structure."
         technology "TypeScript"
         link ./src/packages/docs/index.ts "Source"
+
+        docsOptionsType = code "DocsOptions" {
+          description """
+            Input options: `extensions` (default ['.md', '.markdown'])
+            and `ignoredDirectories` (default ['.git', 'node_modules']).
+          """
+          technology "TypeScript"
+        }
+
+        isStringArrayFn = code "isStringArray()" {
+          description """
+            Type guard: checks that a value is a non-empty string array
+            where every element satisfies the provided predicate.
+          """
+          technology "TypeScript"
+        }
+
+        docsInputFn = code "docsInput()" {
+          description """
+            Validates and normalises package input into DocsOptions.
+            Applies defaults for extensions and ignoredDirectories,
+            then copies the arrays to prevent external mutation.
+          """
+          technology "TypeScript"
+        }
+
+        createRouteHandlerFn = code "createRouteHandler()" {
+          description """
+            Factory that creates a GET request handler for either 'tree'
+            or 'document'. Instantiates the Markdown renderer once,
+            then dispatches based on kind: tree handlers call the file
+            discovery engine, document handlers read and render a single file.
+          """
+          technology "TypeScript"
+        }
+
+        registerFn = code "register()" {
+          description """
+            Package entry point called by the host. Validates input
+            through docsInput(), creates tree and document route
+            handlers, and returns a PackageRegistration with routes,
+            assets, navigation, and browser mount configuration.
+          """
+          technology "TypeScript"
+        }
+
+        metadataConst = code "metadata" {
+          description """
+            Immutable package identity: `id: 'docs'`, `version: '1.0.0'`,
+            `hostVersion: '1'`, `label: 'Docs'`, `order: 20`.
+          """
+          technology "TypeScript"
+        }
+
+        docsPackageDef = code "docsPackage" {
+          description """
+            Exported PackageDefinition: `{ metadata, register }`.
+          """
+          technology "TypeScript"
+        }
+
+        registerFn -> docsInputFn "calls"
+        registerFn -> createRouteHandlerFn "calls"
+        docsInputFn -> isStringArrayFn "validates with"
+        docsInputFn -> docsOptionsType "produces"
+        createRouteHandlerFn -> docsOptionsType "consumes"
+        docsPackageDef -> registerFn "wraps"
+        docsPackageDef -> metadataConst "references"
+
+        createRouteHandlerFn -> resonanceRuntime.content.fileDiscovery.discoverMarkdownFilesFn "calls"
+        createRouteHandlerFn -> resonanceRuntime.content.fileDiscovery.buildMarkdownTreeFn "calls"
+        createRouteHandlerFn -> resonanceRuntime.content.fileDiscovery.readMarkdownFn "calls"
+        createRouteHandlerFn -> resonanceRuntime.content.markdownRenderer.createMarkdownRendererFn "calls"
       }
       documentHandler = component "Document handler" {
         description "Resolves a repository-relative path, reads the Markdown source, and returns both raw content and rendered HTML."
         technology "TypeScript"
         link ./src/packages/docs/index.ts "Source"
       }
+
+      documentHandler -> treeHandler "shares handler factory and routes"
+      documentHandler -> resonanceRuntime.content.fileDiscovery.readMarkdownFn "calls"
+      documentHandler -> resonanceRuntime.content.markdownRenderer.createMarkdownRendererFn "calls"
     }
 
     backlog = container "Backlog" {
@@ -177,16 +967,278 @@ model {
         description "Reads and writes the todo.yaml decision registry and plan Markdown documents."
         technology "TypeScript"
         link ./src/packages/backlog/backlog-store.ts "Source"
+
+        // ── Domain types ──────────────────────────────────────────
+        backlogStatusType = code "BacklogStatus" {
+          description "Union of allowed statuses: `recently-done | in-progress | is-ready | in-planning`."
+          technology "TypeScript"
+        }
+        backlogPriorityType = code "BacklogPriority" {
+          description "Union of allowed priorities: `P0 | P1 | P2 | P3`."
+          technology "TypeScript"
+        }
+        backlogDecisionSummaryType = code "BacklogDecisionSummary" {
+          description "Summary shape: `path`, `title`, `status`, `priority` — returned by `listDecisions()`."
+          technology "TypeScript"
+        }
+        backlogDecisionType = code "BacklogDecision" {
+          description "Full decision shape extending `BacklogDecisionSummary` with `markdown` content."
+          technology "TypeScript"
+        }
+        backlogCreateInputType = code "BacklogCreateInput" {
+          description "Creation payload: `title`, `status`, `priority`, `markdown`."
+          technology "TypeScript"
+        }
+        backlogMetadataType = code "BacklogMetadata" {
+          description "Partial update shape: optional `status` and `priority` fields."
+          technology "TypeScript"
+        }
+        backlogMutationType = code "BacklogMutation" {
+          description "Result of any mutation: `affectedPaths` listing files changed."
+          technology "TypeScript"
+        }
+        backlogStoreInterface = code "BacklogStore" {
+          description """
+            Public interface: `listDecisions()`, `readDecision(path)`,
+            `createDecision(input)`, `editPlan(path, markdown)`,
+            `updateMetadata(path, metadata)`, `setStatus(path, status)`,
+            `setPriority(path, priority)`, `deleteDecision(path)`.
+          """
+          technology "TypeScript"
+        }
+        parsedDecisionType = code "ParsedDecision" {
+          description "Zod-validated shape from `todo.yaml`: `title`, `plan`, `status`, `priority`."
+          technology "TypeScript"
+        }
+        fileSystemType = code "FileSystem" {
+          description "Internal: subset of `node:fs/promises` for swappable I/O in tests."
+          technology "TypeScript"
+        }
+
+        // ── Error classes ─────────────────────────────────────────
+        backlogStoreError = code "BacklogStoreError" {
+          description "Base error class for store operations."
+          technology "TypeScript"
+        }
+        backlogSourceError = code "BacklogSourceError" {
+          description "Subclass: raised when `todo.yaml` is malformed or invalid."
+          technology "TypeScript"
+        }
+
+        // ── Public functions ──────────────────────────────────────
+        planForTitleFn = code "planForTitle()" {
+          description "Derives a `plans/<kebab-slug>.md` path from a decision title via NFKD normalization."
+          technology "TypeScript"
+        }
+        parseBacklogItemsFn = code "parseBacklogItems()" {
+          description "Parses a `todo.yaml` source string, validates with Zod, and returns `ParsedDecision[]`."
+          technology "TypeScript"
+        }
+        createBacklogStoreFn = code "createBacklogStore()" {
+          description """
+            Factory: accepts `repositoryRoot` and optional `FileSystem` overrides,
+            returns a `BacklogStore` with serialised I/O, path-containment guards,
+            atomic writes, and compensated rollback on create/delete.
+          """
+          technology "TypeScript"
+        }
+        loadFn = code "load()" {
+          description "Internal: resolves repository root, reads and parses `todo.yaml`, maps plan paths to filesystem entries."
+          technology "TypeScript"
+        }
+        atomicReplaceFn = code "atomicReplace()" {
+          description "Internal: writes a tempfile then renames over the target for atomic replacement."
+          technology "TypeScript"
+        }
+        requireCreateFn = code "requireCreate()" {
+          description "Internal: validates `BacklogCreateInput` with Zod, derives plan path from title."
+          technology "TypeScript"
+        }
+        backlogDecisionSummaryType -> backlogStatusType "uses"
+        backlogDecisionSummaryType -> backlogPriorityType "uses"
+        backlogDecisionType -> backlogDecisionSummaryType "extends"
+        backlogCreateInputType -> backlogStatusType "uses"
+        backlogCreateInputType -> backlogPriorityType "uses"
+        backlogMetadataType -> backlogStatusType "uses"
+        backlogMetadataType -> backlogPriorityType "uses"
+        parsedDecisionType -> backlogStatusType "uses"
+        parsedDecisionType -> backlogPriorityType "uses"
+        backlogSourceError -> backlogStoreError "extends"
+
+        createBacklogStoreFn -> backlogStoreInterface "produces"
+        createBacklogStoreFn -> fileSystemType "accepts"
+        createBacklogStoreFn -> loadFn "calls"
+        createBacklogStoreFn -> atomicReplaceFn "delegates to"
+        createBacklogStoreFn -> requireCreateFn "validates with"
+        createBacklogStoreFn -> parseBacklogItemsFn "delegates to"
+        createBacklogStoreFn -> backlogMutationType "produces"
+        loadFn -> parseBacklogItemsFn "calls"
+        loadFn -> parsedDecisionType "produces"
+        requireCreateFn -> planForTitleFn "calls"
+        requireCreateFn -> backlogCreateInputType "validates"
       }
       agent = component "Backlog agent session" {
         description "Manages the LLM agent lifecycle: credentials, streaming, snapshots, and confirmation flow."
         technology "TypeScript"
         link ./src/packages/backlog/agent-session.ts "Source"
+
+        // ── Domain types ──────────────────────────────────────────
+        backlogAgentStatusType = code "BacklogAgentStatus" {
+          description "Session lifecycle states: `idle | working | error`."
+          technology "TypeScript"
+        }
+        backlogAgentMessageType = code "BacklogAgentMessage" {
+          description "Chat message: `id`, `role` (user | assistant), `content`."
+          technology "TypeScript"
+        }
+        backlogDeletionConfirmationType = code "BacklogDeletionConfirmation" {
+          description "Pending deletion: `id`, `path`, `title` — awaits user confirmation."
+          technology "TypeScript"
+        }
+        backlogAgentSnapshotType = code "BacklogAgentSnapshot" {
+          description """
+            Full session snapshot: `messages[]`, `status`, `hasSession`,
+            `error`, `pendingDeletion`.
+          """
+          technology "TypeScript"
+        }
+        backlogAgentUpdateType = code "BacklogAgentUpdate" {
+          description "Streaming assistant text chunk: `{ kind: 'assistant', text }`."
+          technology "TypeScript"
+        }
+        backlogAgentTurnType = code "BacklogAgentTurn" {
+          description "Turn context: frozen `messages[]`, `selected` decision, `threadId`."
+          technology "TypeScript"
+        }
+        backlogAgentRuntimeType = code "BacklogAgentRuntime" {
+          description "Runtime contract: `stream(turn)` → AsyncIterable and `dispose()`."
+          technology "TypeScript"
+        }
+        backlogAgentRuntimeFactoryOptionsType = code "BacklogAgentRuntimeFactoryOptions" {
+          description "Factory inputs: `apiKey`, `store`, `telemetry`, `onMutation`, `requestDeletion`."
+          technology "TypeScript"
+        }
+        backlogAgentRuntimeFactoryType = code "BacklogAgentRuntimeFactory" {
+          description "Async factory: `(options) => Promise<BacklogAgentRuntime>`."
+          technology "TypeScript"
+        }
+        backlogAgentEventType = code "BacklogAgentEvent" {
+          description """
+            Discriminated union of all session events: `snapshot`, `message`,
+            `status`, `error`, `credential-required`, `deletion-confirmation`,
+            `mutation-committed`, `done`.
+          """
+          technology "TypeScript"
+        }
+
+        // ── Error classes ─────────────────────────────────────────
+        backlogAgentBusyError = code "BacklogAgentBusyError" {
+          description "HTTP 409: raised when a prompt is already running."
+          technology "TypeScript"
+        }
+        backlogAgentConfirmationError = code "BacklogAgentConfirmationError" {
+          description "HTTP 409: raised when a deletion confirmation is stale or duplicate."
+          technology "TypeScript"
+        }
+        backlogAgentUnavailableError = code "BacklogAgentUnavailableError" {
+          description "HTTP 503: raised when the agent runtime cannot be created."
+          technology "TypeScript"
+        }
+
+        // ── Factory function ──────────────────────────────────────
+        createBacklogAgentSessionFn = code "createBacklogAgentSession()" {
+          description """
+            Factory: wires credential resolution, runtime lifecycle
+            (create/stream/dispose), turn generation tracking, mutation
+            commit, deletion confirmation flow, snapshot emission, and
+            subscriber management. Returns `{ snapshot, subscribe,
+            submitPrompt, confirmDeletion, reset, dispose }`.
+          """
+          technology "TypeScript"
+        }
+
+        // ── Internal type relationships ───────────────────────────
+        backlogAgentSnapshotType -> backlogAgentMessageType "contains"
+        backlogAgentSnapshotType -> backlogAgentStatusType "uses"
+        backlogAgentSnapshotType -> backlogDeletionConfirmationType "contains"
+        backlogAgentTurnType -> backlogAgentMessageType "contains"
+        backlogAgentTurnType -> backlogDecisionType "references"
+        backlogAgentEventType -> backlogAgentSnapshotType "includes"
+        backlogAgentEventType -> backlogAgentMessageType "includes"
+        backlogAgentEventType -> backlogAgentStatusType "includes"
+        backlogAgentEventType -> backlogDeletionConfirmationType "includes"
+        backlogAgentRuntimeType -> backlogAgentTurnType "accepts"
+        backlogAgentRuntimeType -> backlogAgentUpdateType "yields"
+        backlogAgentRuntimeFactoryType -> backlogAgentRuntimeType "produces"
+        backlogAgentRuntimeFactoryType -> backlogAgentRuntimeFactoryOptionsType "accepts"
+        createBacklogAgentSessionFn -> backlogAgentSnapshotType "produces"
+        createBacklogAgentSessionFn -> backlogAgentRuntimeFactoryType "delegates to"
+        createBacklogAgentSessionFn -> backlogStoreInterface "reads"
+        createBacklogAgentSessionFn -> backlogAgentEventType "emits"
       }
       deepagents = component "Backlog DeepAgents runtime" {
         description "Domain tools for the backlog agent: list, read, create, edit, set status, set priority, and request delete."
         technology "TypeScript + LangChain"
         link ./src/packages/backlog/deepagents.ts "Source"
+
+        // ── Functions ─────────────────────────────────────────────
+        createPackagedSkillBackendFn = code "createPackagedSkillBackend()" {
+          description """
+            Creates a restricted `BackendProtocolV2` that exposes only
+            `/skills/manage-backlog/SKILL.md` — all other paths (ls,
+            read, grep, glob, write, edit) return permission-denied.
+          """
+          technology "TypeScript"
+        }
+        createBacklogToolsFn = code "createBacklogTools()" {
+          description """
+            Builds the 7 LangChain domain tools: `list_decisions`,
+            `read_plan`, `create_decision`, `edit_plan`, `set_status`,
+            `set_priority`, `request_delete`. Each tool validates with
+            Zod and delegates to the injected `BacklogStore`.
+          """
+          technology "TypeScript + LangChain"
+        }
+        selectedContextFn = code "selectedContext()" {
+          description "Formats a `BacklogDecision` as an `<active-decision>` XML block for the system prompt."
+          technology "TypeScript"
+        }
+        textOfFn = code "textOf()" {
+          description "Extracts string content from a LangChain streaming chunk (handles both string and structured content arrays)."
+          technology "TypeScript"
+        }
+        deepAgentsRuntimeClass = code "DeepAgentsRuntime" {
+          description """
+            Implements `BacklogAgentRuntime`: wraps a LangGraph agent,
+            manages streaming via `stream()` (yields `BacklogAgentUpdate`
+            chunks), annotates the final user message with selected
+            decision context, and reports telemetry spans.
+          """
+          technology "TypeScript + LangGraph"
+        }
+        createDeepAgentsRuntimeFactoryFn = code "createDeepAgentsRuntimeFactory()" {
+          description """
+            Factory builder: accepts `{ provider, model, repositoryRoot }`,
+            returns an async `BacklogAgentRuntimeFactory`. Reads the packaged
+            skill file, configures `ChatOpenAI`, creates the DeepAgent with
+            domain tools plus a read-only repository backend, and wraps it in
+            `DeepAgentsRuntime`.
+          """
+          technology "TypeScript + LangChain"
+        }
+
+        // ── Internal relationships ────────────────────────────────
+        createDeepAgentsRuntimeFactoryFn -> deepAgentsRuntimeClass "instantiates"
+        createDeepAgentsRuntimeFactoryFn -> createBacklogToolsFn "calls"
+        createDeepAgentsRuntimeFactoryFn -> createPackagedSkillBackendFn "calls"
+        deepAgentsRuntimeClass -> backlogAgentTurnType "accepts"
+        deepAgentsRuntimeClass -> backlogAgentUpdateType "yields"
+        deepAgentsRuntimeClass -> selectedContextFn "calls"
+        deepAgentsRuntimeClass -> textOfFn "calls"
+        createBacklogToolsFn -> backlogStoreInterface "delegates to"
+        createBacklogToolsFn -> backlogMutationType "produces"
+        createBacklogToolsFn -> backlogDecisionType "returns"
+        selectedContextFn -> backlogDecisionType "reads"
       }
     }
 
@@ -199,28 +1251,345 @@ model {
         description "Reads and writes model, views, rules, patterns, and decisions artifacts; parses LikeC4 DSL sources."
         technology "TypeScript + Zod"
         link ./src/packages/architecture/architecture-store.ts "Source"
+
+        createArchitectureStoreFn = code "createArchitectureStore()" {
+          description """
+            Factory that returns an ArchitectureStore backed by the artifact
+            directory. Provides read(), likec4(), graph(), readEvidence(), and
+            replace() methods with serialized access and SHA-256 revision hashing.
+          """
+          technology "TypeScript"
+        }
+        architectureStoreInterface = code "ArchitectureStore" {
+          description """
+            Contract: read() → ArchitectureArtifacts, likec4() → LikeC4Snapshot,
+            graph(viewId, filter?) → {view, nodes, edges, revision},
+            readEvidence(path) → {path, content, truncated, entities},
+            replace(kind, value, revision) → ArchitectureMutation.
+          """
+          technology "TypeScript"
+        }
+        architectureModelType = code "ArchitectureModel" {
+          description """
+            Parsed model.json: version, entities[] with id/type/name/description/
+            tags/evidence/attributes, and relationships[] with type/source/target/label.
+          """
+          technology "TypeScript"
+        }
+        architectureViewsType = code "ArchitectureViews" {
+          description """
+            Parsed views.json: version and views[] with id/type/name/description/
+            query/presentation.
+          """
+          technology "TypeScript"
+        }
+        architectureRulesType = code "ArchitectureRules" {
+          description """
+            Parsed rules.json: version and rules[] with id/name/description/
+            appliesTo/checker/severity/constraints.
+          """
+          technology "TypeScript"
+        }
+        architecturePatternsType = code "ArchitecturePatterns" {
+          description """
+            Parsed patterns.json: version and patterns[] with id/name/description/
+            evidence.
+          """
+          technology "TypeScript"
+        }
+        architectureDecisionsType = code "ArchitectureDecisions" {
+          description """
+            Parsed decisions.json: version and decisions[] with id/title/status/
+            summary/path/evidence.
+          """
+          technology "TypeScript"
+        }
+        architectureArtifactsType = code "ArchitectureArtifacts" {
+          description """
+            Aggregate snapshot: model, views, rules, patterns, decisions, and a
+            SHA-256 revision hash computed from the current file contents.
+          """
+          technology "TypeScript"
+        }
+        architectureMutationType = code "ArchitectureMutation" {
+          description """
+            Write result: the new revision hash and the affected file paths.
+            Returned by replace() after atomic write.
+          """
+          technology "TypeScript"
+        }
+        likeC4SnapshotType = code "LikeC4Snapshot" {
+          description """
+            Result of parsing the LikeC4 DSL workspace: the raw dump, a list of
+            view metadata (id/name/description/parentId), and the source revision.
+          """
+          technology "TypeScript"
+        }
+        architectureSourceError = code "ArchitectureSourceError" {
+          description """
+            Error (422) thrown when a JSON artifact or LikeC4 source is malformed
+            or fails schema validation.
+          """
+          technology "TypeScript"
+        }
+        architectureStoreError = code "ArchitectureStoreError" {
+          description "Base error (404) for missing or unreadable artifacts."
+          technology "TypeScript"
+        }
+        architectureValidationError = code "ArchitectureValidationError" {
+          description "Error (400) when a schema check fails during replace()."
+          technology "TypeScript"
+        }
+        architectureStaleWriteError = code "ArchitectureStaleWriteError" {
+          description "Error (409) when the expected revision does not match the current head."
+          technology "TypeScript"
+        }
+
+        createArchitectureStoreFn -> architectureStoreInterface "returns"
+        createArchitectureStoreFn -> architectureArtifactsType "assembles"
+        createArchitectureStoreFn -> likeC4SnapshotType "parses"
+
+        architectureArtifactsType -> architectureModelType "contains"
+        architectureArtifactsType -> architectureViewsType "contains"
+        architectureArtifactsType -> architectureRulesType "contains"
+        architectureArtifactsType -> architecturePatternsType "contains"
+        architectureArtifactsType -> architectureDecisionsType "contains"
+
+        architectureStoreInterface -> architectureMutationType "returns from replace"
+        architectureStoreInterface -> likeC4SnapshotType "returns from likec4"
+
+        architectureSourceError -> architectureStoreError "extends"
+        architectureValidationError -> architectureStoreError "extends"
+        architectureStaleWriteError -> architectureStoreError "extends"
       }
       checkers = component "Validation checkers" {
         description "Six deterministic checkers: authoritative config, shell required, package ownership, namespaced routes, evidence containment, and Git revision."
         technology "TypeScript"
         link ./src/packages/architecture/architecture-checkers.ts "Source"
+
+        validateArchitectureFn = code "validateArchitecture()" {
+          description """
+            Entry point: iterates all rules from ArchitectureArtifacts.rules,
+            dispatches each to its checker function (authoritative-config,
+            package-ownership, route-asset-namespacing, repository-containment,
+            git-revision), and returns an ArchitectureValidation with the
+            artifact revision and all findings.
+          """
+          technology "TypeScript"
+        }
+        architectureFindingType = code "ArchitectureFinding" {
+          description """
+            Single validation result: ruleId, name, severity (error|warning|info),
+            check status (pass|fail|unknown), message, checker name, version,
+            and evidence paths.
+          """
+          technology "TypeScript"
+        }
+        architectureValidationType = code "ArchitectureValidation" {
+          description "Aggregate result: the artifact revision and all ArchitectureFinding[] results."
+          technology "TypeScript"
+        }
+
+        validateArchitectureFn -> architectureFindingType "produces"
+        validateArchitectureFn -> architectureValidationType "returns"
+        architectureValidationType -> architectureFindingType "contains"
       }
       agent = component "Architecture agent session" {
         description "Manages the LLM agent lifecycle: credential provisioning, stream management, snapshots, and architecture edit confirmation."
         technology "TypeScript"
         link ./src/packages/architecture/architecture-agent.ts "Source"
+
+        createArchitectureAgentSessionFn = code "createArchitectureAgentSession()" {
+          description """
+            Stateful factory: manages the agent lifecycle with snapshot(),
+            subscribe(), submitPrompt(), applyEdit(), reset(), dispose(),
+            and runValidation() methods. Emits ArchitectureAgentEvent to
+            registered listeners on state transitions.
+          """
+          technology "TypeScript"
+        }
+        architectureAgentSnapshotType = code "ArchitectureAgentSnapshot" {
+          description """
+            Serializable state: messages[], status, hasSession, error, validation,
+            and token context. Retrieved via snapshot() at any point.
+          """
+          technology "TypeScript"
+        }
+        architectureAgentTurnType = code "ArchitectureAgentTurn" {
+          description """
+            Input to a streaming prompt: messages[], optional selectedId and
+            selectedView, and threadId for LangGraph checkpointing.
+          """
+          technology "TypeScript"
+        }
+        architectureAgentUpdateType = code "ArchitectureAgentUpdate" {
+          description """
+            Streaming update union: assistant text chunks (with optional
+            paragraph boundary), or token-context metadata.
+          """
+          technology "TypeScript"
+        }
+        architectureAgentEventType = code "ArchitectureAgentEvent" {
+          description """
+            Lifecycle events emitted to subscribers: snapshot, message, status,
+            context, error, credential-required, stopped, and done.
+          """
+          technology "TypeScript"
+        }
+        architectureAgentRuntimeInterface = code "ArchitectureAgentRuntime" {
+          description """
+            Low-level runtime contract: stream(turn, abortSignal) →
+            AsyncIterable<Update> and dispose(). Implemented by DeepAgentsRuntime
+            and used internally by the agent session.
+          """
+          technology "TypeScript"
+        }
+        architectureAgentRuntimeFactoryType = code "ArchitectureAgentRuntimeFactory" {
+          description """
+            Async factory: (apiKey, store, context, telemetry) → ArchitectureAgentRuntime.
+            Wired by createDeepAgentsRuntimeFactory() in the deepagents component.
+          """
+          technology "TypeScript"
+        }
+        architectureAgentBusyError = code "ArchitectureAgentBusyError" {
+          description "Error (409) raised when a prompt is submitted while another is still streaming."
+          technology "TypeScript"
+        }
+
+        createArchitectureAgentSessionFn -> architectureAgentSnapshotType "returns"
+        createArchitectureAgentSessionFn -> architectureAgentEventType "emits"
+        createArchitectureAgentSessionFn -> architectureAgentRuntimeInterface "manages"
+        createArchitectureAgentSessionFn -> architectureAgentRuntimeFactoryType "accepts"
+        createArchitectureAgentSessionFn -> architectureAgentTurnType "processes"
+        createArchitectureAgentSessionFn -> architectureAgentUpdateType "yields"
+        createArchitectureAgentSessionFn -> architectureAgentBusyError "throws on conflict"
       }
       deepagents = component "Architecture DeepAgents runtime" {
         description "Virtual filesystem over the repository with ls, read, glob, grep, and bounded write; bundles the C4 architecture skill."
         technology "TypeScript + LangChain + DeepAgents"
         link ./src/packages/architecture/architecture-deepagents.ts "Source"
+
+        createDeepAgentsRuntimeFactoryFn = code "createDeepAgentsRuntimeFactory()" {
+          description """
+            Reads packaged skill files, creates ArchitectureChatOpenAI model,
+            wires createArchitectureTools() and createPackagedSkillBackend(),
+            creates the DeepAgent, and returns a DeepAgentsRuntime.
+          """
+          technology "TypeScript"
+        }
+        createArchitectureToolsFn = code "createArchitectureTools()" {
+          description """
+            Creates the five LangChain tools for the architecture agent:
+            read_model, read_view, read_evidence, validate_architecture, read_entity.
+            Each wraps a store method with recoverable error formatting.
+          """
+          technology "TypeScript"
+        }
+        createReadonlyRepositoryBackendFn = code "createReadonlyRepositoryBackend()" {
+          description """
+            Creates a read-only virtual filesystem backend over the repository root
+            with ls, read, readRaw, glob, grep, but no write/edit.
+          """
+          technology "TypeScript"
+        }
+        createPackagedSkillBackendFn = code "createPackagedSkillBackend()" {
+          description """
+            Composes a read-only multi-skill backend with a repository backend,
+            routing /skills/* paths to packaged SKILL.md content and all other
+            paths to bounded repository access. Writes are limited to artifactRoot
+            and Markdown documents.
+          """
+          technology "TypeScript"
+        }
+        providerFetchFn = code "providerFetch()" {
+          description """
+            Wraps the fetch function with telemetry error logging: extracts
+            provider error details and Cloudflare ray id from non-ok responses.
+          """
+          technology "TypeScript"
+        }
+        deepAgentsRuntime = code "DeepAgentsRuntime" {
+          description """
+            Implements ArchitectureAgentRuntime: iterates the LangGraph stream,
+            yields ArchitectureAgentUpdate events (assistant text, token context),
+            and tracks per-turn thread state.
+          """
+          technology "TypeScript"
+        }
+        architectureChatOpenAI = code "ArchitectureChatOpenAI" {
+          description """
+            ChatOpenAI subclass that resolves architecture-specific model profiles
+            for token-limit awareness via getArchitectureModelProfile().
+          """
+          technology "TypeScript"
+        }
+        readOnlyRepoBackend = code "ReadonlyRepositoryBackend" {
+          description """
+            Virtual filesystem backend: resolves physical paths within the
+            repository root, blocks symlinks and .git/sensitive paths, enforces
+            a 10 MB read/write limit, and provides ls/read/glob/grep.
+          """
+          technology "TypeScript"
+        }
+        packagedSkillsType = code "PackagedSkills" {
+          description """
+            Union type: a string (one default skill) or a record of skill-name
+            to SKILL.md content, consumed by createPackagedSkillBackend().
+          """
+          technology "TypeScript"
+        }
+
+        createDeepAgentsRuntimeFactoryFn -> createArchitectureToolsFn "calls"
+        createDeepAgentsRuntimeFactoryFn -> createPackagedSkillBackendFn "calls"
+        createDeepAgentsRuntimeFactoryFn -> architectureChatOpenAI "instantiates"
+        createDeepAgentsRuntimeFactoryFn -> deepAgentsRuntime "returns"
+        createDeepAgentsRuntimeFactoryFn -> providerFetchFn "wraps fetch with"
+
+        deepAgentsRuntime -> resonancePackages.architecture.store "streams tool calls to"
+
+        createArchitectureToolsFn -> resonancePackages.architecture.store "wraps"
+        createArchitectureToolsFn -> resonancePackages.architecture.checkers "calls validate through"
+
+        createPackagedSkillBackendFn -> createReadonlyRepositoryBackendFn "calls"
+        createPackagedSkillBackendFn -> packagedSkillsType "accepts"
+        createReadonlyRepositoryBackendFn -> readOnlyRepoBackend "instantiates"
       }
       renderer = component "LikeC4 diagram renderer" {
         description "React component wrapping @likec4/diagram for browser rendering with view navigation and validation panel."
         technology "TypeScript + React"
         link ./src/packages/architecture/architecture-likec4.tsx "Source"
+
+        createLikeC4RendererFn = code "createLikeC4Renderer()" {
+          description """
+            Creates a React root from a DOM element, builds a LikeC4Model from
+            the dump, renders ReactLikeC4 with pan/zoom/select/navigate callbacks,
+            and returns an { unmount() } handle for cleanup.
+          """
+          technology "TypeScript + React"
+        }
+        rendererOptionsType = code "RendererOptions" {
+          description """
+            Configuration: root HTMLElement, dump (LikeC4 serialized model),
+            viewId, onNodeClick callback, and onNavigate callback.
+          """
+          technology "TypeScript"
+        }
+
+        createLikeC4RendererFn -> rendererOptionsType "accepts"
       }
     }
+  }
+
+  developer = actor "Developer" {
+    description "An individual software developer who builds and evolves software — connected through Resonance to projects and teams."
+  }
+
+  team = actor "Team" {
+    description "A group of developers collaborating through shared assets, common views, and team capabilities — balanced with space for individual exploration, learning, and personal workspaces."
+  }
+
+  project = system "Project" {
+    description "A software project that teams and individual developers work on. Resonance provides a common application view across otherwise disparate tools."
   }
 
   teamMember -> resonanceRuntime "Uses"
@@ -230,9 +1599,21 @@ model {
   resonancePackages -> targetRepository "Reads committed sources and configuration"
   resonancePackages -> llmProvider "Configured packages make LLM calls through"
 
+  developer -> resonanceRuntime "Uses Resonance to connect"
+  developer -> team "Belongs to"
+  team -> project "Collaborates on"
+  team -> resonanceRuntime "Uses to create shared application view"
+  resonanceRuntime -> project "Projects the common view onto"
+
   resonanceRuntime.server -> resonanceRuntime.host "Dispatches requests through"
   resonanceRuntime.server -> resonanceRuntime.member "Loads member configuration via"
   resonanceRuntime.member -> resonanceRuntime.host "Supplies member package manifests to"
+
+  resonanceRuntime.server -> resonanceRuntime.config "Loads repository configuration from"
+  resonanceRuntime.host -> resonanceRuntime.config "Reads default configuration from"
+
+  resonanceRuntime.server -> resonanceRuntime.browser "Serves browser assets to"
+  resonanceRuntime.browser -> resonanceRuntime.host "Makes API calls through"
 
   resonanceRuntime.member -> targetRepository "Reads member configuration from"
   resonanceRuntime.content -> targetRepository "Reads Markdown sources from"
@@ -274,6 +1655,39 @@ model {
 }
 
 views {
+  view packageContainers {
+    title "Package containers"
+    description "The package containers that extend Resonance and their external dependencies."
+
+    include
+      targetRepository,
+      llmProvider,
+      resonanceRuntime
+
+    include resonancePackages.*
+  }
+
+  view landscape {
+    title "Landscape"
+    description """
+      Draft system landscape showing where Resonance sits in the broader developer ecosystem.
+      Resonance connects individual developers to multiple projects, and brings developers
+      together through teams — providing a common application view that replaces the
+      fragmented experience of using disparate tools. AI has reduced the cost of writing
+      code, making it feasible to build these shared experiences quickly, reuse templates
+      and skills, and balance team-owned shared assets with space for individual exploration
+      and learning.
+    """
+    include
+      developer,
+      team,
+      project,
+      resonanceRuntime,
+      resonancePackages,
+      teamMember,
+      targetRepository
+  }
+
   view systemContext of resonanceRuntime {
     title "System context"
     description "Resonance Runtime, Resonance Packages, and the context around the repository they operate on."
@@ -295,18 +1709,6 @@ views {
     include resonanceRuntime.*
   }
 
-  view packageContainers of resonancePackages {
-    title "Package containers"
-    description "The package containers that extend Resonance and their external dependencies."
-
-    include
-      targetRepository,
-      llmProvider,
-      resonanceRuntime
-
-    include resonancePackages.*
-  }
-
   view hostComponents of resonanceRuntime.host {
     title "Host components"
     description "The components inside the Host registry container."
@@ -319,10 +1721,10 @@ views {
     include *
   }
 
-  view memberComponents of resonanceRuntime.member {
+  view memberComponents {
     title "Member components"
-    description "The components inside the Member loader container."
-    include *
+    description "Member loader components and the member scaffolder used during package creation."
+    include member, member.*, scaffolder
   }
 
   view contentComponents of resonanceRuntime.content {
@@ -331,10 +1733,121 @@ views {
     include *
   }
 
+  view browserComponents of resonanceRuntime.browser {
+    title "Browser components"
+    description """
+      Placeholder view for the client-side browser runtime components.
+      Currently serves as a structural anchor — the browser runtime loads shell
+      bootstrap, renders package UIs, manages client-side navigation, and
+      communicates with the server via HTTP and SSE. Specific internal components
+      will be modelled as browser-side patterns emerge.
+    """
+    include *
+  }
+
+  view fileDiscoveryCode of resonanceRuntime.content.fileDiscovery {
+    title "File discovery"
+    description """
+      Functions, types, and calling patterns inside the File Discovery component.
+      Shows how `discoverMarkdownFiles()` walks the directory tree with configurable
+      options, `buildMarkdownTree()` transforms paths into a UI-ready tree, and
+      `readMarkdown()` reads file content from disk.
+    """
+
+    include
+      // ── Exported functions ────────────────────────────
+      discoverMarkdownFilesFn,
+      buildMarkdownTreeFn,
+      readMarkdownFn,
+
+      // ── Input types ───────────────────────────────────
+      discoveryOptionsType,
+      defaultConstantsType
+  }
+
+  view markdownRendererCode of resonanceRuntime.content.markdownRenderer {
+    title "Markdown renderer"
+    description """
+      Functions and calling patterns inside the Markdown Renderer component.
+      Shows how `createMarkdownRenderer()` configures a `markdown-it` instance
+      and `renderMarkdown()` provides a one-shot convenience wrapper.
+    """
+
+    include
+      createMarkdownRendererFn,
+      renderMarkdownFn
+  }
+
+  view configComponents of resonanceRuntime.config {
+    title "Config components"
+    description "The components inside the Repository config container."
+    include *
+  }
+
+  view configFactoryCode of resonanceRuntime.config.configFactory {
+    title "Config factory"
+    description """
+      Functions and calling patterns inside the Config Factory component.
+      Shows how `defaultRepositoryConfig()` delegates to `createRepositoryConfig()`,
+      which assembles a RepositoryConfig with shell/home/docs package defaults.
+    """
+
+    include
+      createRepoConfigFn,
+      defaultRepoConfigFn
+  }
+
+  view configValidatorCode of resonanceRuntime.config.configValidator {
+    title "Config validator"
+    description """
+      Functions and calling patterns inside the Config Validator component.
+      Shows how `validateRepositoryConfig()` delegates structure checks to
+      `validateRepositoryMetadata()` and `validatePackageInputs()` before
+      returning a typed RepositoryConfig.
+    """
+
+    include
+      validateRepoConfigFn,
+      validateRepoMetadataFn,
+      validatePackageInputsFn
+  }
+
+  view configPersistenceCode of resonanceRuntime.config.configPersistence {
+    title "Config persistence"
+    description """
+      Functions and calling patterns inside the Config Persistence component.
+      Shows how `writeRepositoryConfig()` and `loadRepositoryConfig()` both
+      delegate to `validateRepositoryConfig()`, while `repositoryConfigExists()`
+      provides a lightweight existence check.
+    """
+
+    include
+      writeRepoConfigFn,
+      loadRepoConfigFn,
+      repoConfigExistsFn,
+      validateRepoConfigFn  // cross-component dependency from persistence to validator
+  }
+
   view shellComponents of resonancePackages.shell {
     title "Shell components"
     description "The components inside the Shell package container."
     include *
+  }
+
+  view shellAppCode of resonancePackages.shell.appBootstrap {
+    title "Application bootstrap"
+    description """
+      Functions and calling patterns inside the Application Bootstrap component.
+      Shows how `startApplication()` wires the manifest load, metadata rendering,
+      shell creation, package loading, and package activation lifecycle.
+      Excludes static HTML — `htmlFrame` has no functions or types to model.
+    """
+
+    include
+      startApplicationFn,
+      loadStylesheetFn,
+      renderRepoMetadataFn,
+      createShellFn
   }
 
   view homeComponents of resonancePackages.home {
@@ -343,10 +1856,104 @@ views {
     include *
   }
 
+  view landingHandlerCode of resonancePackages.home.landingHandler {
+    title "Landing handler"
+    description """
+      Functions, types, and calling patterns inside the Landing Handler
+      component. Shows how `register()` validates input and creates the
+      handler, `createHomeHandler()` builds the request/response pipeline,
+      and `homeInput()` guards the source configuration.
+    """
+
+    include
+      // ── Internal functions ──────────────────────────
+      homeInputFn,
+      createHomeHandlerFn,
+      registerFn,
+
+      // ── Package contract ─────────────────────────────
+      homePackageDef,
+      metadataConst,
+
+      // ── External collaborators ───────────────────────
+      resonanceRuntime.content.markdownRenderer.createMarkdownRendererFn,
+
+      // ── Contract types ───────────────────────────────
+      resonanceRuntime.host.transport.packageDefinition,
+      resonanceRuntime.host.transport.packageRegistration,
+      resonanceRuntime.host.transport.hostContext
+  }
+
   view docsComponents of resonancePackages.docs {
     title "Docs components"
     description "The components inside the Docs package container."
-    include *
+
+    include
+      treeHandler,
+      documentHandler,
+      resonanceRuntime
+  }
+
+  view docsTreeCode of resonancePackages.docs.treeHandler {
+    title "Document tree handler"
+    description """
+      Functions, types, and calling patterns inside the Document tree
+      handler. Shows how `register()` wires the /api/docs/tree route
+      through `createRouteHandler()`, which calls the file discovery
+      engine to build the document tree.
+      Excludes `isStringArray()` (validation helper) and
+      document-handler-specific collaborators.
+    """
+
+    include
+      // ── Internal functions ──────────────────────────
+      createRouteHandlerFn,
+      docsInputFn,
+      registerFn,
+
+      // ── Internal type ───────────────────────────────
+      docsOptionsType,
+
+      // ── Package contract ────────────────────────────
+      metadataConst,
+      docsPackageDef,
+
+      // ── External collaborators ───────────────────────
+      resonanceRuntime.content.fileDiscovery.discoverMarkdownFilesFn,
+      resonanceRuntime.content.fileDiscovery.buildMarkdownTreeFn,
+      resonanceRuntime.content.markdownRenderer.createMarkdownRendererFn,
+
+      // ── Contract types ───────────────────────────────
+      resonanceRuntime.host.transport.packageDefinition,
+      resonanceRuntime.host.transport.packageRegistration,
+      resonanceRuntime.host.transport.hostContext
+  }
+
+  view docsDocumentCode of resonancePackages.docs.documentHandler {
+    title "Document handler"
+    description """
+      Shows how the Document handler resolves a repository-relative
+      path, reads the Markdown source through the Content engine, and
+      returns both raw content and rendered HTML.
+      The `register()` and `createRouteHandler()` functions live in the
+      Document tree handler — click through to see shared code internals.
+    """
+
+    include
+      // ── Component ───────────────────────────────────
+      documentHandler,
+
+      // ── Shared tree handler (collapsed) ──────────────
+      treeHandler,
+
+      // ── External collaborators ───────────────────────
+      resonanceRuntime.content.fileDiscovery.readMarkdownFn,
+      resonanceRuntime.content.markdownRenderer.createMarkdownRendererFn,
+
+      // ── Contract types ───────────────────────────────
+      resonanceRuntime.host.transport.packageDefinition,
+      resonanceRuntime.host.transport.packageRegistration,
+      resonanceRuntime.host.transport.hostContext
   }
 
   view architectureComponents of resonancePackages.architecture {
@@ -355,9 +1962,466 @@ views {
     include *
   }
 
+  /*
+   * ── Architecture code-level views ─────────────────────────────────
+   * C4 Level 4: functions, types, and calling patterns inside each
+   * Architecture package component.
+   */
+
+  view deepagentsCode of resonancePackages.architecture.deepagents {
+    title "Architecture DeepAgents runtime"
+    description """
+      Functions, types, and calling patterns inside the Architecture DeepAgents runtime.
+      Shows how createDeepAgentsRuntimeFactory() wires the ChatOpenAI model,
+      architecture tools, packaged skill backend, and DeepAgents runtime.
+      Excludes internal helpers (textOf, inputTokensOf, recoverableArchitectureToolError,
+      selectedContext, path-manipulation guards).
+    """
+
+    include
+      // ── Entry point ─────────────────────────────────
+      createDeepAgentsRuntimeFactoryFn,
+
+      // ── Tool & backend factories ─────────────────────
+      createArchitectureToolsFn,
+      createReadonlyRepositoryBackendFn,
+      createPackagedSkillBackendFn,
+
+      // ── Supporting functions ─────────────────────────
+      providerFetchFn,
+
+      // ── Types ────────────────────────────────────────
+      deepAgentsRuntime,
+      architectureChatOpenAI,
+      readOnlyRepoBackend,
+      packagedSkillsType,
+
+      // ── External collaborators ───────────────────────
+      resonancePackages.architecture.store,
+      resonancePackages.architecture.checkers
+  }
+
+  view storeCode of resonancePackages.architecture.store {
+    title "Architecture data store"
+    description """
+      Functions, types, and calling patterns inside the Architecture data store.
+      Shows the ArchitectureStore contract, the artifact types it reads and writes,
+      the error hierarchy, and the flow from createArchitectureStore() through
+      read/likec4/graph/readEvidence/replace.
+      Excludes internal helpers (parse, hash, safeRoot, Zod schemas).
+    """
+
+    include
+      // ── Factory ──────────────────────────────────────
+      createArchitectureStoreFn,
+      architectureStoreInterface,
+
+      // ── Artifact types ───────────────────────────────
+      architectureArtifactsType,
+      architectureModelType,
+      architectureViewsType,
+      architectureRulesType,
+      architecturePatternsType,
+      architectureDecisionsType,
+
+      // ── Mutation & parsing types ─────────────────────
+      architectureMutationType,
+      likeC4SnapshotType,
+
+      // ── Error types ──────────────────────────────────
+      architectureSourceError,
+      architectureStoreError,
+      architectureValidationError,
+      architectureStaleWriteError
+  }
+
+  view checkersCode of resonancePackages.architecture.checkers {
+    title "Validation checkers"
+    description """
+      Functions, types, and calling patterns inside the Validation checkers.
+      Shows validateArchitecture() dispatching to the six deterministic checkers
+      and returning an ArchitectureValidation with all findings.
+      Excludes individual checker functions (checkAuthoritativeConfig, checkShell, etc.).
+    """
+
+    include
+      // ── Entry point ─────────────────────────────────
+      validateArchitectureFn,
+
+      // ── Types ────────────────────────────────────────
+      architectureFindingType,
+      architectureValidationType
+  }
+
+  view agentCode of resonancePackages.architecture.agent {
+    title "Architecture agent session"
+    description """
+      Functions, types, and calling patterns inside the Architecture agent session.
+      Shows the lifecycle types, the ArchitectureAgentRuntime contract, and how
+      createArchitectureAgentSession() wires streaming, snapshots, and edit confirmation.
+      Excludes internal state-machine helpers (ensure, close, onUpdate, run).
+    """
+
+    include
+      // ── Factory ──────────────────────────────────────
+      createArchitectureAgentSessionFn,
+
+      // ── Runtime contract ─────────────────────────────
+      architectureAgentRuntimeInterface,
+      architectureAgentRuntimeFactoryType,
+
+      // ── State & event types ──────────────────────────
+      architectureAgentSnapshotType,
+      architectureAgentTurnType,
+      architectureAgentUpdateType,
+      architectureAgentEventType,
+      architectureAgentBusyError
+  }
+
+  view rendererCode of resonancePackages.architecture.renderer {
+    title "LikeC4 diagram renderer"
+    description """
+      Functions, types, and calling patterns inside the LikeC4 diagram renderer.
+      Shows createLikeC4Renderer() accepting RendererOptions and mounting a
+      ReactLikeC4 component into a DOM element.
+    """
+
+    include
+      // ── Factory ──────────────────────────────────────
+      createLikeC4RendererFn,
+      rendererOptionsType
+  }
+
   view backlogComponents of resonancePackages.backlog {
     title "Backlog components"
     description "The components inside the Backlog package container."
     include *
+  }
+
+  /*
+   * ── Backlog code-level views ───────────────────────────────────
+   * C4 Level 4: types, functions, and calling patterns inside each
+   * Backlog component.
+   */
+
+  view backlogStoreCode of resonancePackages.backlog.store {
+    title "Backlog data store"
+    description """
+      Types, functions, and calling patterns inside the Backlog data store.
+      Shows the domain types, the `BacklogStore` interface, the factory
+      `createBacklogStore()`, and the internal helpers that drive serialised
+      I/O with atomic writes and compensated rollback.
+    """
+
+    include
+      // ── Domain types ────────────────────────────────────
+      backlogStatusType,
+      backlogPriorityType,
+      backlogDecisionSummaryType,
+      backlogDecisionType,
+      backlogCreateInputType,
+      backlogMetadataType,
+      backlogMutationType,
+      backlogStoreInterface,
+      parsedDecisionType,
+      fileSystemType,
+
+      // ── Error classes ───────────────────────────────────
+      backlogStoreError,
+      backlogSourceError,
+
+      // ── Public functions ────────────────────────────────
+      planForTitleFn,
+      parseBacklogItemsFn,
+      createBacklogStoreFn,
+
+      // ── Internal helpers ────────────────────────────────
+      loadFn,
+      atomicReplaceFn,
+      requireCreateFn
+  }
+
+  view backlogAgentCode of resonancePackages.backlog.agent {
+    title "Backlog agent session"
+    description """
+      Types, the event system, and the session factory inside the Backlog
+      agent session component. Shows how `createBacklogAgentSession()` wires
+      credential resolution, runtime lifecycle, turn tracking, mutation
+      commit, deletion confirmation, and subscriber broadcast.
+    """
+
+    include
+      // ── Domain types ────────────────────────────────────
+      backlogAgentStatusType,
+      backlogAgentMessageType,
+      backlogDeletionConfirmationType,
+      backlogAgentSnapshotType,
+      backlogAgentUpdateType,
+      backlogAgentTurnType,
+      backlogAgentRuntimeType,
+      backlogAgentRuntimeFactoryOptionsType,
+      backlogAgentRuntimeFactoryType,
+      backlogAgentEventType,
+
+      // ── Error classes ───────────────────────────────────
+      backlogAgentBusyError,
+      backlogAgentConfirmationError,
+      backlogAgentUnavailableError,
+
+      // ── Factory function ────────────────────────────────
+      createBacklogAgentSessionFn,
+
+      // ── External types referenced ───────────────────────
+      backlogStoreInterface,
+      backlogDecisionType
+  }
+
+  view backlogDeepagentsCode of resonancePackages.backlog.deepagents {
+    title "Backlog DeepAgents runtime"
+    description """
+      Functions and the runtime class inside the Backlog DeepAgents component.
+      Shows the restricted skill backend, the 7 LangChain domain tools, the
+      `DeepAgentsRuntime` streaming wrapper, and the factory that assembles
+      everything from provider/model configuration.
+    """
+
+    include
+      // ── Functions ───────────────────────────────────────
+      createPackagedSkillBackendFn,
+      createBacklogToolsFn,
+      selectedContextFn,
+      textOfFn,
+      deepAgentsRuntimeClass,
+      createDeepAgentsRuntimeFactoryFn,
+
+      // ── External types referenced ───────────────────────
+      backlogAgentTurnType,
+      backlogAgentUpdateType,
+      backlogStoreInterface,
+      backlogMutationType,
+      backlogDecisionType
+  }
+
+  /*
+   * ── Code-level views ───────────────────────────────────────────
+   * C4 Level 4: classes, interfaces, and functions inside each
+   * Host-registry component.
+   */
+
+  view registryCode of resonanceRuntime.host.registry {
+    title "Package registry"
+    description """
+      Functions, types, and calling patterns inside the Package Registry component.
+      Shows what `createHost()` takes as input, the internal functions it delegates to,
+      and the types it produces.
+    """
+
+    include
+      // ── Internal functions ──────────────────────────
+      createHostFn,
+      createContextFn,
+      isPackageRegistrationFn,
+      addRegistrationFn,
+      routeKeyFn,
+
+      // ── Internal state type ─────────────────────────
+      mutableRegistryType,
+
+      // ── Output types ────────────────────────────────
+      hostRegistryType,
+      hostManifest,
+      packageDiagnosticType,
+
+      // ── External input types ────────────────────────
+      resonanceRuntime.host.transport.packageDefinition,
+      resonanceRuntime.host.transport.hostContext
+  }
+
+  view transportCode of resonanceRuntime.host.transport {
+    title "Package transport"
+    description """
+      The transport contract types that every package implements and the
+      request/response abstractions the host provides.
+      Shows the PackageDefinition→PackageRegistration flow, the paired
+      HostRequest/HostResponse, and the contributions returned to the host.
+    """
+
+    include
+      // ── HTTP abstractions ───────────────────────────
+      hostRequest,
+      hostResponse,
+
+      // ── Package contract ────────────────────────────
+      packageDefinition,
+      packageRegistration,
+
+      // ── Contributions ───────────────────────────────
+      hostContext,
+      routeContribution,
+      telemetryInterface,
+
+      // ── External consumer ───────────────────────────
+      resonanceRuntime.host.telemetry.telemetryImpl
+  }
+
+  view telemetryCode of resonanceRuntime.host.telemetry {
+    title "Telemetry"
+    description """
+      Telemetry internals: factory entry-point, core implementation,
+      exporter abstraction, and the two concrete exporters
+      (`NullExporter` for off-mode, `LangfuseExporter` for OTLP).
+      Also shows the `sanitize()` redaction helper and `environmentConfig()`
+      that drives mode/key selection.
+    """
+
+    include
+      // ── Entry point ─────────────────────────────────
+      createTelemetryFn,
+
+      // ── Core implementation ─────────────────────────
+      telemetryImpl,
+
+      // ── Exporters ───────────────────────────────────
+      exporterInterface,
+      nullExporter,
+      langfuseExporter,
+
+      // ── Supporting functions ────────────────────────
+      sanitizeFn,
+      envConfigFn
+  }
+
+  view stateManagerCode of resonanceRuntime.host.stateManager {
+    title "State manager"
+    description """
+      Per-package JSON state persistence: path derivation, serialization
+      with size checks, atomic writes, and startup validation that isolates
+      corrupt state before routes are registered.
+      Shows the `stateFilename()` → `createPackageState()` / `validatePackageState()`
+      production pipeline, the `PackageState` contract consumed through
+      `HostContext`, and the shared `StateSerializer` internals.
+    """
+
+    include
+      // ── Public API ──────────────────────────────────
+      createStateFn,
+      validateStateFn,
+
+      // ── Contract ────────────────────────────────────
+      packageStateInterface,
+
+      // ── Internals ───────────────────────────────────
+      stateSerializer,
+      stateFilenameFn,
+
+      // ── External consumer ───────────────────────────
+      resonanceRuntime.host.transport.hostContext
+  }
+
+  view requestRouterCode of resonanceRuntime.server.requestRouter {
+    title "Request router"
+    description """
+      Request routing internals: the `createApp()` factory that wires
+      the HTTP server, method validation and Allow-header computation,
+      and the `startServer()` entry point.
+      Shows how the router delegates asset requests to `serveFile()`.
+    """
+
+    include
+      // ── Factory & entry point ────────────────────────
+      createAppFn,
+      startServerFn,
+
+      // ── Method helpers ───────────────────────────────
+      methodOfFn,
+      registeredMethodsFn,
+      allowForFn,
+      rejectMethodFn,
+
+      // ── Cross-component delegate ─────────────────────
+      resonanceRuntime.server.assetServer.serveFileFn
+  }
+
+  view assetServerCode of resonanceRuntime.server.assetServer {
+    title "Asset server"
+    description """
+      Static file serving internals: the `serveFile()` function that
+      checks existence, streams files from disk with content-type and
+      cache-control headers, and returns 404 on failure.
+      Called by the request router during asset dispatch.
+    """
+
+    include
+      serveFileFn,
+
+      // ── Caller ───────────────────────────────────────
+      resonanceRuntime.server.requestRouter.createAppFn
+  }
+
+  view configLoaderCode of resonanceRuntime.member.configLoader {
+    title "Member config loader"
+    description """
+      Functions, types, and calling patterns inside the Member Config Loader component.
+      Shows how `loadMemberConfig()` and `writeMemberConfig()` both validate through
+      `validateMemberConfig()`, which produces the `MemberConfig` type.
+    """
+
+    include
+      // ── Public API ──────────────────────────────────
+      loadMemberConfigFn,
+      writeMemberConfigFn,
+      resolveMemberRepositoryFn,
+      packageInputFn,
+
+      // ── Validation entry ────────────────────────────
+      validateMemberConfigFn,
+
+      // ── Output types ────────────────────────────────
+      memberConfigType
+  }
+
+  view manifestLoaderCode of resonanceRuntime.member.manifestLoader {
+    title "Member manifest loader"
+    description """
+      Functions, types, and calling patterns inside the Member Manifest Loader component.
+      Shows how `loadMemberManifest()` discovers and validates through
+      `validateMemberManifest()`, producing the `MemberManifest` type.
+    """
+
+    include
+      // ── Public API ──────────────────────────────────
+      loadMemberManifestFn,
+
+      // ── Validation entry ────────────────────────────
+      validateMemberManifestFn,
+
+      // ── Output types ────────────────────────────────
+      memberManifestType
+  }
+
+  view scaffolderCode of resonanceRuntime.scaffolder {
+    title "Member scaffolder"
+    description """
+      Functions, types, and calling patterns inside the Member Scaffolder component.
+      Shows plan-then-create pattern for both packages and repositories:
+      `planMemberPackageScaffold()` → `createMemberPackageScaffold()` and
+      `planMemberRepository()` → `createMemberRepository()`.
+    """
+
+    include
+      // ── Package scaffolding ─────────────────────────
+      planMemberPackageScaffoldFn,
+      createMemberPackageScaffoldFn,
+
+      // ── Repository scaffolding ──────────────────────
+      planMemberRepositoryFn,
+      createMemberRepositoryFn,
+
+      // ── Plan types ──────────────────────────────────
+      memberPackagePlanType,
+      memberRepositoryPlanType,
+
+      // ── Callback contract ───────────────────────────
+      verifyMemberPackageType
   }
 }

@@ -13,7 +13,7 @@ import { createArchitectureStore, modelSchema } from './architecture-store.ts';
 import { createArchitectureAgentSession } from './architecture-agent.ts';
 import { ArchitectureChatOpenAI, createArchitectureTools, createPackagedSkillBackend, DeepAgentsRuntime, providerFetch } from './architecture-deepagents.ts';
 import { validateArchitecture } from './architecture-checkers.ts';
-import createPackage, { architectureInput } from './index.ts';
+import createPackage, { architectureInput, createArchitecturePackage } from './index.ts';
 import createBrowser from './architecture.js';
 
 const appRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -29,13 +29,18 @@ test('validates the typed model and rejects unstable or malformed entities', () 
   assert.throws(() => architectureInput({ artifactRoot: 'architecture' }));
 });
 
-test('mounts the LikeC4 DSL skill at the agent skill path', async () => {
-  const skill = await readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /^---\nname: likec4-dsl\n/);
-  const backend = createPackagedSkillBackend(skill);
-  assert.deepEqual(backend.ls('/skills'), { files: [{ path: '/skills/likec4-dsl/', is_dir: true }] });
-  assert.deepEqual(backend.ls('/skills/likec4-dsl'), { files: [{ path: '/skills/likec4-dsl/SKILL.md', is_dir: false }] });
-  assert.deepEqual(backend.read('/skills/likec4-dsl/SKILL.md'), { content: skill, mimeType: 'text/markdown' });
+test('mounts the packaged Architecture skills at the agent skill path', async () => {
+  const likec4Skill = await readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8');
+  const structuralViewSkill = await readFile(new URL('./skills/code-structural-view/SKILL.md', import.meta.url), 'utf8');
+  assert.match(likec4Skill, /^---\nname: likec4-dsl\n/);
+  assert.match(structuralViewSkill, /^---\nname: code-structural-view\n/);
+  assert.match(structuralViewSkill, /functionName = code "functionName\(\)"/);
+  assert.doesNotMatch(structuralViewSkill, /\nfunction functionName \{/);
+  const backend = createPackagedSkillBackend({ 'likec4-dsl': likec4Skill, 'code-structural-view': structuralViewSkill });
+  assert.deepEqual(backend.ls('/skills'), { files: [{ path: '/skills/code-structural-view/', is_dir: true }, { path: '/skills/likec4-dsl/', is_dir: true }] });
+  assert.deepEqual(backend.ls('/skills/code-structural-view'), { files: [{ path: '/skills/code-structural-view/SKILL.md', is_dir: false }] });
+  assert.deepEqual(backend.read('/skills/code-structural-view/SKILL.md'), { content: structuralViewSkill, mimeType: 'text/markdown' });
+  assert.deepEqual(backend.read('/skills/likec4-dsl/SKILL.md'), { content: likec4Skill, mimeType: 'text/markdown' });
   assert.match(String(backend.read('/skills/c4-architecture/SKILL.md').error), /Permission denied/);
 });
 
@@ -56,6 +61,7 @@ test('gives the Architecture agent architecture and Markdown write access withou
     assert.ok(listing.files?.some((file) => file.path === '/src/' && file.is_dir));
     assert.match(String((await backend.read('/src/nested/main.ts')).content), /nested needle/);
     assert.equal((await backend.read('/skills/likec4-dsl/SKILL.md')).content, skill);
+    assert.match(String((await backend.write('/skills/likec4-dsl/SKILL.md', 'changed')).error), /Permission denied/);
     assert.ok((await backend.glob('**/*.ts')).files?.some((file) => file.path === '/src/nested/main.ts'));
     assert.ok((await backend.grep('needle')).matches?.some((match) => match.path === '/README.md'));
     assert.equal((await backend.write('/architecture/model.c4', 'model content\n')).path, '/architecture/model.c4');
@@ -78,19 +84,33 @@ test('expands the architecture surface when the agent is hidden and aligns panel
   assert.match(css, /\.architecture-workspace\.architecture-agent-hidden \{[^}]*grid-template-columns: minmax\(180px, 220px\) minmax\(0, 1fr\);/s);
   assert.match(css, /\.architecture-header \{[^}]*min-height: 77px;/s);
   assert.match(css, /\.architecture-agent-header \{[^}]*min-height: 77px;/s);
-  assert.match(css, /\.architecture-validation-toolbar \{[^}]*justify-content: flex-end;/s);
+  assert.match(css, /\.architecture-validation-toolbar \{[^}]*justify-content: flex-start;/s);
   assert.match(css, /\.architecture-validation-view \.architecture-validation-button \{[^}]*background: var\(--ink/s);
   assert.doesNotMatch(css, /\.architecture-validation-view > header \{/);
   assert.match(css, /\.architecture-message-user \{[^}]*background: var\(--accent-soft/s);
   assert.match(css, /\.architecture-nav-group-items\[hidden\] \{[^}]*display: none/s);
+  assert.match(css, /\.architecture-nav-group-toggle \{[^}]*width: calc\(100% - 18px\);/s);
+  assert.match(css, /\.architecture-navigator nav > \.architecture-nav-view:hover, \.architecture-nav-group-items \.architecture-nav-view:hover \{[^}]*margin-right: 6px;/s);
+  assert.match(css, /\.architecture-navigator \.architecture-nav-view\.active \{[^}]*margin-right: 6px;[^}]*border-left-color: var\(--accent/s);
+  assert.doesNotMatch(css, /\.architecture-navigator nav > \.architecture-nav-view:hover, \.architecture-nav-group-items \.architecture-nav-view:hover, \.architecture-navigator \.architecture-nav-view\.active \{[^}]*border-left-color/s);
+  assert.match(css, /\.architecture-navigator \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*padding: 32px 6px 32px 20px;/s);
+  assert.match(css, /\.architecture-navigator h1 \{[^}]*font: 400 28px\/1 var\(--display/s);
+  assert.match(css, /\.architecture-navigator nav \{[^}]*min-height: 0;[^}]*flex: 1;[^}]*overflow-y: auto;[^}]*scrollbar-width: thin;[^}]*scrollbar-color: var\(--line, #d9ddd8\) transparent;/s);
+  assert.match(css, /\.architecture-navigator nav::\-webkit-scrollbar \{[^}]*width: 4px;/s);
+  assert.match(css, /\.architecture-navigator nav::\-webkit-scrollbar-thumb:hover \{[^}]*background: var\(--accent, #315d3b\);/s);
   assert.match(css, /\.architecture-message-content p \{[^}]*margin: 0;/s);
   assert.doesNotMatch(css, /\.architecture-context \{/);
-  assert.match(css, /\.architecture-context-usage \{/);
+  assert.match(css, /\.architecture-composer > div \{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\);/s);
+  assert.match(css, /\.architecture-context-usage \{[^}]*justify-self: center;/s);
+  assert.match(css, /\.architecture-reset \{[^}]*justify-self: end;/s);
+  assert.match(css, /\.architecture-breadcrumbs \{[^}]*display: flex;/s);
+  assert.match(css, /\.architecture-breadcrumb \{[^}]*background: transparent;/s);
   const diagram = await readFile(new URL('./architecture-likec4.tsx', import.meta.url), 'utf8');
   assert.match(diagram, /mantineTheme=\{\{ white: 'var\(--paper, #f7f8f6\)' \}\}/);
   assert.match(diagram, /reactFlowProps=\{\{ zoomOnScroll: true, panOnScroll: false \}\}/);
   const browserSource = await readFile(new URL('./architecture-source.js', import.meta.url), 'utf8');
-  assert.match(browserSource, /onNavigate: async \(viewId\) => \{ activeView = viewId; updateViewHeader\(viewId\); await refreshWorkspace\(\); \}/);
+  assert.match(browserSource, /onNavigate: navigateToView/);
+  assert.match(browserSource, /class=\"architecture-breadcrumbs\" aria-label=\"View hierarchy\"/);
   assert.match(browserSource, /architecture-message-content/);
   assert.match(browserSource, /element\('strong', 'Agent'\)/);
   assert.match(browserSource, /\(modelResponse\?\.likec4Views \|\| viewsResponse\.views\)\.filter\(\(view\) => view\.id !== 'index'\)/);
@@ -158,6 +178,56 @@ test('uses the configured architecture runtime lazily and streams chat state', a
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('stops an active Architecture turn without treating cancellation as an error', async () => {
+  const root = await fixture();
+  try {
+    let streamSignal: AbortSignal | null = null;
+    const events: string[] = [];
+    const session = createArchitectureAgentSession({
+      store: createArchitectureStore({ context: context(root) }), context: context(root), credentialProvider: async () => 'test-key',
+      runtimeFactory: async () => ({
+        async *stream(_turn, signal) {
+          streamSignal = signal;
+          yield { kind: 'assistant' as const, text: 'Partial response.' };
+          await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+          throw signal.reason;
+        },
+        async dispose() {},
+      }),
+    });
+    session.subscribe((event) => events.push(event.type));
+    await session.submitPrompt({ prompt: 'Explain this view' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(session.snapshot().status, 'working');
+    assert.deepEqual(await session.stop(), { stopped: true, state: session.snapshot() });
+    assert.equal(streamSignal?.aborted, true);
+    assert.equal(session.snapshot().status, 'idle');
+    assert.equal(session.snapshot().error, null);
+    assert.equal(session.snapshot().messages.at(-1)?.content, 'Partial response.');
+    assert.ok(events.includes('stopped'));
+    assert.equal((await session.stop()).stopped, false);
+    await session.dispose();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('captures each Architecture turn request and all assistant response paragraphs', async () => {
+  const root = await fixture();
+  try {
+    const records: any[] = [];
+    const telemetry = createTelemetry({ root, config: { mode: 'console', captureContent: true }, console: null, exporter: { record(record) { records.push(record); }, async flush() {} } });
+    const session = createArchitectureAgentSession({
+      store: createArchitectureStore({ context: context(root) }), context: context(root), telemetry, credentialProvider: async () => 'test-key',
+      runtimeFactory: async () => ({ async *stream() { yield { kind: 'assistant' as const, text: 'First response.' }; yield { kind: 'assistant' as const, text: 'Second response.', newParagraph: true }; }, async dispose() {} }),
+    });
+    await session.submitPrompt({ prompt: 'Explain this view', selectedView: 'system-context' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const turn = records.find((record) => record.kind === 'span' && record.name === 'architecture.agent.turn');
+    assert.deepEqual(turn.fields.input, [{ role: 'user', content: 'Explain this view' }]);
+    assert.deepEqual(turn.fields.output, [{ role: 'assistant', content: 'First response.' }, { role: 'assistant', content: 'Second response.' }]);
+    await session.dispose(); await telemetry.dispose();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('keeps separate model responses in separate assistant messages', async () => {
   const root = await fixture();
   try {
@@ -180,6 +250,46 @@ test('keeps separate model responses in separate assistant messages', async () =
     assert.deepEqual(session.snapshot().context, { inputTokens: 42876, maxInputTokens: 1048576 });
     await session.reset();
     assert.equal(session.snapshot().context, null);
+    await session.dispose();
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('keeps context usage across turns until the agent session is reset', async () => {
+  const root = await fixture();
+  try {
+    let created = 0;
+    let turn = 0;
+    const threadIds = new Set<string>();
+    const session = createArchitectureAgentSession({
+      store: createArchitectureStore({ context: context(root) }),
+      context: context(root),
+      credentialProvider: async () => 'test-key',
+      runtimeFactory: async () => {
+        created += 1;
+        return {
+          async *stream(input) {
+            threadIds.add(input.threadId);
+            const inputTokens = turn++ === 0 ? 42876 : 1200;
+            yield { kind: 'context' as const, context: { inputTokens, maxInputTokens: 1048576 } };
+            yield { kind: 'assistant' as const, text: 'Response.' };
+          },
+          async dispose() {},
+        };
+      },
+    });
+    await session.submitPrompt({ prompt: 'First question' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await session.submitPrompt({ prompt: 'Follow-up question' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(created, 1);
+    assert.equal(threadIds.size, 1);
+    assert.deepEqual(session.snapshot().context, { inputTokens: 42876, maxInputTokens: 1048576 });
+    await session.reset();
+    assert.equal(session.snapshot().context, null);
+    await session.submitPrompt({ prompt: 'Question in a new chat' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(created, 2);
+    assert.equal(threadIds.size, 2);
     await session.dispose();
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -214,20 +324,40 @@ test('forwards provider context usage from the current DeepAgents model node', a
     },
   }, telemetry, 1048576);
   const updates = [];
-  for await (const update of runtime.stream({ messages: [], threadId: 'test-thread' })) updates.push(update);
+  for await (const update of runtime.stream({ messages: [], threadId: 'test-thread' }, new AbortController().signal)) updates.push(update);
   assert.deepEqual(updates, [{ kind: 'context', context: { inputTokens: 42876, maxInputTokens: 1048576 } }]);
 });
 
-test('forwards assistant chunks from the current DeepAgents model node', async () => {
+test('passes the turn AbortSignal into the Deep Agents stream configuration', async () => {
   const telemetry = createTelemetry({ config: { mode: 'off' }, console: null });
+  let receivedSignal: AbortSignal | undefined;
+  const runtime = new DeepAgentsRuntime({
+    async stream(_input, config) {
+      receivedSignal = config.signal;
+      return (async function* () {})();
+    },
+  }, telemetry);
+  const controller = new AbortController();
+  for await (const _update of runtime.stream({ messages: [], threadId: 'test-thread' }, controller.signal)) {}
+  assert.equal(receivedSignal, controller.signal);
+});
+
+test('captures the Architecture model request and response while forwarding assistant chunks', async () => {
+  const records: any[] = [];
+  const telemetry = createTelemetry({ config: { mode: 'console', captureContent: true }, console: null, exporter: { record(record) { records.push(record); }, async flush() {} } });
   const runtime = new DeepAgentsRuntime({
     async stream() {
       return (async function* () { yield [{ content: 'Hello from the model.' }, { langgraph_node: 'model_request' }]; })();
     },
   }, telemetry);
   const updates = [];
-  for await (const update of runtime.stream({ messages: [], threadId: 'test-thread' })) updates.push(update);
+  for await (const update of runtime.stream({ messages: [{ id: 'user-1', role: 'user', content: 'Explain this view', createdAt: new Date(0).toISOString() }], selectedView: 'system-context', threadId: 'test-thread' }, new AbortController().signal)) updates.push(update);
   assert.deepEqual(updates, [{ kind: 'assistant', text: 'Hello from the model.' }]);
+  const model = records.find((record) => record.kind === 'span' && record.name === 'architecture.model.stream');
+  assert.equal(model.fields.observationType, 'generation');
+  assert.match(model.fields.input.at(-1).content, /<user-request>\nExplain this view\n<\/user-request>/);
+  assert.deepEqual(model.fields.output, [{ role: 'assistant', content: 'Hello from the model.' }]);
+  await telemetry.dispose();
 });
 
 test('starts a new chat paragraph when the agent produces another model response', async () => {
@@ -242,7 +372,7 @@ test('starts a new chat paragraph when the agent produces another model response
     },
   }, telemetry);
   const updates = [];
-  for await (const update of runtime.stream({ messages: [], threadId: 'test-thread' })) updates.push(update);
+  for await (const update of runtime.stream({ messages: [], threadId: 'test-thread' }, new AbortController().signal)) updates.push(update);
   assert.deepEqual(updates, [
     { kind: 'assistant', text: 'First response.' },
     { kind: 'assistant', text: 'Second response.', newParagraph: true },
@@ -313,6 +443,19 @@ test('serves recoverable model metadata when LikeC4 source is invalid', async ()
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('exposes an idempotent package-owned stop route', async () => {
+  const root = await fixture();
+  try {
+    const config = { version: 1 as const, packages: { architecture: { provider: 'openrouter', model: 'test-model' } } };
+    const registry = createHost({ root, appRoot, config, packages: [createArchitecturePackage({ runtimeFactory: async () => ({ async *stream() {}, async dispose() {} }) })] });
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/architecture/agent/stop`, { method: 'POST' });
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).stopped, false);
+    }, { registry });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('composes through the host contract and exposes namespaced read-only routes', async () => {
   const root = await fixture();
   try {
@@ -328,6 +471,9 @@ test('composes through the host contract and exposes namespaced read-only routes
       assert.equal(model.likec4.elements.llmProvider.title, 'LLM provider');
       assert.equal(model.likec4Views.some((view: { id: string }) => view.id === 'packageRelations'), false);
       assert.ok(model.likec4Views.some((view: { id: string }) => view.id === 'systemContext'));
+      assert.equal(model.likec4Views.find((view: { id: string }) => view.id === 'systemContext').type, 'element');
+      assert.deepEqual(Object.fromEntries(model.likec4Views.filter((view: { id: string }) => ['runtimeContainers', 'hostComponents', 'registryCode'].includes(view.id)).map((view: { id: string; parentId?: string }) => [view.id, view.parentId])), { hostComponents: 'runtimeContainers', registryCode: 'hostComponents', runtimeContainers: 'systemContext' });
+      assert.deepEqual(Object.fromEntries(model.likec4Views.filter((view: { id: string }) => ['registryCode', 'stateManagerCode', 'telemetryCode', 'transportCode'].includes(view.id)).map((view: { id: string; name: string }) => [view.id, view.name])), { registryCode: 'Package registry', stateManagerCode: 'State manager', telemetryCode: 'Telemetry', transportCode: 'Package transport' });
       const contextGraph = await fetch(`${baseUrl}/api/architecture/graph?view=systemContext`).then((response) => response.json());
       assert.ok(contextGraph.nodes.some((node: { modelRef?: string }) => node.modelRef === 'llmProvider'));
       assert.equal((await fetch(`${baseUrl}/api/architecture/graph?view=systemContext`)).status, 200);
@@ -336,6 +482,9 @@ test('composes through the host contract and exposes namespaced read-only routes
       const credential = await fetch(`${baseUrl}/api/architecture/agent/credential`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey: 'architecture-test-key' }) });
       assert.equal(credential.status, 200);
       assert.match(await readFile(path.join(root, '.resonance/architecture-agent.env'), 'utf8'), /OPENROUTER_API_KEY=architecture-test-key/);
+      const stop = await fetch(`${baseUrl}/api/architecture/agent/stop`, { method: 'POST' });
+      assert.equal(stop.status, 200);
+      assert.equal((await stop.json()).stopped, false);
       assert.equal((await fetch(`${baseUrl}/api/architecture/evidence?path=src%2Fhost.ts`)).status, 200);
       assert.equal((await fetch(`${baseUrl}/api/architecture/edit`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'rules', value: {}, revision: model.revision }) })).status, 409);
     }, { root, appRoot, config });
@@ -351,7 +500,7 @@ test('renders LikeC4 through the React diagram package', async () => {
     const { window, document } = parseHTML('<!doctype html><head></head><body></body>'); globalThis.window = window; globalThis.document = document; globalThis.MutationObserver = window.MutationObserver;
     const mount = document.createElement('section'); document.body.append(mount);
     const browser = createBrowser({ fetchFn: async (url) => { if (url.endsWith('/model')) return { ok: true, async json() { return { model: { entities: [] }, likec4: likec4.dump, likec4Views: likec4.views }; } }; if (url.endsWith('/views')) return { ok: true, async json() { return { views: likec4.views }; } }; if (url.endsWith('/agent/state')) return { ok: true, async json() { return { messages: [], status: 'idle', error: null }; } }; return { ok: true, async json() { return graph; } }; }, eventSourceFactory: () => null });
-    browser.mount(mount); await browser.activate(); await new Promise((resolve) => setTimeout(resolve, 20)); assert.equal(mount.querySelector('.architecture-graph').children.length > 0, true); assert.doesNotMatch(mount.textContent, /LikeC4Model not found/); assert.equal(mount.querySelector('[data-view-id="index"]'), null); assert.equal(mount.querySelector('nav > .architecture-nav-view')?.dataset.viewId, 'validation'); assert.equal(mount.querySelectorAll('nav > .architecture-nav-view')[1]?.dataset.viewId, 'systemContext'); assert.deepEqual([...mount.querySelectorAll('.architecture-nav-group-toggle span:first-child')].map((label) => label.textContent), ['Containers', 'Components', 'Code']); const containers = mount.querySelector('[data-nav-group="containers"]'); assert.ok(containers?.querySelector('[data-view-id="runtimeContainers"]')); assert.ok(containers?.querySelector('[data-view-id="packageContainers"]')); const containerToggle = containers?.querySelector('.architecture-nav-group-toggle') as HTMLButtonElement; assert.equal((containers?.querySelector('.architecture-nav-group-items') as HTMLElement).hidden, false); containerToggle.click(); let collapsedContainers = mount.querySelector('[data-nav-group="containers"]')!; assert.equal((collapsedContainers.querySelector('.architecture-nav-group-items') as HTMLElement).hidden, true); assert.equal(collapsedContainers.querySelector('.architecture-nav-group-toggle')?.getAttribute('aria-expanded'), 'false'); (collapsedContainers.querySelector('.architecture-nav-group-toggle') as HTMLButtonElement).click(); collapsedContainers = mount.querySelector('[data-nav-group="containers"]')!; assert.equal((collapsedContainers.querySelector('.architecture-nav-group-items') as HTMLElement).hidden, false); assert.equal(collapsedContainers.querySelector('.architecture-nav-group-toggle')?.getAttribute('aria-expanded'), 'true'); browser.deactivate(); await new Promise((resolve) => setTimeout(resolve, 100)); delete globalThis.window; delete globalThis.document; delete globalThis.MutationObserver;
+    browser.mount(mount); await browser.activate(); await new Promise((resolve) => setTimeout(resolve, 20)); assert.equal(mount.querySelector('.architecture-graph').children.length > 0, true); assert.doesNotMatch(mount.textContent, /LikeC4Model not found/); assert.equal(mount.querySelector('[data-view-id="index"]'), null); assert.deepEqual([...mount.querySelectorAll('nav > .architecture-nav-view')].map((view) => view.dataset.viewId), ['validation', 'landscape', 'systemContext']); assert.equal(mount.querySelector('[data-nav-group="components"] [data-view-id="landscape"]'), null); assert.deepEqual([...mount.querySelectorAll('.architecture-nav-group-toggle span:first-child')].map((label) => label.textContent), ['Containers', 'Components', 'Code', 'Dynamics', 'Deployment']); assert.equal(mount.querySelector('[data-nav-group="dynamics"]')?.previousElementSibling?.getAttribute('data-nav-group'), 'code'); assert.equal(mount.querySelector('[data-nav-group="deployment"]')?.previousElementSibling?.getAttribute('data-nav-group'), 'dynamics'); const containers = mount.querySelector('[data-nav-group="containers"]'); assert.ok(containers?.querySelector('[data-view-id="runtimeContainers"]')); assert.ok(containers?.querySelector('[data-view-id="packageContainers"]')); const containerToggle = containers?.querySelector('.architecture-nav-group-toggle') as HTMLButtonElement; assert.equal((containers?.querySelector('.architecture-nav-group-items') as HTMLElement).hidden, false); containerToggle.click(); let collapsedContainers = mount.querySelector('[data-nav-group="containers"]')!; assert.equal((collapsedContainers.querySelector('.architecture-nav-group-items') as HTMLElement).hidden, true); assert.equal(collapsedContainers.querySelector('.architecture-nav-group-toggle')?.getAttribute('aria-expanded'), 'false'); (collapsedContainers.querySelector('.architecture-nav-group-toggle') as HTMLButtonElement).click(); collapsedContainers = mount.querySelector('[data-nav-group="containers"]')!; assert.equal((collapsedContainers.querySelector('.architecture-nav-group-items') as HTMLElement).hidden, false); assert.equal(collapsedContainers.querySelector('.architecture-nav-group-toggle')?.getAttribute('aria-expanded'), 'true'); browser.deactivate(); await new Promise((resolve) => setTimeout(resolve, 100)); delete globalThis.window; delete globalThis.document; delete globalThis.MutationObserver;
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -379,6 +528,34 @@ test('refreshes the architecture diagram when the agent finishes a turn', async 
   browser.deactivate(); delete globalThis.document;
 });
 
+test('turns Send into Stop while the Architecture agent is working', async () => {
+  const { document } = parseHTML('<!doctype html><head></head><body></body>');
+  globalThis.document = document;
+  const mount = document.createElement('section'); document.body.append(mount);
+  const views = [{ id: 'system-context', name: 'System context', query: {} }];
+  const requests: Array<{ url: string; options?: RequestInit }> = [];
+  const browser = createBrowser({ fetchFn: async (url, options) => {
+    requests.push({ url, options });
+    if (url.endsWith('/model')) return { ok: true, async json() { return { model: { entities: [] }, revision: 'r' }; } };
+    if (url.endsWith('/views')) return { ok: true, async json() { return { views }; } };
+    if (url.endsWith('/agent/state')) return { ok: true, async json() { return { messages: [{ id: 'user-1', role: 'user', content: 'Keep working', createdAt: new Date(0).toISOString() }], status: 'working', error: null }; } };
+    if (url.endsWith('/agent/stop')) return { ok: true, async json() { return { stopped: true, state: { messages: [{ id: 'user-1', role: 'user', content: 'Keep working', createdAt: new Date(0).toISOString() }], status: 'idle', error: null } }; } };
+    return { ok: true, async json() { return { view: views[0], nodes: [], edges: [], revision: 'r' }; } };
+  }, eventSourceFactory: () => null });
+  browser.mount(mount); await browser.activate();
+  const stopButton = mount.querySelector('.architecture-composer > div > button') as HTMLButtonElement;
+  assert.equal(stopButton.textContent, 'Stop');
+  assert.equal(stopButton.disabled, false);
+  assert.equal(stopButton.getAttribute('type'), 'button');
+  stopButton.click(); await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(requests.some((request) => request.url.endsWith('/agent/stop') && request.options?.method === 'POST'));
+  const sendButton = mount.querySelector('.architecture-composer > div > button') as HTMLButtonElement;
+  assert.equal(sendButton.textContent, 'Send');
+  assert.equal(sendButton.disabled, true);
+  assert.equal(sendButton.getAttribute('type'), 'submit');
+  browser.deactivate(); delete globalThis.document;
+});
+
 test('keeps the Architecture agent available when LikeC4 model loading fails', async () => {
   const { document } = parseHTML('<!doctype html><head></head><body></body>');
   globalThis.document = document;
@@ -400,7 +577,41 @@ test('renders a selectable graph workspace without raw artifact HTML', async () 
   const model = { entities: [{ id: 'shell', type: 'package', name: 'Shell', description: 'Browser frame', evidence: [{ path: 'src/host.ts' }] }] };
   const views = [{ id: 'system-context', name: 'System context', query: {} }];
   const browser = createBrowser({ fetchFn: async (url) => { if (url.endsWith('/model')) return { ok: true, async json() { return { model, revision: 'r' }; } }; if (url.endsWith('/views')) return { ok: true, async json() { return { views, revision: 'r' }; } }; if (url.endsWith('/agent/state')) return { ok: true, async json() { return { messages: [], status: 'idle', error: null }; } }; if (url.endsWith('/validation')) return { ok: true, async json() { return { results: [{ status: 'pass', name: 'Configuration', message: 'Configuration is valid.' }] }; } }; return { ok: true, async json() { return { view: views[0], nodes: model.entities, edges: [], revision: 'r' }; } }; }, eventSourceFactory: () => null });
-  browser.mount(mount); await browser.activate(); assert.equal(mount.hidden, false); assert.equal(mount.querySelector('.architecture-navigator .architecture-eyebrow')?.textContent, 'RESONANCE'); assert.equal(mount.querySelector('.architecture-header-label')?.textContent, 'C4'); assert.equal(mount.querySelector('.architecture-view-title')?.textContent, 'System context'); assert.equal(mount.querySelector('.architecture-validation-button'), null); assert.equal(mount.querySelectorAll('.architecture-node').length, 1); assert.match(mount.textContent, /Shell/); assert.equal(mount.querySelector('select'), null); assert.equal(mount.querySelector('input[type="search"]'), null); assert.equal(mount.querySelector('.architecture-agent') !== null, true); assert.ok(mount.querySelector('.architecture-agent-toggle svg')); assert.equal(mount.querySelector('.architecture-context'), null); assert.ok(mount.querySelector('[data-view-id="validation"]')); mount.querySelector('.architecture-node').dispatchEvent(new window.Event('click', { bubbles: true })); mount.querySelector('[data-view-id="validation"]').click(); await new Promise((resolve) => setTimeout(resolve, 0)); assert.equal(mount.querySelector('.architecture-view-title')?.textContent, 'Validation'); assert.equal(mount.querySelector('.architecture-validation-view > header'), null); assert.equal(mount.querySelector('.architecture-validation-toolbar').compareDocumentPosition(mount.querySelector('.architecture-validation')), 4); assert.match(mount.querySelector('.architecture-validation-view').textContent, /Run validation/); mount.querySelector('.architecture-validation-button').click(); await new Promise((resolve) => setTimeout(resolve, 0)); assert.match(mount.querySelector('.architecture-validation').textContent, /Configuration is valid/); mount.querySelector('.architecture-agent-toggle').click(); assert.equal(mount.querySelector('.architecture-agent').hidden, true); assert.equal(mount.querySelector('.architecture-workspace').classList.contains('architecture-agent-hidden'), true); const prompt = mount.querySelector('.architecture-composer textarea') as HTMLTextAreaElement; prompt.value = 'Keep this draft while I browse'; prompt.dispatchEvent(new window.Event('input')); browser.deactivate(); await browser.activate(); assert.equal((mount.querySelector('.architecture-composer textarea') as HTMLTextAreaElement).value, 'Keep this draft while I browse'); browser.deactivate(); assert.equal(mount.hidden, true); delete globalThis.document;
+  browser.mount(mount); await browser.activate(); assert.equal(mount.hidden, false); assert.equal(mount.querySelector('.architecture-navigator .eyebrow')?.textContent, 'WORKSPACE'); assert.equal(mount.querySelector('.architecture-navigator h1')?.textContent, 'Architecture'); assert.equal(mount.querySelector('.architecture-header-label')?.textContent, 'C4'); assert.equal(mount.querySelector('.architecture-view-title')?.textContent, 'System context'); assert.equal(mount.querySelector('.architecture-validation-button'), null); assert.equal(mount.querySelectorAll('.architecture-node').length, 1); assert.match(mount.textContent, /Shell/); assert.equal(mount.querySelector('select'), null); assert.equal(mount.querySelector('input[type="search"]'), null); assert.equal(mount.querySelector('.architecture-agent') !== null, true); assert.ok(mount.querySelector('.architecture-agent-toggle svg')); assert.equal(mount.querySelector('.architecture-context'), null); assert.deepEqual([...mount.querySelectorAll('.architecture-composer > div > button')].map((button) => button.textContent), ['Send', 'New Chat']); assert.ok(mount.querySelector('[data-view-id="validation"]')); mount.querySelector('.architecture-node').dispatchEvent(new window.Event('click', { bubbles: true })); mount.querySelector('[data-view-id="validation"]').click(); await new Promise((resolve) => setTimeout(resolve, 0)); assert.equal(mount.querySelector('.architecture-view-title')?.textContent, 'Validation'); assert.equal(mount.querySelector('.architecture-validation-view > header'), null); assert.equal(mount.querySelector('.architecture-validation-toolbar').compareDocumentPosition(mount.querySelector('.architecture-validation')), 4); assert.match(mount.querySelector('.architecture-validation-view').textContent, /Run validation/); mount.querySelector('.architecture-validation-button').click(); await new Promise((resolve) => setTimeout(resolve, 0)); assert.match(mount.querySelector('.architecture-validation').textContent, /Configuration is valid/); mount.querySelector('.architecture-agent-toggle').click(); assert.equal(mount.querySelector('.architecture-agent').hidden, true); assert.equal(mount.querySelector('.architecture-workspace').classList.contains('architecture-agent-hidden'), true); const prompt = mount.querySelector('.architecture-composer textarea') as HTMLTextAreaElement; prompt.value = 'Keep this draft while I browse'; prompt.dispatchEvent(new window.Event('input')); browser.deactivate(); await browser.activate(); assert.equal((mount.querySelector('.architecture-composer textarea') as HTMLTextAreaElement).value, 'Keep this draft while I browse'); browser.deactivate(); assert.equal(mount.hidden, true); delete globalThis.document;
+});
+
+test('uses concise navigation labels while preserving clickable container and component breadcrumbs', async () => {
+  const { window, document } = parseHTML('<!doctype html><head></head><body></body>');
+  globalThis.document = document;
+  const mount = document.createElement('section'); document.body.append(mount);
+  const views = [
+    { id: 'systemContext', name: 'System context' },
+    { id: 'runtimeContainers', name: 'Runtime containers', parentId: 'systemContext' },
+    { id: 'hostComponents', name: 'Host components', parentId: 'runtimeContainers' },
+    { id: 'registryCode', name: 'Package registry', parentId: 'hostComponents' },
+    { id: 'requestJourney', name: 'Request journey', type: 'dynamic' },
+    { id: 'productionTopology', name: 'Production topology', type: 'deployment' },
+  ];
+  const browser = createBrowser({ fetchFn: async (url) => { if (url.endsWith('/model')) return { ok: true, async json() { return { model: { entities: [] }, likec4Views: views, revision: 'r' }; } }; if (url.endsWith('/views')) return { ok: true, async json() { return { views }; } }; if (url.endsWith('/agent/state')) return { ok: true, async json() { return { messages: [], status: 'idle', error: null }; } }; return { ok: true, async json() { return { view: views.find((view) => url.includes(`view=${view.id}`)) || views[0], nodes: [], edges: [], revision: 'r' }; } }; }, eventSourceFactory: () => null });
+  browser.mount(mount); await browser.activate();
+  assert.equal(mount.querySelector('[data-view-id="runtimeContainers"]')?.textContent, 'Runtime');
+  assert.equal(mount.querySelector('[data-view-id="hostComponents"]')?.textContent, 'Host');
+  assert.equal(mount.querySelector('[data-view-id="registryCode"]')?.textContent, 'Package registry');
+  assert.ok(mount.querySelector('[data-nav-group="dynamics"] [data-view-id="requestJourney"]'));
+  assert.ok(mount.querySelector('[data-nav-group="deployment"] [data-view-id="productionTopology"]'));
+  (mount.querySelector('[data-nav-group="dynamics"] .architecture-nav-group-toggle') as HTMLButtonElement).click();
+  assert.equal((mount.querySelector('[data-nav-group="dynamics"] .architecture-nav-group-items') as HTMLElement).hidden, true);
+  (mount.querySelector('[data-nav-group="dynamics"] .architecture-nav-group-toggle') as HTMLButtonElement).click();
+  (mount.querySelector('[data-view-id="registryCode"]') as HTMLButtonElement).click(); await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual([...mount.querySelectorAll('.architecture-breadcrumb, .architecture-view-title')].map((item) => item.textContent), ['Runtime containers', 'Host components', 'Package registry']);
+  assert.deepEqual([...mount.querySelectorAll('[data-breadcrumb-view-id]')].map((item) => item.getAttribute('data-breadcrumb-view-id')), ['runtimeContainers', 'hostComponents']);
+  assert.equal(mount.querySelector('.architecture-view-title')?.getAttribute('aria-current'), 'page');
+  assert.doesNotMatch(mount.querySelector('.architecture-breadcrumbs')?.textContent || '', /System context/);
+  (mount.querySelector('[data-breadcrumb-view-id="hostComponents"]') as HTMLButtonElement).dispatchEvent(new window.Event('click'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual([...mount.querySelectorAll('.architecture-breadcrumb, .architecture-view-title')].map((item) => item.textContent), ['Runtime containers', 'Host components']);
+  assert.equal(mount.querySelector('.architecture-view-title')?.textContent, 'Host components');
+  browser.deactivate(); delete globalThis.document;
 });
 
 test('groups consecutive agent responses under one label and highlights user prompts', async () => {

@@ -73,7 +73,7 @@ export type ArchitecturePatterns = z.infer<typeof patternsSchema>;
 export type ArchitectureDecisions = z.infer<typeof decisionsSchema>;
 export type ArchitectureArtifacts = { model: ArchitectureModel; views: ArchitectureViews; rules: ArchitectureRules; patterns: ArchitecturePatterns; decisions: ArchitectureDecisions; revision: string };
 export type ArchitectureMutation = { revision: string; affectedPaths: string[] };
-export type LikeC4Snapshot = { dump: unknown; views: Array<{ id: string; name: string; description?: string }>; revision: string };
+export type LikeC4Snapshot = { dump: unknown; views: Array<{ id: string; name: string; type: 'element' | 'dynamic' | 'deployment'; description?: string; parentId?: string }>; revision: string };
 export type ArchitectureStore = {
   read(): Promise<ArchitectureArtifacts>;
   likec4(): Promise<LikeC4Snapshot>;
@@ -157,7 +157,17 @@ export function createArchitectureStore({ context, artifactRoot = 'architecture'
         throw new ArchitectureSourceError(`LikeC4 source is invalid: ${first?.message || 'unknown parse error'}${first ? ` (${first.sourceFsPath}:${first.line + 1})` : ''}`);
       }
       const model = await likec4.layoutedModel();
-      return { dump: model.$data, views: [...model.views()].map((view) => ({ id: view.id, name: view.title || view.id, ...(view.description ? { description: view.description } : {}) })), revision: hash(sources) };
+      const modelViews = [...model.views()];
+      const parentByView = new Map<string, string>();
+      for (const child of modelViews) {
+        if (child.id === 'index' || child.id === 'systemContext' || child.id === 'system-context' || !('viewOf' in child.$view)) continue;
+        const childScope = child.$view.viewOf;
+        const candidates = modelViews.filter((parent) => parent.id !== 'index' && parent.id !== child.id && parent.$view.nodes.some((node) => node.modelRef === childScope));
+        const parent = candidates.find((candidate) => candidate.$view.nodes.some((node) => node.modelRef === childScope && node.navigateTo === child.id)) || candidates[0];
+        if (parent) parentByView.set(child.id, parent.id);
+      }
+      const views = modelViews.map((view) => ({ id: view.id, name: view.title || view.id, type: view.$view._type, ...(view.description ? { description: view.description } : {}), ...(parentByView.has(view.id) ? { parentId: parentByView.get(view.id) } : {}) }));
+      return { dump: model.$data, views, revision: hash(sources) };
     } finally { await likec4.dispose(); }
   };
   const read = async (): Promise<ArchitectureArtifacts> => {

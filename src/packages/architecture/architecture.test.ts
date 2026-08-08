@@ -85,7 +85,7 @@ test('expands the architecture surface when the agent is hidden and aligns panel
   assert.match(css, /\.architecture-header \{[^}]*min-height: 77px;/s);
   assert.match(css, /\.architecture-agent-header \{[^}]*min-height: 77px;/s);
   assert.match(css, /\.architecture-validation-toolbar \{[^}]*justify-content: flex-start;/s);
-  assert.match(css, /\.architecture-validation-view \.architecture-validation-button \{[^}]*background: var\(--ink/s);
+  assert.match(css, /\.architecture-validation-view \.architecture-validation-button \{[^}]*background: var\(--accent/s);
   assert.doesNotMatch(css, /\.architecture-validation-view > header \{/);
   assert.match(css, /\.architecture-message-user \{[^}]*background: var\(--accent-soft/s);
   assert.match(css, /\.architecture-nav-group-items\[hidden\] \{[^}]*display: none/s);
@@ -97,7 +97,7 @@ test('expands the architecture surface when the agent is hidden and aligns panel
   assert.match(css, /\.architecture-navigator h1 \{[^}]*font: 400 28px\/1 var\(--display/s);
   assert.match(css, /\.architecture-navigator nav \{[^}]*min-height: 0;[^}]*flex: 1;[^}]*overflow-y: auto;[^}]*scrollbar-width: thin;[^}]*scrollbar-color: var\(--line, #d9ddd8\) transparent;/s);
   assert.match(css, /\.architecture-navigator nav::\-webkit-scrollbar \{[^}]*width: 4px;/s);
-  assert.match(css, /\.architecture-navigator nav::\-webkit-scrollbar-thumb:hover \{[^}]*background: var\(--accent, #315d3b\);/s);
+  assert.match(css, /\.architecture-navigator nav::\-webkit-scrollbar-thumb:hover \{[^}]*background: var\(--accent, #bd5f37\);/s);
   assert.match(css, /\.architecture-message-content p \{[^}]*margin: 0;/s);
   assert.match(css, /\.architecture-header-actions button\[aria-expanded="true"\] \{[^}]*color: var\(--accent/s);
   assert.match(css, /\.architecture-header-actions button:hover, \.architecture-header-actions button:focus-visible \{[^}]*color: var\(--ink/s);
@@ -108,7 +108,10 @@ test('expands the architecture surface when the agent is hidden and aligns panel
   assert.match(css, /\.architecture-breadcrumbs \{[^}]*display: flex;/s);
   assert.match(css, /\.architecture-breadcrumb \{[^}]*background: transparent;/s);
   const diagram = await readFile(new URL('./architecture-likec4.tsx', import.meta.url), 'utf8');
-  assert.match(diagram, /mantineTheme=\{\{ white: 'var\(--paper, #f7f8f6\)' \}\}/);
+  assert.match(diagram, /resonanceDiagramStyles/);
+  assert.match(diagram, /--colors-diagram-background': 'var\(--paper\)'/);
+  assert.match(diagram, /mantineTheme=\{resonanceMantineTheme\}/);
+  assert.match(diagram, /new MutationObserver\(render\)/);
   assert.match(diagram, /reactFlowProps=\{\{ zoomOnScroll: true, panOnScroll: false \}\}/);
   const browserSource = await readFile(new URL('./architecture-source.js', import.meta.url), 'utf8');
   assert.match(browserSource, /onNavigate: navigateToView/);

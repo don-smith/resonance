@@ -20,10 +20,10 @@
   --sidebar-line: #3a3d3f;
   --sidebar-active: #2b2e30;
   --code-ink: #e7e3dc;
-  --diagram-edge: #89978c;
-  --diagram-edge-contains: #315d3b;
-  --diagram-node-stroke: #849486;
-  --diagram-node-active: #e5efe6;
+  --diagram-edge: #aaa59d;
+  --diagram-edge-contains: #bd5f37;
+  --diagram-node-stroke: #aaa59d;
+  --diagram-node-active: #f0d8ca;
   --display: Iowan Old Style, Baskerville, Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -50,10 +50,10 @@
   --sidebar-line: #3a3d3f;
   --sidebar-active: #2b2e30;
   --code-ink: #ece8e1;
-  --diagram-edge: #8f9d94;
-  --diagram-edge-contains: #72c98b;
-  --diagram-node-stroke: #738179;
-  --diagram-node-active: #293a2d;
+  --diagram-edge: #5a5e61;
+  --diagram-edge-contains: #e18a62;
+  --diagram-node-stroke: #5a5e61;
+  --diagram-node-active: #493126;
 }
 
 * { box-sizing: border-box; }

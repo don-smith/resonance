@@ -35,6 +35,8 @@ test('the Shell keeps primary navigation fixed while the package area scrolls', 
   assert.match(css, /\.repository-title:not\(:disabled\) \{[^}]*cursor: pointer;/);
   assert.match(css, /\.nav-section-label \{[^}]*font: 600 11px/);
   assert.match(css, /:root\[data-theme="dark"\] \{[^}]*color-scheme: dark;[^}]*--ink: #ece8e1;[^}]*--paper: #181a1c;/s);
+  assert.match(css, /--diagram-edge: #aaa59d;[^}]*--diagram-edge-contains: #bd5f37;/s);
+  assert.match(css, /:root\[data-theme="dark"\] \{[^}]*--diagram-edge: #5a5e61;[^}]*--diagram-edge-contains: #e18a62;/s);
   assert.match(css, /\.primary-footer \{[^}]*justify-content: space-between;/);
   assert.match(css, /\.theme-selector button\[aria-pressed="true"\] \{[^}]*color: var\(--accent\);/);
   assert.doesNotMatch(css, /\.theme-selector button\[aria-pressed="true"\] \{[^}]*border/);

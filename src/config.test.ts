@@ -11,6 +11,12 @@ test('does not create a config while loading an uninstalled repository', async (
   await assert.rejects(() => access(path.join(root, '.resonance/config.json')));
 });
 
+test('captures repository presentation metadata during installation', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
+  const config = createRepositoryConfig({ root });
+  assert.deepEqual(config.repository, { name: path.basename(root), tagline: '' });
+});
+
 test('builds install config with Shell and selected optional packages only', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'resonance-config-'));
   const config = createRepositoryConfig({ home: true, docs: false });
@@ -51,6 +57,8 @@ test('validates manifest containers and enabled flags', () => {
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: [] }), /packages must be an object/);
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: { docs: [] } }), /inputs must be an object/);
   assert.throws(() => validateRepositoryConfig({ version: 1, packages: { docs: { module: 'src/packages/docs/index.ts', enabled: 'yes' } } }), /enabled must be a boolean/);
+  assert.throws(() => validateRepositoryConfig({ version: 1, repository: { tagline: 42 }, packages: {} }), /repository tagline must be a string/);
+  assert.deepEqual(validateRepositoryConfig({ version: 1, repository: { name: 'fixture', tagline: '' }, packages: {} }).repository, { name: 'fixture', tagline: '' });
   assert.equal(validateRepositoryConfig({ version: 1, packages: { custom: { module: 'src/packages/custom/index.ts', enabled: false } } }).packages.custom.enabled, false);
 });
 

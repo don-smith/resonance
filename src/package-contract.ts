@@ -22,7 +22,8 @@ export type TelemetryController = Telemetry & {
 };
 export type PackageScope = 'team' | 'member';
 export type PackageConfig = PackageInput & { module?: string; enabled?: boolean };
-export type RepositoryConfig = { version: typeof MANIFEST_VERSION; packages: Record<string, PackageConfig> };
+export type RepositoryConfigMetadata = { name?: string; tagline?: string };
+export type RepositoryConfig = { version: typeof MANIFEST_VERSION; repository?: RepositoryConfigMetadata; packages: Record<string, PackageConfig> };
 export type PackageMetadata = { id: string; version: string; hostVersion: string; label: string; order: number };
 export type RequestHeaders = Readonly<Record<string, string | string[] | undefined>>;
 export type HostRequest = {

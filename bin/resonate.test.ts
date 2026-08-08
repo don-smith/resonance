@@ -34,7 +34,7 @@ test('first-run approval installs selected packages before starting', async () =
   const root = await mkdtemp(path.join(tmpdir(), 'resonance-cli-')); const openedUrls = []; const fakeServer = { address: () => ({ port: 4318 }) };
   const server = await run([], { root, confirmInstallFn: async () => true, selectPackagesFn: async () => ({ home: true, docs: false }), startServerFn: async ({ config }) => { assert.deepEqual(Object.keys(config.packages), ['shell', 'home']); return fakeServer; }, openBrowserFn: (url) => openedUrls.push(url), log: () => {} });
   assert.equal(server, fakeServer); assert.deepEqual(openedUrls, ['http://127.0.0.1:4318']);
-  const config = JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')); assert.deepEqual(Object.keys(config.packages), ['shell', 'home']); assert.equal(config.packages.home.source, 'README.md');
+  const config = JSON.parse(await readFile(path.join(root, '.resonance/config.json'), 'utf8')); assert.deepEqual(Object.keys(config.packages), ['shell', 'home']); assert.equal(config.packages.home.source, 'README.md'); assert.equal(config.repository.name, path.basename(root)); assert.equal(config.repository.tagline, '');
 });
 
 test('install subcommand creates Shell and selected optional packages only', async () => {

@@ -38,6 +38,13 @@ test('loads configured built-in modules and assembles a deterministic registry',
   assert.ok(Object.isFrozen(registry.manifest));
 });
 
+test('exposes repository and runtime presentation metadata in the host manifest', () => {
+  const appRoot = fileURLToPath(new URL('../', import.meta.url));
+  const registry = createHost({ root: '/tmp/configured-repository', appRoot, config: { version: 1, repository: { name: 'configured-name', tagline: 'Configured tagline' }, packages: {} } });
+  assert.deepEqual(registry.manifest.repository, { name: 'configured-name', tagline: 'Configured tagline' });
+  assert.equal(registry.manifest.runtime.version, '0.1.0');
+});
+
 test('does not import modules omitted from the package allowlist', async () => {
   const appRoot = await mkdtemp(path.join(tmpdir(), 'resonance-packages-'));
   const marker = '__resonance_omitted_package_loaded__';

@@ -1,5 +1,9 @@
 {
   "version": 1,
+  "repository": {
+    "name": "resonance",
+    "tagline": "An integrated application environment for understanding, evolving, and operating a software project."
+  },
   "packages": {
     "shell": {
       "module": "src/packages/shell/index.ts"

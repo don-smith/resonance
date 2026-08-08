@@ -36,11 +36,12 @@ Resonance logs structured request and package events to the console by default. 
 
 ## Repository configuration
 
-Use `resonate install` to create `.resonance/config.json`. Each package entry explicitly names an app-root-relative server module, and the entries form the authoritative package allowlist. Package modules own routes and assets; remaining fields are passed to that package as inputs. Package code receives Resonance-owned structured telemetry through its host context and does not read telemetry credentials directly.
+Use `resonate install` to create `.resonance/config.json`. Installation records the repository name and leaves its optional tagline empty for later curation. Each package entry explicitly names an app-root-relative server module, and the entries form the authoritative package allowlist. Package modules own routes and assets; remaining fields are passed to that package as inputs. Package code receives Resonance-owned structured telemetry through its host context and does not read telemetry credentials directly.
 
 ```json
 {
   "version": 1,
+  "repository": { "name": "my-project", "tagline": "A short description." },
   "packages": {
     "shell": { "module": "src/packages/shell/index.ts" },
     "home": { "module": "src/packages/home/index.ts", "source": "README.md" },

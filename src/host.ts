@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { repositoryPresentation, runtimeVersion } from './repository-metadata.ts';
 import type { AssetContribution, BrowserContribution, HostContext, HttpMethod, NavigationContribution, PackageDefinition, PackageInput, PackageRegistration, RepositoryConfig, RouteContribution, Telemetry, TelemetryController } from './package-contract.ts';
 import { MANIFEST_VERSION } from './package-contract.ts';
 import { createTelemetry } from './telemetry.ts';
@@ -64,7 +65,7 @@ function isPackageRegistration(value: unknown): value is PackageRegistration {
 }
 export function routeKey(method: HttpMethod, pathname: string): string { return `${method} ${pathname}`; }
 export type PackageDiagnostic = { scope: 'member'; id: string; status: 'disabled' | 'failed'; message: string };
-export type HostManifest = { version: typeof MANIFEST_VERSION; navigation: readonly NavigationContribution[]; packages: readonly BrowserContribution[]; diagnostics?: readonly PackageDiagnostic[] };
+export type HostManifest = { version: typeof MANIFEST_VERSION; repository: RepositoryPresentation; runtime: { version?: string }; navigation: readonly NavigationContribution[]; packages: readonly BrowserContribution[]; diagnostics?: readonly PackageDiagnostic[] };
 export type HostRegistry = { readonly context: HostContext; readonly routes: Readonly<Record<string, RouteContribution>>; readonly assets: Readonly<Record<string, AssetContribution>>; readonly manifest: HostManifest; dispose(): Promise<void> };
 type MutableRegistry = { context: HostContext; routes: Record<string, RouteContribution>; assets: Record<string, AssetContribution>; navigation: NavigationContribution[]; packages: BrowserContribution[]; disposers: Array<() => void | Promise<void>>; diagnostics: PackageDiagnostic[] };
 function addRegistration(registry: MutableRegistry, registration: PackageRegistration, seenPackages: Set<string>, packageRoot: string, scope: 'team' | 'member', packageContext: HostContext): void {
@@ -140,7 +141,14 @@ export function createHost({ root = process.cwd(), appRoot = process.cwd(), conf
   const navigation = Object.freeze([...mutable.navigation].sort((left, right) => left.order - right.order || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)).map((item) => Object.freeze({ ...item })));
   const packageManifest = Object.freeze(mutable.packages.map((item) => Object.freeze({ ...item })));
   const packageDiagnostics = Object.freeze(mutable.diagnostics.map((item) => Object.freeze({ ...item })));
-  const manifest = Object.freeze({ version: MANIFEST_VERSION, navigation, packages: packageManifest, ...(packageDiagnostics.length ? { diagnostics: packageDiagnostics } : {}) });
+  const manifest = Object.freeze({
+    version: MANIFEST_VERSION,
+    repository: Object.freeze(repositoryPresentation(repositoryRoot, config.repository)),
+    runtime: Object.freeze({ version: runtimeVersion(applicationRoot) }),
+    navigation,
+    packages: packageManifest,
+    ...(packageDiagnostics.length ? { diagnostics: packageDiagnostics } : {}),
+  });
   let disposed = false;
   async function dispose(): Promise<void> {
     if (disposed) return;

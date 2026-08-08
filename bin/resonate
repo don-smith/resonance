@@ -184,7 +184,7 @@ export async function installRepository(root, { selectPackagesFn = selectOptiona
   }
   const selection = await selectPackagesFn();
   if (!selection) { log('Installation cancelled.'); return null; }
-  const config = await writeRepositoryConfig(root, createRepositoryConfig(selection));
+  const config = await writeRepositoryConfig(root, createRepositoryConfig({ ...selection, root }));
   log(`Resonance installed in ${root}.`);
   return config;
 }

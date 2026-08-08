@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MANIFEST_VERSION, type PackageConfig, type PackageInput, type RepositoryConfig } from './package-contract.ts';
+import { MANIFEST_VERSION, type PackageConfig, type PackageInput, type RepositoryConfig, type RepositoryConfigMetadata } from './package-contract.ts';
+import { repositoryName } from './repository-metadata.ts';
 
 export const MANIFEST_NAME = '.resonance/config.json';
 const DEFAULT_HOME: PackageInput = { source: 'README.md' };
@@ -15,11 +16,12 @@ const DEFAULT_MODULES = {
 function toPath(value: string | URL): string { return value instanceof URL ? fileURLToPath(value) : value; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === 'object' && !Array.isArray(value); }
 
-export function createRepositoryConfig({ home = false, docs = false }: { home?: boolean; docs?: boolean } = {}): RepositoryConfig {
+export function createRepositoryConfig({ home = false, docs = false, root, repository }: { home?: boolean; docs?: boolean; root?: string | URL; repository?: RepositoryConfigMetadata } = {}): RepositoryConfig {
   const packages: Record<string, PackageConfig> = { shell: { module: DEFAULT_MODULES.shell } };
   if (home) packages.home = { module: DEFAULT_MODULES.home, ...DEFAULT_HOME };
   if (docs) packages.docs = { module: DEFAULT_MODULES.docs, extensions: [...(DEFAULT_DOCS.extensions as string[])], ignoredDirectories: [...(DEFAULT_DOCS.ignoredDirectories as string[])] };
-  return { version: MANIFEST_VERSION, packages };
+  const metadata = root ? { name: repository?.name ?? repositoryName(root), tagline: repository?.tagline ?? '' } : repository;
+  return { version: MANIFEST_VERSION, ...(metadata ? { repository: metadata } : {}), packages };
 }
 
 function validatePackageInputs(packages: unknown, source: string): Record<string, PackageConfig> {
@@ -35,10 +37,19 @@ function validatePackageInputs(packages: unknown, source: string): Record<string
 }
 
 export function defaultRepositoryConfig(): RepositoryConfig { return createRepositoryConfig(); }
+function validateRepositoryMetadata(value: unknown, source: string): RepositoryConfigMetadata | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error(`${source}: repository must be an object.`);
+  if ('name' in value && typeof value.name !== 'string') throw new Error(`${source}: repository name must be a string.`);
+  if ('tagline' in value && typeof value.tagline !== 'string') throw new Error(`${source}: repository tagline must be a string.`);
+  return Object.fromEntries(Object.entries(value).filter(([key]) => key === 'name' || key === 'tagline')) as RepositoryConfigMetadata;
+}
+
 export function validateRepositoryConfig(value: unknown, source = MANIFEST_NAME): RepositoryConfig {
   if (!isRecord(value)) throw new Error(`${source}: manifest must be an object.`);
   if (value.version !== MANIFEST_VERSION) throw new Error(`${source}: version must be ${MANIFEST_VERSION}.`);
-  return { version: MANIFEST_VERSION, packages: validatePackageInputs(value.packages, source) };
+  const repository = validateRepositoryMetadata(value.repository, source);
+  return { version: MANIFEST_VERSION, ...(repository ? { repository } : {}), packages: validatePackageInputs(value.packages, source) };
 }
 
 export async function writeRepositoryConfig(root: string | URL, config = defaultRepositoryConfig()): Promise<RepositoryConfig> {

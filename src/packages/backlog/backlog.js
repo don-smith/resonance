@@ -35,6 +35,7 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
   let lastPrompt = null;
   let pendingConfirmation = null;
   let agentVisible = true;
+  const collapsedGroups = new Set();
   let chatState = { messages: [], status: 'idle', error: null, pendingDeletion: null };
 
   function setAgentVisible(show) {
@@ -53,7 +54,10 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
   function renderItems() {
     const groups = statuses.map((status) => {
       const decisions = items.filter((item) => item.status === status);
-      return decisions.length ? `<section class="backlog-group"><h3>${escapeHtml(status)}</h3>${decisions.map((item) => `<button type="button" class="backlog-item${item.path === selectedPath ? ' active' : ''}" data-path="${escapeHtml(item.path)}"><span class="backlog-priority">${escapeHtml(item.priority)}</span><span>${escapeHtml(item.title)}</span></button>`).join('')}</section>` : '';
+      if (!decisions.length) return '';
+      const collapsed = collapsedGroups.has(status);
+      const itemsId = `backlog-group-${status}`;
+      return `<section class="backlog-group" data-backlog-group="${escapeHtml(status)}"><button type="button" class="backlog-group-toggle" data-backlog-group-toggle="${escapeHtml(status)}" aria-expanded="${String(!collapsed)}" aria-controls="${itemsId}"><span>${escapeHtml(status)}</span><span class="backlog-group-indicator" aria-hidden="true">${collapsed ? '▸' : '▾'}</span></button><div id="${itemsId}" class="backlog-group-items"${collapsed ? ' hidden' : ''}>${decisions.map((item) => `<button type="button" class="backlog-item${item.path === selectedPath ? ' active' : ''}" data-path="${escapeHtml(item.path)}"><span class="backlog-priority">${escapeHtml(item.priority)}</span><span>${escapeHtml(item.title)}</span></button>`).join('')}</div></section>`;
     }).join('');
     list.innerHTML = groups || '<p class="backlog-empty">No decisions found.</p>';
   }
@@ -225,10 +229,21 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
   return {
     mount(mountRoot) {
       root = mountRoot;
-      root.innerHTML = '<section class="backlog-workspace" aria-label="Backlog"><aside class="backlog-list"><p class="eyebrow">BACKLOG / DECISIONS</p><h2>Decisions</h2><nav class="backlog-items" aria-label="Decisions"></nav></aside><article class="backlog-plan"><header><span>PLAN</span><span class="backlog-rule" aria-hidden="true"></span><span class="backlog-path">backlog</span><button type="button" class="backlog-agent-toggle" aria-controls="backlog-agent-panel" aria-expanded="true" aria-label="Hide agent panel" title="Hide agent panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"></path></svg></button></header><div class="backlog-content" aria-live="polite"></div></article><aside id="backlog-agent-panel" class="backlog-agent" aria-label="Backlog agent"><header class="backlog-agent-header"><span class="eyebrow">AGENT / CHAT</span><p class="backlog-status" data-status="idle">Ready</p></header><div class="backlog-transcript" aria-live="polite"></div><div class="backlog-agent-state"><button type="button" class="backlog-retry" hidden>Retry</button></div><div class="backlog-credential" hidden><p>Enter a local provider API key to start the agent.</p><form><input type="password" autocomplete="off" aria-label="Provider API key"><button type="submit">Save key</button></form></div><div class="backlog-confirmation" hidden><p class="backlog-confirmation-title"></p><button type="button" class="backlog-confirm-delete">Confirm deletion</button></div><form class="backlog-composer"><textarea rows="3" aria-label="Message" placeholder="Ask about this decision…"></textarea><div class="backlog-composer-actions"><button type="button" class="backlog-reset">New Chat</button><button type="submit">Send</button></div></form></aside></section>';
+      root.innerHTML = '<section class="backlog-workspace" aria-label="Backlog"><aside class="backlog-list"><p class="eyebrow">WORKSPACE</p><h2>Backlog</h2><nav class="backlog-items" aria-label="Decisions"></nav></aside><article class="backlog-plan"><header><span>PLAN</span><span class="backlog-rule" aria-hidden="true"></span><span class="backlog-path">backlog</span><button type="button" class="backlog-agent-toggle" aria-controls="backlog-agent-panel" aria-expanded="true" aria-label="Hide agent panel" title="Hide agent panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"></path></svg></button></header><div class="backlog-content" aria-live="polite"></div></article><aside id="backlog-agent-panel" class="backlog-agent" aria-label="Backlog agent"><header class="backlog-agent-header"><span class="eyebrow">AGENT / CHAT</span><p class="backlog-status" data-status="idle">Ready</p></header><div class="backlog-transcript" aria-live="polite"></div><div class="backlog-agent-state"><button type="button" class="backlog-retry" hidden>Retry</button></div><div class="backlog-credential" hidden><p>Enter a local provider API key to start the agent.</p><form><input type="password" autocomplete="off" aria-label="Provider API key"><button type="submit">Save key</button></form></div><div class="backlog-confirmation" hidden><p class="backlog-confirmation-title"></p><button type="button" class="backlog-confirm-delete">Confirm deletion</button></div><form class="backlog-composer"><textarea rows="3" aria-label="Message" placeholder="Ask about this decision…"></textarea><div class="backlog-composer-actions"><button type="submit">Send</button><button type="button" class="backlog-reset">New Chat</button></div></form></aside></section>';
       workspace = root.querySelector('.backlog-workspace'); list = root.querySelector('.backlog-items'); content = root.querySelector('.backlog-content'); pathLabel = root.querySelector('.backlog-path'); agentPanel = root.querySelector('.backlog-agent'); agentToggle = root.querySelector('.backlog-agent-toggle'); transcript = root.querySelector('.backlog-transcript'); statusLabel = root.querySelector('.backlog-status'); promptInput = root.querySelector('.backlog-composer textarea'); sendButton = root.querySelector('.backlog-composer button[type="submit"]'); credentialPanel = root.querySelector('.backlog-credential'); credentialForm = credentialPanel.querySelector('form'); credentialInput = credentialPanel.querySelector('input'); retryButton = root.querySelector('.backlog-retry'); confirmationPanel = root.querySelector('.backlog-confirmation'); confirmButton = root.querySelector('.backlog-confirm-delete');
       setAgentVisible(agentVisible);
-      list.addEventListener('click', async (event) => { const button = event.target.closest('[data-path]'); if (!button || !list.contains(button)) return; try { await showPlan(button.dataset.path); } catch (error) { showError(error); } });
+      list.addEventListener('click', async (event) => {
+        const toggle = event.target.closest('[data-backlog-group-toggle]');
+        if (toggle && list.contains(toggle)) {
+          const status = toggle.dataset.backlogGroupToggle;
+          if (collapsedGroups.has(status)) collapsedGroups.delete(status); else collapsedGroups.add(status);
+          renderItems();
+          return;
+        }
+        const button = event.target.closest('[data-path]');
+        if (!button || !list.contains(button)) return;
+        try { await showPlan(button.dataset.path); } catch (error) { showError(error); }
+      });
       content.addEventListener('change', (event) => { const select = event.target.closest('[data-metadata-field]'); if (!select || !content.contains(select)) return; void updateMetadata(select.dataset.metadataField, select.value).catch(showError); });
       root.querySelector('.backlog-composer').addEventListener('submit', (event) => { event.preventDefault(); void submitPrompt().catch(showError); });
       credentialForm.addEventListener('submit', (event) => { void saveCredential(event).catch(showError); });

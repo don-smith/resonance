@@ -129,6 +129,11 @@ test('keeps plan and agent header separators aligned', async () => {
   assert.match(css, /\.backlog-agent\[hidden\] \{[^}]*display: none !important;/s);
   assert.match(css, /\.backlog-content \{[^}]*padding: 28px 52px 72px;/s);
   assert.match(css, /\.backlog-metadata select \{[^}]*border: 0;[^}]*background: transparent;/s);
+  assert.match(css, /\.backlog-list \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*padding: 32px 6px 32px 20px;/s);
+  assert.match(css, /\.backlog-items \{[^}]*min-height: 0;[^}]*flex: 1;[^}]*overflow-y: auto;[^}]*scrollbar-width: thin;/s);
+  assert.match(css, /\.backlog-group-toggle \{[^}]*width: calc\(100% - 18px\);[^}]*border-top: 1px solid var\(--line\);/s);
+  assert.match(css, /\.backlog-group-items\[hidden\] \{[^}]*display: none;/s);
+  assert.match(css, /\.backlog-item\.active \{[^}]*margin-right: 6px;[^}]*border-left-color: var\(--accent\);/s);
 });
 
 test('renders ordered Decisions and selects the first non-done plan', async () => {
@@ -141,8 +146,19 @@ test('renders ordered Decisions and selects the first non-done plan', async () =
   });
   instance.mount(root);
   await instance.activate();
-  assert.equal(root.querySelector('.backlog-list h2').textContent, 'Decisions');
-  assert.deepEqual([...root.querySelectorAll('.backlog-group h3')].map((heading) => heading.textContent), ['recently-done', 'in-progress', 'is-ready', 'in-planning']);
+  assert.equal(root.querySelector('.backlog-list .eyebrow').textContent, 'WORKSPACE');
+  assert.equal(root.querySelector('.backlog-list h2').textContent, 'Backlog');
+  assert.deepEqual([...root.querySelectorAll('.backlog-group-toggle span:first-child')].map((heading) => heading.textContent), ['recently-done', 'in-progress', 'is-ready', 'in-planning']);
+  const group = root.querySelector('[data-backlog-group="recently-done"]');
+  assert.equal(group.querySelector('.backlog-group-items').hidden, false);
+  group.querySelector('.backlog-group-toggle').click();
+  let collapsedGroup = root.querySelector('[data-backlog-group="recently-done"]');
+  assert.equal(collapsedGroup.querySelector('.backlog-group-items').hidden, true);
+  assert.equal(collapsedGroup.querySelector('.backlog-group-toggle').getAttribute('aria-expanded'), 'false');
+  collapsedGroup.querySelector('.backlog-group-toggle').click();
+  collapsedGroup = root.querySelector('[data-backlog-group="recently-done"]');
+  assert.equal(collapsedGroup.querySelector('.backlog-group-items').hidden, false);
+  assert.equal(collapsedGroup.querySelector('.backlog-group-toggle').getAttribute('aria-expanded'), 'true');
   assert.match(root.querySelector('.backlog-content').textContent, /Progress/);
   assert.equal(root.querySelector('.backlog-metadata-priority').value, 'P1');
   assert.equal(root.querySelector('.backlog-metadata-status').value, 'in-progress');
@@ -230,7 +246,7 @@ test('opens the agent stream only while active and submits the selected canonica
   assert.equal(root.querySelector('.backlog-agent-header .backlog-reset'), null);
   assert.equal(root.querySelector('.backlog-agent-status'), null);
   assert.ok(root.querySelector('.backlog-agent-toggle svg'));
-  assert.deepEqual([...root.querySelectorAll('.backlog-composer-actions button')].map((button) => button.textContent), ['New Chat', 'Send']);
+  assert.deepEqual([...root.querySelectorAll('.backlog-composer-actions button')].map((button) => button.textContent), ['Send', 'New Chat']);
   await instance.activate(); assert.equal(streams.length, 1); assert.equal(streams[0].url, '/api/backlog/agent/events');
   streams[0].onmessage({ data: JSON.stringify({ type: 'snapshot', snapshot: { messages: [], status: 'idle', error: null, pendingDeletion: null } }) });
   const input: any = root.querySelector('.backlog-composer textarea'); input.value = 'Review this'; input.dispatchEvent(new document.defaultView.Event('input')); await new Promise((resolve) => setTimeout(resolve, 0)); root.querySelector('.backlog-composer').dispatchEvent(new document.defaultView.Event('submit', { bubbles: true, cancelable: true })); await new Promise((resolve) => setTimeout(resolve, 0));

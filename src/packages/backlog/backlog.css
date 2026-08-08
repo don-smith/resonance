@@ -1,13 +1,23 @@
 .backlog-workspace { display: grid; grid-template-columns: minmax(220px, 270px) minmax(0, 1fr) minmax(280px, 360px); height: 100%; min-height: 0; overflow: hidden; }
-.backlog-list, .backlog-plan, .backlog-agent { min-height: 0; overflow: auto; }
-.backlog-list { height: 100%; padding: 32px 20px; border-right: 1px solid var(--line); background: var(--paper-deep); }
-.backlog-list h2 { margin: 0 0 24px; font: 400 28px/1 var(--display); letter-spacing: -.03em; }
-.backlog-group { margin: 0 0 20px; }
-.backlog-group h3 { margin: 0 0 6px; color: var(--muted); font: 11px var(--mono); text-transform: uppercase; }
-.backlog-item { display: flex; width: 100%; gap: 9px; padding: 9px 10px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; text-align: left; font: 12px/1.4 var(--mono); }
+.backlog-list, .backlog-plan, .backlog-agent { min-height: 0; overflow: hidden; }
+.backlog-list { display: flex; height: 100%; flex-direction: column; padding: 32px 6px 32px 20px; border-right: 1px solid var(--line); background: var(--paper-deep); }
+.backlog-list h2 { margin: 0 0 28px; font: 400 28px/1 var(--display); letter-spacing: -.03em; }
+.backlog-items { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 3px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.backlog-items::-webkit-scrollbar { width: 4px; }
+.backlog-items::-webkit-scrollbar-track { background: transparent; }
+.backlog-items::-webkit-scrollbar-thumb { background: var(--line); border-radius: 0; }
+.backlog-items::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+.backlog-group { margin-top: 10px; }
+.backlog-group-toggle { display: flex; width: calc(100% - 18px); align-items: center; justify-content: space-between; border: 0; border-top: 1px solid var(--line); padding: 12px 10px 6px; background: transparent; color: var(--accent); cursor: pointer; text-align: left; font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.backlog-group-toggle:hover { color: var(--ink); }
+.backlog-group-indicator { color: var(--muted); font-size: 12px; letter-spacing: 0; }
+.backlog-group-items { display: flex; flex-direction: column; gap: 3px; }
+.backlog-group-items[hidden] { display: none; }
+.backlog-item { display: flex; gap: 9px; padding: 9px 10px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; text-align: left; font: 12px/1.4 var(--mono); }
 .backlog-priority { color: var(--accent); }
-.backlog-item:hover, .backlog-item.active { color: var(--ink); }
-.backlog-item.active { border-left-color: var(--accent); background: var(--accent-soft); }
+.backlog-item:hover, .backlog-item.active { background: var(--accent-soft); color: var(--ink); }
+.backlog-item:hover { margin-right: 6px; }
+.backlog-item.active { margin-right: 6px; border-left-color: var(--accent); }
 .backlog-plan { min-width: 0; overflow-y: auto; }
 .backlog-plan header { position: relative; display: flex; align-items: center; gap: 14px; padding: 28px 52px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
 .backlog-plan header span:first-child { color: var(--accent); }

@@ -109,8 +109,18 @@ function otelValue(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') return { stringValue: value };
   return { stringValue: JSON.stringify(value) };
 }
+function langfuseAttributeKey(key: string): string {
+  switch (key) {
+    case 'sessionId': return 'langfuse.session.id';
+    case 'observationType': return 'langfuse.observation.type';
+    case 'model': return 'langfuse.observation.model.name';
+    case 'input': return 'langfuse.observation.input';
+    case 'output': return 'langfuse.observation.output';
+    default: return key;
+  }
+}
 function otelAttributes(fields: Record<string, unknown>): Array<Record<string, unknown>> {
-  return Object.entries(fields).filter(([, value]) => value !== undefined).map(([key, value]) => ({ key: key === 'sessionId' ? 'langfuse.session.id' : key, value: otelValue(value) }));
+  return Object.entries(fields).filter(([, value]) => value !== undefined).map(([key, value]) => ({ key: langfuseAttributeKey(key), value: otelValue(value) }));
 }
 function otelSpan({ traceId, spanId, name, startedAt, endedAt, fields: spanFields, error }: { traceId: string; spanId: string; name: string; startedAt: number; endedAt: number; fields: Record<string, unknown>; error?: Record<string, unknown> }): Record<string, unknown> {
   const fields = { ...spanFields, ...(error ? { 'error.name': error.name, 'error.message': error.message, 'error.stack': error.stack } : {}) };
@@ -149,6 +159,7 @@ class LangfuseExporter implements Exporter {
         headers: {
           'content-type': 'application/json',
           authorization: `Basic ${Buffer.from(`${this.options.publicKey}:${this.options.secretKey}`).toString('base64')}`,
+          'x-langfuse-ingestion-version': '4',
         },
         body: JSON.stringify(body),
       });

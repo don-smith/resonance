@@ -65,6 +65,7 @@ test('flushes Langfuse OpenTelemetry traces with process credentials, sessions, 
   assert.equal(requests.length, 1);
   assert.equal(requests[0].input, 'http://127.0.0.1:13000/api/public/otel/v1/traces');
   assert.equal(requests[0].init.headers && (requests[0].init.headers as Record<string, string>).authorization, `Basic ${Buffer.from('public:private').toString('base64')}`);
+  assert.equal((requests[0].init.headers as Record<string, string>)['x-langfuse-ingestion-version'], '4');
   const body = JSON.parse(String(requests[0].init.body));
   const resourceAttributes = body.resourceSpans[0].resource.attributes;
   assert.equal(resourceAttributes.find((item: any) => item.key === 'repository').value.stringValue, 'project-a');
@@ -73,20 +74,47 @@ test('flushes Langfuse OpenTelemetry traces with process credentials, sessions, 
   assert.equal(spans.find((item: any) => item.name === 'agent turn').attributes.find((item: any) => item.key === 'langfuse.session.id').value.stringValue, 'agent-session-1');
   assert.ok(spans.some((item: any) => item.name === 'agent turn'));
   assert.ok(spans.some((item: any) => item.name === 'log:request complete'));
-  assert.equal(spans.find((item: any) => item.name === 'log:request complete').attributes.find((item: any) => item.key === 'output').value.stringValue, '[CONTENT REDACTED]');
+  assert.equal(spans.find((item: any) => item.name === 'log:request complete').attributes.find((item: any) => item.key === 'langfuse.observation.output').value.stringValue, '[CONTENT REDACTED]');
+  await telemetry.dispose();
+});
+
+test('maps captured model input and output to Langfuse observation fields', async () => {
+  const requests: RequestInit[] = [];
+  const telemetry = createTelemetry({
+    config: { mode: 'langfuse', publicKey: 'public', secretKey: 'private', captureContent: true },
+    console: null,
+    fetchFn: async (_input, init) => { requests.push(init || {}); return new Response('{}', { status: 200 }); },
+  });
+  const span = telemetry.span('agent.model.stream', {
+    observationType: 'generation',
+    model: 'test-model',
+    input: [{ role: 'user', content: 'Captured request' }],
+  });
+  span.end({ output: [{ role: 'assistant', content: 'Captured response' }] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const body = JSON.parse(String(requests[0].body));
+  const attributes = body.resourceSpans[0].scopeSpans[0].spans[0].attributes;
+  const attribute = (key: string) => attributes.find((item: any) => item.key === key)?.value.stringValue;
+  assert.equal(attribute('langfuse.observation.type'), 'generation');
+  assert.equal(attribute('langfuse.observation.model.name'), 'test-model');
+  assert.equal(attribute('langfuse.observation.input'), JSON.stringify([{ role: 'user', content: 'Captured request' }]));
+  assert.equal(attribute('langfuse.observation.output'), JSON.stringify([{ role: 'assistant', content: 'Captured response' }]));
   await telemetry.dispose();
 });
 
 test('loads repository-local telemetry settings from .resonance/.env', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'resonance-telemetry-'));
   await mkdir(path.join(root, '.resonance'));
-  await writeFile(path.join(root, '.resonance', '.env'), 'RESONANCE_TELEMETRY=langfuse\nLANGFUSE_PUBLIC_KEY=file-public\nLANGFUSE_SECRET_KEY=file-secret\n');
+  await writeFile(path.join(root, '.resonance', '.env'), 'RESONANCE_TELEMETRY=langfuse\nRESONANCE_TELEMETRY_CAPTURE_CONTENT=true\nLANGFUSE_PUBLIC_KEY=file-public\nLANGFUSE_SECRET_KEY=file-secret\n');
   const requests: RequestInit[] = [];
   const telemetry = createTelemetry({ root, console: null, fetchFn: async (_input, init) => { requests.push(init || {}); return new Response('{}', { status: 200 }); } });
-  telemetry.info('loaded from repository');
+  telemetry.info('loaded from repository', { output: 'captured response' });
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(requests.length, 1);
   assert.equal((requests[0].headers as Record<string, string>).authorization, `Basic ${Buffer.from('file-public:file-secret').toString('base64')}`);
+  const body = JSON.parse(String(requests[0].body));
+  const output = body.resourceSpans[0].scopeSpans[0].spans[0].attributes.find((item: any) => item.key === 'langfuse.observation.output');
+  assert.equal(output.value.stringValue, 'captured response');
   await telemetry.dispose();
 });
 

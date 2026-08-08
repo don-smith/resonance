@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createPackagedSkillBackend, DeepAgentsRuntime } from './deepagents.ts';
 import { createTelemetry } from '../../telemetry.ts';
 import { BacklogAgentBusyError, createBacklogAgentSession, type BacklogAgentRuntimeFactory } from './agent-session.ts';
@@ -45,6 +48,19 @@ test('rehydrates selected decision for sequential prompts in one shared runtime 
   assert.equal(sessionIds.size, 1); assert.equal(sessionIds.values().next().value, log.turns[0].threadId);
 });
 
+test('captures each Backlog turn request and complete assistant response', async () => {
+  const { store } = fakeStore(); const log = { created: 0, apiKeys: [] as string[], turns: [] as any[], dispose: 0 };
+  const records: any[] = [];
+  const telemetry = createTelemetry({ config: { mode: 'console', captureContent: true }, console: null, exporter: { record(record) { records.push(record); }, async flush() {} } });
+  const session = createBacklogAgentSession({ store, telemetry, credentialProvider: async () => 'local-secret', runtimeFactory: fakeFactory(log) });
+  await session.submitPrompt({ prompt: 'Review this decision.', selectedPath: decision.path });
+  log.release!(); await new Promise((resolve) => setTimeout(resolve, 0));
+  const turn = records.find((record) => record.kind === 'span' && record.name === 'backlog.agent.turn');
+  assert.deepEqual(turn.fields.input, [{ role: 'user', content: 'Review this decision.' }]);
+  assert.deepEqual(turn.fields.output, [{ role: 'assistant', content: 'Applied.' }]);
+  await session.dispose(); await telemetry.dispose();
+});
+
 test('emits committed revisions, invalidates old confirmations, and ignores stale output after reset', async () => {
   const { store, calls } = fakeStore(); const log = { created: 0, apiKeys: [] as string[], turns: [] as any[], dispose: 0 };
   const session = createBacklogAgentSession({ store, credentialProvider: async () => 'sk-local-secret', runtimeFactory: fakeFactory(log) }); const events: any[] = []; session.subscribe((event) => events.push(event));
@@ -65,19 +81,58 @@ test('records the original model failure while preserving the generic user-facin
   assert.ok(records.some((record) => record.kind === 'span' && record.name === 'backlog.agent.turn' && record.error.message === 'provider unavailable'));
 });
 
-test('forwards assistant chunks from the current DeepAgents model node', async () => {
-  const telemetry = createTelemetry({ config: { mode: 'off' }, console: null });
+test('captures the Backlog model request and response while forwarding assistant chunks', async () => {
+  const records: any[] = [];
+  const telemetry = createTelemetry({ config: { mode: 'console', captureContent: true }, console: null, exporter: { record(record) { records.push(record); }, async flush() {} } });
   const runtime = new DeepAgentsRuntime({
     async stream() {
       return (async function* () { yield [{ content: 'Hello from the model.' }, { langgraph_node: 'model_request' }]; })();
     },
   }, telemetry);
   const updates = [];
-  for await (const update of runtime.stream({ messages: [], selected: decision, threadId: 'test-thread' })) updates.push(update);
+  for await (const update of runtime.stream({ messages: [{ id: 'user-1', role: 'user', content: 'Review this.' }], selected: decision, threadId: 'test-thread' })) updates.push(update);
   assert.deepEqual(updates, [{ kind: 'assistant', text: 'Hello from the model.' }]);
+  const model = records.find((record) => record.kind === 'span' && record.name === 'backlog.model.stream');
+  assert.equal(model.fields.observationType, 'generation');
+  assert.match(model.fields.input.at(-1).content, /<user-request>\nReview this\.\n<\/user-request>/);
+  assert.deepEqual(model.fields.output, [{ role: 'assistant', content: 'Hello from the model.' }]);
+  await telemetry.dispose();
 });
 
-test('exposes only the packaged runtime skill through its virtual backend', async () => {
-  const backend = createPackagedSkillBackend('---\nname: manage-backlog\ndescription: test\n---\n# Skill');
-  assert.deepEqual(await backend.ls('/skills/'), { files: [{ path: '/skills/manage-backlog/', is_dir: true }] }); assert.match((await backend.read('/skills/manage-backlog/SKILL.md')).content!, /manage-backlog/); assert.match((await backend.read('/backlog/todo.yaml')).error!, /Permission denied/); assert.match((await backend.write('/skills/manage-backlog/SKILL.md', 'no')).error!, /Permission denied/);
+test('mounts repository evidence read-only alongside the packaged runtime skill', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'resonance-backlog-backend-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'resonance-backlog-backend-outside-'));
+  try {
+    await mkdir(path.join(root, 'docs'), { recursive: true });
+    await mkdir(path.join(root, 'src'), { recursive: true });
+    await mkdir(path.join(root, '.resonance'), { recursive: true });
+    await mkdir(path.join(root, '.git'), { recursive: true });
+    await writeFile(path.join(root, 'docs', 'research.md'), '# Research\nRelated implementation: queue.');
+    await writeFile(path.join(root, 'src', 'queue.ts'), 'export const queue = true;');
+    await writeFile(path.join(root, 'Makefile'), 'queue:\n\t@echo ready\n');
+    await writeFile(path.join(root, '.resonance', 'backlog-agent.env'), 'OPENROUTER_API_KEY=secret\n');
+    await writeFile(path.join(root, '.git', 'config'), '[remote "origin"]\nurl = private\n');
+    await writeFile(path.join(outside, 'outside.md'), '# Outside');
+    await symlink(path.join(outside, 'outside.md'), path.join(root, 'docs', 'outside.md'));
+    const backend = createPackagedSkillBackend('---\nname: manage-backlog\ndescription: test\n---\n# Skill', root);
+
+    assert.ok((await backend.ls('/')).files?.some((file) => file.path === '/skills/'));
+    assert.deepEqual(await backend.ls('/skills/'), { files: [{ path: '/skills/manage-backlog/', is_dir: true }] });
+    assert.match(String((await backend.read('/skills/manage-backlog/SKILL.md')).content), /manage-backlog/);
+    assert.match(String((await backend.read('/docs/research.md')).content), /Related implementation/);
+    assert.equal((await backend.read('/Makefile')).mimeType, 'text/plain');
+    assert.deepEqual((await backend.glob('**/*.ts', '/')).files?.map((file) => file.path), ['/src/queue.ts']);
+    assert.deepEqual((await backend.grep('queue', '/', '**/*.ts')).matches?.map((match) => match.path), ['/src/queue.ts']);
+    assert.deepEqual((await backend.grep('queue', '/')).matches?.map((match) => match.path), ['/Makefile', '/docs/research.md', '/src/queue.ts']);
+    assert.match(String((await backend.read('/.resonance/backlog-agent.env')).error), /not available/);
+    assert.match(String((await backend.read('/.git/config')).error), /not available/);
+    assert.match(String((await backend.read('/docs/outside.md')).error), /Symlinks are not available/);
+    assert.match(String((await backend.read('../outside.md')).error), /Invalid repository path/);
+    assert.match(String((await backend.write('/docs/research.md', 'changed')).error), /read-only/);
+    assert.match(String((await backend.edit('/src/queue.ts', 'true', 'false')).error), /read-only/);
+    assert.match(String((await backend.write('/skills/manage-backlog/SKILL.md', 'no')).error), /Permission denied/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });

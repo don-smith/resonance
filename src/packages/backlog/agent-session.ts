@@ -137,6 +137,10 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
       throw new BacklogAgentUnavailableError('Backlog agent is unavailable.', { cause });
     }
   };
+  const currentTurnOutput = () => {
+    const lastUser = messages.findLastIndex((message) => message.role === 'user');
+    return messages.slice(lastUser + 1).filter((message) => message.role === 'assistant').map((message) => ({ role: message.role, content: message.content }));
+  };
   const run = async (turn: number, current: BacklogAgentRuntime, selected: BacklogDecision, turnSpan: ReturnType<Telemetry['span']>) => {
     agentTelemetry.info('Backlog agent stream started', { selectedPath: selected.path });
     try {
@@ -144,13 +148,13 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
       if (turn === generation && status === 'working') {
         assistantId = null;
         setStatus('idle');
-        turnSpan.end({ status: 'ok' });
+        turnSpan.end({ status: 'ok', output: currentTurnOutput() });
         agentTelemetry.info('Backlog agent stream completed', { selectedPath: selected.path });
         emit({ type: 'done' });
       }
     } catch (cause) {
       if (turn !== generation) return;
-      turnSpan.fail(cause, { status: 500 });
+      turnSpan.fail(cause, { status: 500, output: currentTurnOutput() });
       agentTelemetry.error('Backlog agent stream failed', { error: cause, selectedPath: selected.path });
       if (runtime === current) { runtime = null; void close(current); }
       error = 'Backlog agent request failed.';
@@ -172,7 +176,7 @@ export function createBacklogAgentSession({ store, credentialProvider, runtimeFa
       if (!content) throw new Error('Prompt must not be empty.');
       if (status === 'working' || starting) throw new BacklogAgentBusyError();
       const turn = generation;
-      const turnSpan = agentTelemetry.span('backlog.agent.turn', { selectedPath });
+      const turnSpan = agentTelemetry.span('backlog.agent.turn', { selectedPath, input: [{ role: 'user', content }] });
       starting = true;
       error = null;
       pendingDeletion = null;

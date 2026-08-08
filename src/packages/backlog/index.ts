@@ -119,7 +119,7 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
         store,
         telemetry,
         credentialProvider: () => readCredential(context.repositoryRoot, config.provider),
-        runtimeFactory: runtimeFactory || createDeepAgentsRuntimeFactory({ provider: config.provider, model: config.model }),
+        runtimeFactory: runtimeFactory || createDeepAgentsRuntimeFactory({ provider: config.provider, model: config.model, repositoryRoot: context.repositoryRoot }),
       });
       const activeStreams = new Set<() => void>();
       const items = async () => store.listDecisions();

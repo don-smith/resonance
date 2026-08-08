@@ -81,11 +81,36 @@ The agent's domain tools enforce schema validation, repository containment, stab
 
 This decision is complete when a developer can:
 
-1. Enable the Architecture package in `.resonance/config.json`.
-2. Open the workspace and see the left-hand navigator with the system context, container, component, and deployment views.
-3. Click any view and see a rendered, layouted C4 diagram in the central pane.
-4. Click an entity in the diagram and see its description, relationships, and linked evidence.
-5. Open the validation panel and see `pass`/`fail`/`unknown` results for the implemented checkers.
-6. Ask the Architecture agent "explain the system context" and receive a coherent explanation grounded in the canonical model.
-7. Ask the Architecture agent to review package ownership and see a structured report with distinct findings.
-8. Propose a model change through the agent and have it applied with validation.
+1. 🟢 **Enable the Architecture package in `.resonance/config.json`.**
+   → The package is already wired in the default config with module, artifactRoot, provider, and model settings.
+
+2. 🟢 **Open the workspace and see the left-hand navigator with the system context, container, component, and deployment views.**
+   → The navigator now includes the committed LikeC4 deployment topology view, showing the local runtime, package instances, target repository, and browser connections.
+
+3. 🟢 **Click any view and see a rendered, layouted C4 diagram in the central pane.**
+   → The LikeC4 renderer is integrated and functional — `ReactLikeC4` renders layouted diagrams from the LikeC4 dump.
+
+4. 🟢 **Click an entity in the diagram and see its description, relationships, and linked evidence.**
+   → The workspace details panel surfaces the selected entity's name, description, technology, modeled relationships, and linked evidence, including evidence from related relationships.
+
+5. 🟢 **Open the validation panel and see `pass`/`fail`/`unknown` results for the implemented checkers.**
+   → Six checkers (authoritative-config, shell, ownership, routes, containment, git) are fully wired — server API, UI button, result rendering with color-coded statuses, and CSS styling are all present and functional.
+
+6. 🟡 **Ask the Architecture agent "explain the system context" and receive a coherent explanation grounded in the canonical model.**
+   → The agent has `read_model`, `read_view`, `read_entity`, and `read_evidence` tools to access the model, plus the likec4-dsl reference skill. **There is no dedicated "explain" skill** — the agent relies on general conversation + tools. It can answer, but the quality/coherence depends on the agent's general capabilities rather than a structured explain skill.
+
+7. 🟡 **Ask the Architecture agent to review package ownership and see a structured report with distinct findings.**
+   → The agent has `validate_architecture` which runs the ownership checker. **There is no dedicated "review" skill** that produces a structured report distinguishing verified conformance, verified violations, unresolved questions, and qualitative assessment. The agent can run validation, but the output format isn't enforced.
+
+8. 🟡 **Propose a model change through the agent and have it applied with validation.**
+   → The agent has write_file/edit_file capabilities for architecture files, and the system prompt instructs it to repair model issues. LikeC4 parse errors are returned as recoverable context. **There is no dedicated "authoring" skill** with schema validation and stable ID enforcement. The agent can do it, but with higher risk of inconsistent edits.
+
+### Legend
+
+- 🟢 **Green** = Criterion is fully met.
+- 🟡 **Yellow** = Criterion is partially met — functional but missing a key component (dedicated skill, UI panel, data, etc.).
+- 🔴 **Red** = Criterion is not met at all.
+
+### Note on relationship to Arch validation
+
+The **Arch validation** decision (`backlog/plans/arch-validation.md`) is a separate, complementary workstream. It repairs trust defects in the existing validation pipeline (checker dispatch, false passes, LikeC4 parsing path) and introduces the intended-vs-observed graph model with dependency-cruiser integration. Where this decision establishes the **scaffolding and content** (diagrams, model, checkers, agent, UI), Arch validation makes the **results trustworthy** and adds dependency-level analysis. The yellow criteria above that involve the agent (6, 7, 8) are not addressed by Arch validation — they are gaps specific to this decision.

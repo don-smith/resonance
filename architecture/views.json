@@ -140,6 +140,11 @@
       "id": "scaffolderCode",
       "name": "Member scaffolder",
       "description": "Plan-then-create scaffolding for member packages and repositories. planMemberPackageScaffold() validates the package id and returns a frozen MemberPackagePlan; createMemberPackageScaffold() writes templates, runs a caller-supplied VerifyMemberPackage callback, and rolls back on failure. planMemberRepository() computes the full file list; createMemberRepository() copies the package contract and authoring skill, writes all files, and runs git init with rollback on failure."
+    },
+    {
+      "id": "deployTopology",
+      "name": "Deployment",
+      "description": "Current deployment topology: Resonance runs from a cloned repository on each team member's machine. The ~/resonance directory holds a main clone (runtime, core packages) and a my-packages clone (personal packages). The same installation can serve different projects — each target repository has its own .resonance/ metadata for isolated configuration and state."
     }
   ]
 }

@@ -26,6 +26,7 @@ specification {
       shape browser
     }
   }
+  deploymentNode node
 }
 
 model {
@@ -1654,6 +1655,58 @@ model {
   resonancePackages.backlog.deepagents -> resonancePackages.backlog.store "Reads and writes decisions through"
 }
 
+deployment {
+  node resonanceRuntimeInstance "Resonance Runtime Instance" {
+    instanceOf resonanceRuntime {
+      description """
+        Resonance Runtime instance running on the developer's local machine.
+        Started via the install script from a cloned main repository checkout.
+      """
+    }
+  }
+
+  node packagesInstance "Package Instances" {
+    instanceOf resonancePackages {
+      description """
+        Package instances loaded from both the main clone (core packages:
+        shell, home, docs, backlog, architecture) and the my-packages
+        clone (member packages authored by the developer).
+      """
+    }
+  }
+
+  node targetRepoInstance "Target Repository Instance" {
+    instanceOf targetRepository {
+      description """
+        The target repository Resonance is operating on — the project the
+        team member is working on. The same Resonance installation can
+        serve different projects by pointing at different target repos.
+        Each target repository has its own .resonance/ metadata.
+      """
+    }
+  }
+
+  node browserInstance "Browser Instance" {
+    instanceOf resonanceRuntime.browser {
+      description """
+        Browser instance connecting to the local Resonance server.
+        Loads the shell bootstrap, renders package UIs, and communicates
+        via HTTP and SSE.
+      """
+    }
+  }
+
+  /*
+   * ── File-system relationships ──────────────────────────────────
+   * The runtime reads from the target repository. Packages read
+   * repository sources. The browser connects to the runtime.
+   */
+
+  resonanceRuntimeInstance -> targetRepoInstance "Reads committed sources and configuration from"
+  packagesInstance -> targetRepoInstance "Reads committed sources from"
+  browserInstance -> resonanceRuntimeInstance "Makes API calls through"
+}
+
 views {
   view packageContainers {
     title "Package containers"
@@ -2423,5 +2476,23 @@ views {
 
       // ── Callback contract ───────────────────────────
       verifyMemberPackageType
+  }
+
+  /*
+   * ── Deployment view ───────────────────────────────────────────
+   * Projects the deployment topology: which instances exist and how
+   * they connect on disk and over the network.
+   */
+
+  deployment view deployTopology {
+    title "Deployment topology"
+    description """
+      The deployment topology: a local Resonance Runtime instance reads
+      from the target repository, Package instances also read repository
+      sources, and a Browser instance communicates with the Runtime via
+      HTTP and SSE.
+    """
+
+    include *
   }
 }

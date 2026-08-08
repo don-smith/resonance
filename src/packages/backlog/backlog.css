@@ -35,14 +35,12 @@
 .backlog-content a { color: var(--accent); }
 .backlog-loading, .backlog-empty, .backlog-chat-empty { color: var(--muted); font: 12px var(--mono); }
 .backlog-error, .backlog-chat-error { color: var(--danger); font: 12px/1.5 var(--mono); }
-.backlog-agent { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--paper-deep); }
+.backlog-agent { border-left: 1px solid var(--line); background: var(--paper-deep); }
 .backlog-agent[hidden] { display: none !important; }
-.backlog-agent-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 28px 20px 20px; border-bottom: 1px solid var(--line); }
-.backlog-agent-header .eyebrow { margin: 0; }
-.backlog-status { margin: 0; color: var(--muted); font: 11px var(--mono); }
+.backlog-status { color: var(--muted); }
 .backlog-status[data-status="working"] { color: var(--accent); }
 .backlog-status[data-status="error"] { color: var(--danger); }
-.backlog-transcript { flex: 1; min-height: 180px; overflow: auto; padding: 20px; }
+.backlog-transcript { padding: 20px; }
 .backlog-message { display: flex; flex-direction: column; gap: 5px; margin: 0 0 18px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .backlog-message strong { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
 .backlog-message-user { color: var(--ink); }
@@ -54,9 +52,7 @@
 .backlog-credential input { min-width: 0; flex: 1; }
 .backlog-composer { display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 20px; border-top: 1px solid var(--line); }
 .backlog-composer textarea { width: 100%; min-height: 72px; resize: vertical; box-sizing: border-box; border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 10px; font: 12px/1.5 var(--mono); }
-.backlog-composer button, .backlog-agent button { border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 8px 12px; cursor: pointer; font: 10px var(--mono); }
 .backlog-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.backlog-agent button:disabled { cursor: not-allowed; opacity: .45; }
 .backlog-reset, .backlog-retry { border: 1px solid var(--line) !important; background: transparent !important; color: var(--ink) !important; }
 .backlog-confirm-delete { align-self: start !important; background: var(--danger) !important; border-color: var(--danger) !important; }
 

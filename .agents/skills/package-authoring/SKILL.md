@@ -44,9 +44,9 @@ After reviewing the output, the developer—not the command—may add the printe
 
 Use the brief and generated package as inputs to normal design and implementation work. The scaffold is deterministic only for the golden package shape; design and implement custom data, routes, inputs, rendering, and tests separately.
 
-Read `docs/architecture.md`, the relevant package README, `src/package-contract.ts`, and colocated tests before changing behavior. Keep Shell’s browser frame and Docs’ Markdown discovery out of the package. Register only namespaced `/api/<id>/...` routes and `/assets/<id>/...` assets through the shared contract; browser code renders only in Shell’s supplied mount. Resolve every repository file with `HostContext.resolveRepositoryPath()` before reading it. Keep handlers read-only unless a separate requirement explicitly authorizes writes.
+Read `docs/architecture.md`, `docs/design-system.md` when changing workspace UI, the relevant package README, `src/package-contract.ts`, and colocated tests before changing behavior. Keep Shell’s browser frame and Docs’ Markdown discovery out of the package. Register only namespaced `/api/<id>/...` routes and `/assets/<id>/...` assets through the shared contract; browser code renders only in Shell’s supplied mount. Reuse the shared browser modules in `src/ui/` for common workspace behavior in team packages, while keeping domain state and agent adapters package-owned. Member packages must not import the viewed application root; use only shared UI distribution explicitly provided by the member-package contract. Resolve every repository file with `HostContext.resolveRepositoryPath()` before reading it. Keep handlers read-only unless a separate requirement explicitly authorizes writes.
 
-Add colocated tests for registration/input validation, route/error behavior, containment, and browser lifecycle. Run the focused test, then `bun test` before presenting work.
+Add colocated tests for registration/input validation, route/error behavior, containment, and browser lifecycle. Run `bun run build:browser` after changing bundled browser sources, then run the focused test and `bun test` before presenting work.
 
 ## Sharing This Skill
 

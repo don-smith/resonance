@@ -18,7 +18,7 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
   assert.match(html, /data-shell-theme="light"[^>]*aria-label="Use light theme"/);
   assert.match(html, /data-shell-theme="dark"[^>]*aria-label="Use dark theme"/);
   assert.match(html, /data-shell-theme="system"[^>]*aria-label="Use system theme"/);
-  assert.match(html, /assets\/shell\/theme-bootstrap\.js[\s\S]*assets\/shell\/shell\.css/);
+  assert.match(html, /assets\/shell\/theme-bootstrap\.js[\s\S]*assets\/shell\/shell\.css[\s\S]*assets\/shell\/ui\.css/);
   assert.match(html, /id="package-mount"/);
   assert.match(html, /assets\/shell\/shell\.css/);
   assert.match(html, /assets\/app\.js/);
@@ -73,6 +73,16 @@ test('the Home package does not expose retired product terminology', async () =>
   assert.doesNotMatch(homeModule, retiredTerm);
 });
 
+test('shared agent panels fill their mount and share panel controls', async () => {
+  const sharedCss = await readFile(new URL('../ui/ui.css', import.meta.url), 'utf8');
+  const architectureCss = await readFile(new URL('./architecture/architecture.css', import.meta.url), 'utf8');
+  assert.match(sharedCss, /\.resonance-agent-panel \{[^}]*height: 100%;[^}]*min-height: 0;/s);
+  assert.match(sharedCss, /\.resonance-agent-transcript \{[^}]*flex: 1 1 auto;[^}]*min-height: 0;/s);
+  assert.match(sharedCss, /\.resonance-agent-header \{[^}]*padding: 28px 20px 20px;/s);
+  assert.match(sharedCss, /\.resonance-agent-panel button \{[^}]*background: var\(--ink\);[^}]*color: var\(--paper\);/s);
+  assert.doesNotMatch(architectureCss, /\.architecture-agent button \{/);
+});
+
 test('the repository Home presents the Resonance manifesto', async () => {
   const html = await readFile(new URL('../../.resonance/home.html', import.meta.url), 'utf8');
   assert.match(html, /Integrated Application Environment/);
@@ -80,5 +90,7 @@ test('the repository Home presents the Resonance manifesto', async () => {
   assert.match(html, /Resonate is the action/);
   assert.equal((html.match(/class="home-section"/g) || []).length, 7);
   assert.match(html, /<pre><code>resonate init/);
+  assert.match(html, /\.home-callout \{[^}]*background: var\(--sidebar\); color: var\(--code-ink\);/);
+  assert.match(html, /\.home-commands pre \{[^}]*background: var\(--sidebar\); color: var\(--code-ink\);/);
   assert.match(html, /aria-labelledby="home-commands-title"/);
 });

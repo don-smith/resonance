@@ -1,0 +1,18 @@
+.resonance-agent-host { display: contents; }
+.resonance-agent-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; overflow: hidden; }
+.resonance-agent-panel[hidden] { display: none !important; }
+.resonance-agent-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; box-sizing: border-box; padding: 28px 20px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font: 10px var(--mono); }
+.resonance-agent-header > span { color: var(--accent); }
+.resonance-agent-header .eyebrow { margin: 0; }
+.resonance-agent-status { margin: 0; color: var(--muted); font: 11px var(--mono); }
+.resonance-agent-transcript { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.resonance-agent-panel button { border: 1px solid var(--ink); background: var(--ink); color: var(--paper); padding: 8px 12px; cursor: pointer; font: 10px var(--mono); }
+.resonance-agent-panel button:disabled { cursor: not-allowed; opacity: .45; }
+.resonance-agent-state { display: flex; justify-content: flex-end; }
+.resonance-agent-credential, .resonance-agent-auxiliary { flex: 0 0 auto; }
+.resonance-agent-composer { display: flex; flex-direction: column; }
+.resonance-agent-composer-actions { display: flex; align-items: center; justify-content: space-between; }
+.resonance-agent-context { white-space: nowrap; }
+.resonance-collapsible-items[hidden] { display: none; }
+.resonance-collapsible-toggle { cursor: pointer; }
+.resonance-collapsible-indicator { user-select: none; }

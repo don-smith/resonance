@@ -121,8 +121,9 @@ test('exposes lazy agent state, bounded agent routes, and non-secret credential 
 
 test('keeps plan and agent header separators aligned', async () => {
   const css = await readFile(new URL('./backlog.css', import.meta.url), 'utf8');
+  const sharedCss = await readFile(new URL('../../ui/ui.css', import.meta.url), 'utf8');
   assert.match(css, /\.backlog-plan header \{[^}]*padding: 28px 52px 20px;/s);
-  assert.match(css, /\.backlog-agent-header \{[^}]*padding: 28px 20px 20px;/s);
+  assert.match(sharedCss, /\.resonance-agent-header \{[^}]*padding: 28px 20px 20px;/s);
   assert.match(css, /\.backlog-agent-toggle \{[^}]*border: 1px solid transparent;/s);
   assert.match(css, /\.backlog-agent-toggle:hover \{[^}]*border-color: var\(--accent\);/s);
   assert.match(css, /\.backlog-agent-toggle svg \{[^}]*stroke: currentColor;/s);

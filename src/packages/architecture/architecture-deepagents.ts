@@ -457,17 +457,18 @@ export async function providerFetch(input: RequestInfo | URL, init: RequestInit 
 
 export function createDeepAgentsRuntimeFactory({ provider, model, artifactRoot = 'architecture' }: { provider: 'openai' | 'openrouter'; model: string; artifactRoot?: string }): ArchitectureAgentRuntimeFactory {
   return async (options) => {
-    const [likec4Skill, codeStructuralViewSkill] = await Promise.all([
+    const [likec4Skill, codeStructuralViewSkill, explainSkill] = await Promise.all([
       readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8'),
       readFile(new URL('./skills/code-structural-view/SKILL.md', import.meta.url), 'utf8'),
+      readFile(new URL('./skills/explain/SKILL.md', import.meta.url), 'utf8'),
     ]);
     const runtimeTelemetry = options.telemetry.child({ provider, model });
     const chatModel = new ArchitectureChatOpenAI({ model, apiKey: options.apiKey, temperature: 0, configuration: provider === 'openrouter' ? { baseURL: 'https://openrouter.ai/api/v1', maxRetries: 5, fetch: (input, init) => providerFetch(input, init, runtimeTelemetry) } : { maxRetries: 5, fetch: (input, init) => providerFetch(input, init, runtimeTelemetry) } });
-    const systemPrompt = `You are Resonance Architecture Agent. Read /skills/likec4-dsl/SKILL.md before answering. Read and follow /skills/code-structural-view/SKILL.md when the user asks to understand or improve a code-level structural architecture view. The whole viewed repository is mounted at /. Use ls, read_file, glob, and grep to inspect any repository file needed for an assessment. You may use write_file and edit_file for files under /${artifactRoot} and for Markdown documents anywhere in the repository. Use those write capabilities to keep the LikeC4 model and architecture metadata current, and to correct or improve repository documentation when asked. If an Architecture tool reports a LikeC4 parse or reference error, do not stop at reporting it: inspect the relevant source under /${artifactRoot}, repair it with edit_file or write_file, and retry the Architecture tool. All other repository files are read-only. Credential files such as .env files and repository-local agent credential files are intentionally unavailable; never modify .git or credentials, and never use shell or network access. Use Architecture tools for model facts and distinguish evidence, intent, and assessment.`;
+    const systemPrompt = `You are Resonance Architecture Agent. Read /skills/likec4-dsl/SKILL.md before answering. Read and follow /skills/explain/SKILL.md when the user asks to explain the architecture, a view, an entity, or a relationship. Read and follow /skills/code-structural-view/SKILL.md when the user asks to understand or improve a code-level structural architecture view. The whole viewed repository is mounted at /. Use ls, read_file, glob, and grep to inspect any repository file needed for an assessment. You may use write_file and edit_file for files under /${artifactRoot} and for Markdown documents anywhere in the repository. Use those write capabilities to keep the LikeC4 model and architecture metadata current, and to correct or improve repository documentation when asked. If an Architecture tool reports a LikeC4 parse or reference error, do not stop at reporting it: inspect the relevant source under /${artifactRoot}, repair it with edit_file or write_file, and retry the Architecture tool. All other repository files are read-only. Credential files such as .env files and repository-local agent credential files are intentionally unavailable; never modify .git or credentials, and never use shell or network access. Use Architecture tools for model facts and distinguish evidence, intent, and assessment.`;
     const agent = createDeepAgent({
       model: chatModel,
       tools: createArchitectureTools(options),
-      backend: createPackagedSkillBackend({ 'likec4-dsl': likec4Skill, 'code-structural-view': codeStructuralViewSkill }, options.context.repositoryRoot, artifactRoot),
+      backend: createPackagedSkillBackend({ 'likec4-dsl': likec4Skill, 'code-structural-view': codeStructuralViewSkill, explain: explainSkill }, options.context.repositoryRoot, artifactRoot),
       skills: ['/skills/'],
       checkpointer: false,
       systemPrompt,

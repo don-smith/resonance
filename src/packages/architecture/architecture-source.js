@@ -1,3 +1,5 @@
+import createAgentPanel from '../../ui/agent-panel.js';
+import createCollapsibleSection from '../../ui/collapsible-section.js';
 import { createLikeC4Renderer } from './architecture-likec4.tsx';
 
 function escapeId(value) { return String(value).replace(/[^a-zA-Z0-9_-]/g, '-'); }
@@ -14,15 +16,30 @@ const RELATIONSHIPS_COLLAPSED_STORAGE_KEY = 'resonance:architecture:relationship
 
 export default function createArchitecture({ fetchFn = fetch, eventSourceFactory = (url) => typeof EventSource === 'function' ? new EventSource(url) : null } = {}) {
   let root; let likec4Dump; let architectureModel = { entities: [], relationships: [] }; let views = []; let activeView = 'systemContext'; let selectedId = ''; let selectedNode = null; let graph; let diagramRenderer; let active = false; let eventSource = null;
-  let workspace; let agentPanel; let agentToggle; let validationButton; let transcript; let statusLabel; let promptInput; let sendButton; let contextUsage; let credentialPanel; let credentialInput; let retryButton;
-  let lastPrompt = null; let agentVisible = true; let validationResults = null; let stopPending = false;
+  let workspace; let agentPanel; let agentUi; let agentToggle; let validationButton; let transcript; let statusLabel; let promptInput; let sendButton; let contextUsage; let credentialPanel; let credentialInput; let retryButton;
+  let lastPrompt = null; let agentVisible = true; let validationResults = null; let stopPending = false; let credentialRequired = false; let retryVisible = false;
   let chatState = { messages: [], status: 'idle', error: null, context: null };
   let storage;
   let relationshipsCollapsed = false;
+  agentUi = createAgentPanel({
+    prefix: 'architecture',
+    label: 'AGENT / CHAT',
+    ariaLabel: 'Architecture agent',
+    placeholder: 'Ask about this C4 view…',
+    supportsStop: true,
+    contextClass: 'architecture-context-usage',
+    renderTranscript: renderAgentTranscript,
+    onSend: (prompt) => submitPrompt(prompt),
+    onStop: () => stop(),
+    onReset: () => reset(),
+    onRetry: () => { if (lastPrompt) return submitPrompt(lastPrompt); },
+    onCredential: (key) => saveCredentialValue(key),
+    onError: showError,
+  });
 
   async function json(url, options) { const response = await fetchFn(url, options); if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Architecture data could not be loaded.'); return response.json(); }
   function showError(error) { root.textContent = ''; root.append(element('article', error?.message || String(error), { class: 'architecture-error', role: 'alert' })); }
-  function setAgentVisible(show) { agentVisible = show; if (!agentPanel) return; agentPanel.hidden = !show; workspace.classList.toggle('architecture-agent-hidden', !show); agentToggle.setAttribute('aria-expanded', String(show)); agentToggle.setAttribute('aria-label', show ? 'Hide agent panel' : 'Show agent panel'); agentToggle.title = show ? 'Hide agent panel' : 'Show agent panel'; }
+  function setAgentVisible(show) { agentVisible = show; if (!agentPanel) return; agentUi.setVisible(show); workspace.classList.toggle('architecture-agent-hidden', !show); agentToggle.setAttribute('aria-expanded', String(show)); agentToggle.setAttribute('aria-label', show ? 'Hide agent panel' : 'Show agent panel'); agentToggle.title = show ? 'Hide agent panel' : 'Show agent panel'; }
   const navigationGroups = [{ id: 'containers', label: 'Containers' }, { id: 'components', label: 'Components' }, { id: 'code', label: 'Code' }, { id: 'dynamics', label: 'Dynamics' }, { id: 'deployment', label: 'Deployment' }];
   const collapsedNavigationGroups = new Set();
   function viewBreadcrumbs(viewId) {
@@ -51,16 +68,12 @@ export default function createArchitecture({ fetchFn = fetch, eventSourceFactory
     for (const view of specialViews.filter(Boolean)) appendViewTo(nav, view);
     const remainingViews = views.filter((candidate) => candidate.id !== 'validation' && !isLandscapeView(candidate) && !isSystemContextView(candidate));
     for (const group of navigationGroups) {
-      const section = element('section', undefined, { class: 'architecture-nav-group', 'data-nav-group': group.id });
       const collapsed = collapsedNavigationGroups.has(group.id);
-      const itemsId = `architecture-nav-group-${group.id}`;
-      const toggle = element('button', undefined, { type: 'button', class: 'architecture-nav-group-toggle', 'aria-expanded': String(!collapsed), 'aria-controls': itemsId });
-      toggle.append(element('span', group.label), element('span', collapsed ? '▸' : '▾', { class: 'architecture-nav-group-indicator', 'aria-hidden': 'true' }));
-      const items = element('div', undefined, { id: itemsId, class: 'architecture-nav-group-items' });
-      items.hidden = collapsed;
-      for (const view of remainingViews.filter((candidate) => navigationGroupFor(candidate) === group.id)) appendViewTo(items, view);
-      toggle.addEventListener('click', () => { if (collapsedNavigationGroups.has(group.id)) collapsedNavigationGroups.delete(group.id); else collapsedNavigationGroups.add(group.id); writeStringSet(storage, COLLAPSED_NAVIGATION_STORAGE_KEY, collapsedNavigationGroups); renderNavigation(nav); });
-      section.append(toggle, items); nav.append(section);
+      const section = createCollapsibleSection({ documentRoot: nav.ownerDocument, id: group.id, label: group.label, collapsed, sectionClass: 'architecture-nav-group', toggleClass: 'architecture-nav-group-toggle', itemsClass: 'architecture-nav-group-items', indicatorClass: 'architecture-nav-group-indicator', itemsId: `architecture-nav-group-${group.id}` });
+      section.element.dataset.navGroup = group.id;
+      for (const view of remainingViews.filter((candidate) => navigationGroupFor(candidate) === group.id)) appendViewTo(section.items, view);
+      section.toggle.addEventListener('click', () => { if (section.collapsed) collapsedNavigationGroups.add(group.id); else collapsedNavigationGroups.delete(group.id); writeStringSet(storage, COLLAPSED_NAVIGATION_STORAGE_KEY, collapsedNavigationGroups); renderNavigation(nav); });
+      nav.append(section.element);
     }
   }
 
@@ -179,39 +192,39 @@ export default function createArchitecture({ fetchFn = fetch, eventSourceFactory
   }
   async function loadGraph() { if (activeView === 'validation') { renderValidation(); root.querySelectorAll('[data-view-id]').forEach((button) => button.classList.toggle('active', button.dataset.viewId === activeView)); return; } graph = await json(`/api/architecture/graph?view=${encodeURIComponent(activeView)}`); const view = views.find((candidate) => candidate.id === activeView) || graph.view; renderGraph(view); root.querySelectorAll('[data-view-id]').forEach((button) => button.classList.toggle('active', button.dataset.viewId === activeView)); }
   async function refreshWorkspace() { if (!active) return; const modelResponse = await json('/api/architecture/model'); if (modelResponse.likec4Error) throw new Error(modelResponse.likec4Error); architectureModel = modelResponse.model || { entities: [], relationships: [] }; likec4Dump = modelResponse.likec4; if (modelResponse.likec4Views) { views = [...modelResponse.likec4Views.filter((view) => view.id !== 'index'), { id: 'validation', name: 'Validation', type: 'validation', description: 'Run and inspect deterministic architecture validation.' }]; activeView = views.some((view) => view.id === activeView) ? activeView : views[0]?.id; } render(); await loadGraph(); }
-  function renderTranscript() {
-    if (!transcript) return;
-    transcript.textContent = '';
+  function renderAgentTranscript(target, messages) {
+    target.textContent = '';
     let assistantGroup;
     let assistantContent;
-    for (const message of chatState.messages) {
+    for (const message of messages) {
       if (message.role === 'user') {
         assistantGroup = null;
         assistantContent = null;
         const item = element('p', undefined, { class: 'architecture-message architecture-message-user' });
         item.append(element('strong', 'You'), element('span', message.content));
-        transcript.append(item);
+        target.append(item);
         continue;
       }
       if (!assistantGroup) {
         assistantGroup = element('div', undefined, { class: 'architecture-message architecture-message-assistant' });
         assistantContent = element('div', undefined, { class: 'architecture-message-content' });
         assistantGroup.append(element('strong', 'Agent'), assistantContent);
-        transcript.append(assistantGroup);
+        target.append(assistantGroup);
       }
       assistantContent.append(element('p', message.content));
     }
-    if (!chatState.messages.length) transcript.append(element('p', 'Ask about this C4 view or selected entity.', { class: 'architecture-chat-empty' }));
-    transcript.scrollTop = transcript.scrollHeight;
-    const working = chatState.status === 'working'; statusLabel.textContent = working ? (stopPending ? 'Stopping…' : 'Working…') : chatState.error ? 'Needs attention' : 'Ready'; statusLabel.dataset.status = chatState.error ? 'error' : chatState.status; contextUsage.textContent = formatContextUsage(chatState.context); sendButton.setAttribute('type', working ? 'button' : 'submit'); sendButton.textContent = working ? (stopPending ? 'Stopping…' : 'Stop') : 'Send'; sendButton.classList.toggle('architecture-stop', working); sendButton.disabled = working ? stopPending : !promptInput.value.trim();
-    if (chatState.error) transcript.append(element('p', chatState.error, { class: 'architecture-chat-error' }));
+    if (!messages.length) target.append(element('p', 'Ask about this C4 view or selected entity.', { class: 'architecture-chat-empty' }));
   }
-  function showCredential(show = true) { credentialPanel.hidden = !show; if (show) credentialInput.focus(); }
+  function renderTranscript() {
+    if (!agentUi) return;
+    agentUi.update({ messages: chatState.messages, status: chatState.status, error: chatState.error, stopPending, credentialRequired, retryVisible, contextUsage: formatContextUsage(chatState.context), canSend: () => Boolean(agentUi.prompt.trim()) });
+  }
+  function showCredential(show = true) { credentialRequired = show; agentUi.update({ credentialRequired }); if (show) agentUi.focusCredential(); }
   function applySnapshot(snapshot, replaceMessages = false) { chatState = { messages: replaceMessages ? snapshot.messages || [] : (snapshot.messages?.length ? snapshot.messages : chatState.messages), status: snapshot.status || 'idle', error: snapshot.error || null, context: snapshot.context === undefined ? chatState.context : snapshot.context }; renderTranscript(); }
-  function handleEvent(event) { let value; try { value = event?.data ? JSON.parse(event.data) : event; } catch { return; } if (!value || typeof value.type !== 'string') return; if (value.type === 'snapshot') applySnapshot(value.snapshot); else if (value.type === 'message') { const index = chatState.messages.findIndex((message) => message.id === value.message.id); if (index < 0) chatState.messages = [...chatState.messages, value.message]; else chatState.messages[index] = value.message; renderTranscript(); } else if (value.type === 'status') { chatState.status = value.status; renderTranscript(); } else if (value.type === 'context') { chatState.context = value.context; renderTranscript(); } else if (value.type === 'error') { chatState.error = value.message; retryButton.hidden = !lastPrompt; renderTranscript(); } else if (value.type === 'credential-required') showCredential(true); else if (value.type === 'stopped' || value.type === 'done') { stopPending = false; renderTranscript(); void refreshWorkspace().catch(renderGraphError); } }
+  function handleEvent(event) { let value; try { value = event?.data ? JSON.parse(event.data) : event; } catch { return; } if (!value || typeof value.type !== 'string') return; if (value.type === 'snapshot') applySnapshot(value.snapshot); else if (value.type === 'message') { const index = chatState.messages.findIndex((message) => message.id === value.message.id); if (index < 0) chatState.messages = [...chatState.messages, value.message]; else chatState.messages[index] = value.message; renderTranscript(); } else if (value.type === 'status') { chatState.status = value.status; renderTranscript(); } else if (value.type === 'context') { chatState.context = value.context; renderTranscript(); } else if (value.type === 'error') { chatState.error = value.message; retryVisible = Boolean(lastPrompt); renderTranscript(); } else if (value.type === 'credential-required') showCredential(true); else if (value.type === 'stopped' || value.type === 'done') { stopPending = false; renderTranscript(); void refreshWorkspace().catch(renderGraphError); } }
   function connectEvents() { if (eventSource || !active) return; eventSource = eventSourceFactory('/api/architecture/agent/events'); if (!eventSource) return; eventSource.onmessage = handleEvent; eventSource.onerror = () => { if (active) statusLabel.textContent = 'Connection interrupted'; }; }
   function closeEvents() { if (eventSource) eventSource.close(); eventSource = null; }
-  async function submitPrompt(prompt = promptInput.value) { const value = prompt.trim(); if (!value || chatState.status === 'working') return; lastPrompt = value; const response = await fetchFn('/api/architecture/agent/prompt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: value, selectedId, selectedView: activeView }) }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Prompt could not be submitted.'); const result = await response.json(); if (result.credentialRequired) showCredential(true); else { promptInput.value = ''; retryButton.hidden = true; } renderTranscript(); }
+  async function submitPrompt(prompt = agentUi.prompt) { const value = prompt.trim(); if (!value || chatState.status === 'working') return; lastPrompt = value; const response = await fetchFn('/api/architecture/agent/prompt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: value, selectedId, selectedView: activeView }) }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Prompt could not be submitted.'); const result = await response.json(); if (result.credentialRequired) showCredential(true); else { agentUi.clearPrompt(); retryVisible = false; } renderTranscript(); }
   async function stop() {
     if (chatState.status !== 'working' || stopPending) return;
     stopPending = true; renderTranscript();
@@ -221,16 +234,15 @@ export default function createArchitecture({ fetchFn = fetch, eventSourceFactory
       await refreshWorkspace().catch(renderGraphError);
     } finally { stopPending = false; renderTranscript(); }
   }
-  async function saveCredential(event) { event.preventDefault(); const response = await fetchFn('/api/architecture/agent/credential', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey: credentialInput.value }) }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Credential could not be saved.'); credentialInput.value = ''; showCredential(false); if (lastPrompt) retryButton.hidden = false; }
-  async function reset() { await json('/api/architecture/agent/reset', { method: 'POST' }); lastPrompt = null; stopPending = false; promptInput.value = ''; retryButton.hidden = true; showCredential(false); chatState = { messages: [], status: 'idle', error: null, context: null }; renderTranscript(); }
+  async function saveCredentialValue(apiKey) { const response = await fetchFn('/api/architecture/agent/credential', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ apiKey }) }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Credential could not be saved.'); showCredential(false); retryVisible = Boolean(lastPrompt); renderTranscript(); }
+  async function reset() { await json('/api/architecture/agent/reset', { method: 'POST' }); lastPrompt = null; stopPending = false; retryVisible = false; agentUi.clearPrompt(); showCredential(false); chatState = { messages: [], status: 'idle', error: null, context: null }; renderTranscript(); }
   function render() {
     const prompt = promptInput?.value || '';
     root.textContent = ''; root.classList.add('architecture-mount');
-    root.innerHTML = '<section class="architecture-workspace" aria-label="Architecture"><aside class="architecture-navigator"><p class="eyebrow">WORKSPACE</p><h1>Architecture</h1><nav aria-label="Architecture views"></nav></aside><main class="architecture-center"><header class="architecture-header"><span class="architecture-header-label">C4</span><span class="architecture-header-rule" aria-hidden="true"></span><nav class="architecture-breadcrumbs" aria-label="View hierarchy"></nav><div class="architecture-header-actions"><button type="button" class="architecture-agent-toggle" aria-controls="architecture-agent-panel" aria-expanded="true" aria-label="Hide agent panel" title="Hide agent panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"></path></svg></button></div></header><div class="architecture-graph"></div><aside class="architecture-details" aria-label="Selected entity details" hidden></aside></main><aside id="architecture-agent-panel" class="architecture-agent" aria-label="Architecture agent"><header class="architecture-agent-header"><span>AGENT / CHAT</span><p class="architecture-status" data-status="idle">Ready</p></header><div class="architecture-transcript" aria-live="polite"></div><div class="architecture-credential" hidden><p>Enter a local provider API key to start the agent.</p><form><input type="password" autocomplete="off" aria-label="Provider API key"><button type="submit">Save key</button></form></div><form class="architecture-composer"><textarea rows="3" aria-label="Message" placeholder="Ask about this C4 view…"></textarea><div><button type="submit">Send</button><span class="architecture-context-usage" aria-live="polite" title="Latest input context / maximum input context"></span><button type="button" class="architecture-reset">New Chat</button></div></form></aside></section>';
-    workspace = root.querySelector('.architecture-workspace'); agentPanel = root.querySelector('.architecture-agent'); agentToggle = root.querySelector('.architecture-agent-toggle'); transcript = root.querySelector('.architecture-transcript'); statusLabel = root.querySelector('.architecture-status'); promptInput = root.querySelector('.architecture-composer textarea'); sendButton = root.querySelector('.architecture-composer button[type="submit"]'); contextUsage = root.querySelector('.architecture-context-usage'); credentialPanel = root.querySelector('.architecture-credential'); credentialInput = credentialPanel.querySelector('input'); retryButton = element('button', 'Retry', { type: 'button', class: 'architecture-retry', hidden: 'true' }); root.querySelector('.architecture-agent-header').append(retryButton);
+    root.innerHTML = '<section class="architecture-workspace" aria-label="Architecture"><aside class="architecture-navigator"><p class="eyebrow">WORKSPACE</p><h1>Architecture</h1><nav aria-label="Architecture views"></nav></aside><main class="architecture-center"><header class="architecture-header"><span class="architecture-header-label">C4</span><span class="architecture-header-rule" aria-hidden="true"></span><nav class="architecture-breadcrumbs" aria-label="View hierarchy"></nav><div class="architecture-header-actions"><button type="button" class="architecture-agent-toggle" aria-controls="architecture-agent-panel" aria-expanded="true" aria-label="Hide agent panel" title="Hide agent panel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 3v-3H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"></path></svg></button></div></header><div class="architecture-graph"></div><aside class="architecture-details" aria-label="Selected entity details" hidden></aside></main><div class="architecture-agent-slot"></div></section>';
+    workspace = root.querySelector('.architecture-workspace'); agentUi.mount(root.querySelector('.architecture-agent-slot')); agentPanel = agentUi.root; agentToggle = root.querySelector('.architecture-agent-toggle'); transcript = root.querySelector('.architecture-transcript'); statusLabel = root.querySelector('.architecture-status'); promptInput = root.querySelector('.architecture-composer textarea'); sendButton = root.querySelector('.architecture-composer button[type="submit"]'); contextUsage = root.querySelector('.architecture-context-usage'); credentialPanel = root.querySelector('.architecture-credential'); credentialInput = credentialPanel.querySelector('input'); retryButton = root.querySelector('.architecture-retry');
     const nav = root.querySelector('.architecture-navigator nav'); renderNavigation(nav);
     const toggleAgent = () => setAgentVisible(!agentVisible); agentToggle.addEventListener('click', toggleAgent);
-    root.querySelector('.architecture-composer').addEventListener('submit', (event) => { event.preventDefault(); void submitPrompt().catch(showError); }); sendButton.addEventListener('click', (event) => { if (chatState.status !== 'working') return; event.preventDefault(); void stop().catch(showError); }); credentialPanel.querySelector('form').addEventListener('submit', (event) => { void saveCredential(event).catch(showError); }); retryButton.addEventListener('click', () => { if (lastPrompt) void submitPrompt(lastPrompt).catch(showError); }); root.querySelector('.architecture-reset').addEventListener('click', () => { void reset().catch(showError); }); promptInput.addEventListener('input', renderTranscript);
     promptInput.value = prompt;
     updateViewHeader(activeView); setAgentVisible(agentVisible); renderTranscript();
   }

@@ -12,6 +12,8 @@
   "scripts": {
     "test": "bun test",
     "build:architecture": "bun build src/packages/architecture/architecture-source.js --outfile src/packages/architecture/architecture.js --target browser --format esm --minify",
+    "build:backlog": "bun build src/packages/backlog/backlog-source.js --outfile src/packages/backlog/backlog.js --target browser --format esm --minify",
+    "build:browser": "bun run build:backlog && bun run build:architecture",
     "resonate": "resonate"
   },
   "dependencies": {

@@ -32,14 +32,19 @@ test('validates the typed model and rejects unstable or malformed entities', () 
 test('mounts the packaged Architecture skills at the agent skill path', async () => {
   const likec4Skill = await readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8');
   const structuralViewSkill = await readFile(new URL('./skills/code-structural-view/SKILL.md', import.meta.url), 'utf8');
+  const explainSkill = await readFile(new URL('./skills/explain/SKILL.md', import.meta.url), 'utf8');
   assert.match(likec4Skill, /^---\nname: likec4-dsl\n/);
   assert.match(structuralViewSkill, /^---\nname: code-structural-view\n/);
   assert.match(structuralViewSkill, /functionName = code "functionName\(\)"/);
   assert.doesNotMatch(structuralViewSkill, /\nfunction functionName \{/);
-  const backend = createPackagedSkillBackend({ 'likec4-dsl': likec4Skill, 'code-structural-view': structuralViewSkill });
-  assert.deepEqual(backend.ls('/skills'), { files: [{ path: '/skills/code-structural-view/', is_dir: true }, { path: '/skills/likec4-dsl/', is_dir: true }] });
+  assert.match(explainSkill, /^---\nname: explain\n/);
+  assert.match(explainSkill, /read_model.*read_view/s);
+  assert.match(explainSkill, /Modeled intent/);
+  const backend = createPackagedSkillBackend({ 'likec4-dsl': likec4Skill, 'code-structural-view': structuralViewSkill, explain: explainSkill });
+  assert.deepEqual(backend.ls('/skills'), { files: [{ path: '/skills/code-structural-view/', is_dir: true }, { path: '/skills/explain/', is_dir: true }, { path: '/skills/likec4-dsl/', is_dir: true }] });
   assert.deepEqual(backend.ls('/skills/code-structural-view'), { files: [{ path: '/skills/code-structural-view/SKILL.md', is_dir: false }] });
   assert.deepEqual(backend.read('/skills/code-structural-view/SKILL.md'), { content: structuralViewSkill, mimeType: 'text/markdown' });
+  assert.deepEqual(backend.read('/skills/explain/SKILL.md'), { content: explainSkill, mimeType: 'text/markdown' });
   assert.deepEqual(backend.read('/skills/likec4-dsl/SKILL.md'), { content: likec4Skill, mimeType: 'text/markdown' });
   assert.match(String(backend.read('/skills/c4-architecture/SKILL.md').error), /Permission denied/);
 });
@@ -81,9 +86,15 @@ test('gives the Architecture agent architecture and Markdown write access withou
 
 test('expands the architecture surface when the agent is hidden and aligns panel headers', async () => {
   const css = await readFile(new URL('./architecture.css', import.meta.url), 'utf8');
+  const sharedCss = await readFile(new URL('../../ui/ui.css', import.meta.url), 'utf8');
   assert.match(css, /\.architecture-workspace\.architecture-agent-hidden \{[^}]*grid-template-columns: minmax\(180px, 220px\) minmax\(0, 1fr\);/s);
-  assert.match(css, /\.architecture-header \{[^}]*min-height: 77px;/s);
-  assert.match(css, /\.architecture-agent-header \{[^}]*min-height: 77px;/s);
+  assert.match(css, /\.architecture-header \{[^}]*padding: 28px 52px 20px;/s);
+  assert.doesNotMatch(css, /\.architecture-header \{[^}]*min-height:/s);
+  assert.match(css, /\.architecture-header-actions \{[^}]*position: absolute;[^}]*top: 50%;[^}]*right: 52px;/s);
+  assert.match(sharedCss, /\.resonance-agent-header \{[^}]*padding: 28px 20px 20px;/s);
+  assert.match(sharedCss, /\.resonance-agent-panel \{[^}]*height: 100%;[^}]*min-height: 0;/s);
+  assert.match(sharedCss, /\.resonance-agent-transcript \{[^}]*flex: 1 1 auto;[^}]*min-height: 0;/s);
+  assert.doesNotMatch(css, /\.architecture-agent button \{/);
   assert.match(css, /\.architecture-validation-toolbar \{[^}]*justify-content: flex-start;/s);
   assert.match(css, /\.architecture-validation-view \.architecture-validation-button \{[^}]*background: var\(--accent/s);
   assert.doesNotMatch(css, /\.architecture-validation-view > header \{/);

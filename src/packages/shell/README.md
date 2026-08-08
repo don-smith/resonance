@@ -5,6 +5,7 @@ The Shell package owns the application frame. It provides the stable page docume
 ## Responsibilities
 
 - Render the shared sidebar and navigation controls.
+- Present the viewed repository's name, optional version, and tagline from the host manifest.
 - Create one private DOM mount for each browser package that provides a workspace.
 - Activate and deactivate package instances without owning their internal state.
 - Serve the Shell entrypoint and shared stylesheet.
@@ -25,9 +26,17 @@ Configure Shell as an entry in the repository manifest’s `packages` object:
 
 - `module` is required at load time and must be a non-empty path relative to the Resonance application root.
 - `enabled` is an optional common package flag, but Shell cannot be disabled because it owns `/` and the browser bootstrap.
-- Shell has no package-specific configuration fields; other package inputs are ignored.
+- Shell has no package-specific configuration fields; other package inputs are ignored. Repository presentation metadata is configured at the manifest root, not as Shell input:
 
-The configured module must load successfully and default-export the Shell package. Shell provides the application frame and does not use repository files or configuration values to discover, render, or select content.
+```json
+{
+  "version": 1,
+  "repository": { "name": "my-project", "tagline": "A short description." },
+  "packages": { "shell": { "module": "src/packages/shell/index.ts" } }
+}
+```
+
+The configured module must load successfully and default-export the Shell package. Shell provides the application frame; it does not discover Markdown, render repository content, or select a Home source.
 
 ## Files
 

@@ -9,10 +9,30 @@ function loadStylesheet(documentRoot, packageId, stylesheet) {
   documentRoot.head.append(link);
 }
 
+function renderRepositoryMetadata(documentRoot, manifest) {
+  const repository = manifest.repository || {};
+  const runtime = manifest.runtime || {};
+  const name = documentRoot.querySelector('[data-shell-repository-name]');
+  const version = documentRoot.querySelector('[data-shell-repository-version]');
+  const tagline = documentRoot.querySelector('[data-shell-repository-tagline]');
+  const runtimeVersion = documentRoot.querySelector('[data-shell-runtime-version]');
+  if (name && repository.name) name.textContent = repository.name;
+  if (version) {
+    version.textContent = repository.version ? `v${repository.version}` : '';
+    version.hidden = !repository.version;
+  }
+  if (tagline) {
+    tagline.textContent = repository.tagline || '';
+    tagline.hidden = !repository.tagline;
+  }
+  if (runtimeVersion && runtime.version) runtimeVersion.textContent = runtime.version;
+}
+
 export async function startApplication({ documentRoot = document, fetchFn = fetch, eventSourceFactory = (url) => new EventSource(url) } = {}) {
   const response = await fetchFn('/api/manifest');
   if (!response.ok) throw new Error('Package manifest could not be loaded.');
   const manifest = await response.json();
+  renderRepositoryMetadata(documentRoot, manifest);
   const navigation = documentRoot.querySelector('#primary-navigation');
   const mount = documentRoot.querySelector('#package-mount');
   if (!navigation || !mount) throw new Error('Shell mount is missing.');

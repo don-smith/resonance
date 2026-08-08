@@ -19,7 +19,7 @@
 .tree-file:hover { color: var(--ink); }
 .tree-file.active { border-left-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
 .document-pane { min-width: 0; height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.document-header { display: flex; align-items: center; gap: 14px; max-width: 900px; margin: 0 auto; padding: 28px 52px 20px; border-bottom: 1px solid var(--line); font: 11px var(--mono); }
+.document-header { display: flex; align-items: center; gap: 14px; margin: 0; padding: 28px 52px 20px; border-bottom: 1px solid var(--line); font: 11px var(--mono); }
 .section-label { color: var(--accent); letter-spacing: .08em; }
 .header-rule { width: 28px; height: 1px; background: var(--line); }
 .document-path { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

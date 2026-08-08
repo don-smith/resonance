@@ -8,6 +8,11 @@ const retiredTerm = new RegExp(['cock', 'pit'].join(''), 'i');
 test('the Shell document contains only fixed Shell browser wiring', async () => {
   const html = await readFile(new URL('index.html', shellRoot), 'utf8');
   assert.match(html, /id="primary-navigation"/);
+  assert.match(html, /aria-label="Workspaces"/);
+  assert.match(html, /<p class="eyebrow">RESONANCE<\/p>/);
+  assert.doesNotMatch(html, /RESONANCE \/ WORKSPACE/);
+  assert.doesNotMatch(html, /WORKSPACE 0\.1/);
+  assert.match(html, /<span>v<span data-shell-runtime-version><\/span><\/span>/);
   assert.match(html, /id="package-mount"/);
   assert.match(html, /assets\/shell\/shell\.css/);
   assert.match(html, /assets\/app\.js/);
@@ -18,6 +23,10 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
 
 test('the Shell keeps primary navigation fixed while the package area scrolls', async () => {
   const css = await readFile(new URL('./shell/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.repository-version \{[^}]*color: #f2eee7;/);
+  assert.match(css, /\.nav-section-label \{[^}]*font: 600 11px/);
+  assert.match(css, /\.primary-footer \{[^}]*justify-content: flex-start;/);
+  assert.doesNotMatch(css, /\.primary-footer \{[^}]*border-top:/);
   assert.match(css, /\.app-shell \{[^}]*height: 100vh;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.primary-sidebar \{[^}]*height: 100vh;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.package-mount-region \{[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
@@ -34,6 +43,8 @@ test('the Docs keeps its tree fixed while both panes scroll when needed', async 
   assert.match(css, /\.document-tree \{[^}]*min-height: 0;[^}]*flex: 1;[^}]*overflow-y: auto;[^}]*scrollbar-width: thin;[^}]*scrollbar-color: var\(--line\) transparent;/s);
   assert.match(css, /\.document-tree::-webkit-scrollbar \{[^}]*width: 4px;/s);
   assert.match(css, /\.document-tree::-webkit-scrollbar-thumb \{[^}]*background: var\(--line\);/s);
+  assert.match(css, /\.document-header \{[^}]*margin: 0;[^}]*padding: 28px 52px 20px;[^}]*border-bottom: 1px solid var\(--line\);/s);
+  assert.doesNotMatch(css, /\.document-header \{[^}]*max-width:/s);
   assert.match(css, /\.document-pane \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow-y: auto;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.docs-layout \{[^}]*height: auto;[^}]*overflow: visible;/s);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.document-sidebar \{[^}]*height: auto;[^}]*overflow: visible;/s);

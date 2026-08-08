@@ -11,7 +11,9 @@ export function createShell({ documentRoot = document, navigation, mount }) {
     const renderSection = (label, section) => {
       if (!section.length) return;
       const heading = documentRoot.createElement('p');
-      heading.className = 'nav-section-label'; heading.dataset.packageSection = label.toLowerCase(); heading.textContent = label;
+      heading.className = 'nav-section-label';
+      if (label === 'Personal Workspaces' && team.length) heading.classList.add('nav-section-spaced');
+      heading.dataset.packageSection = label.toLowerCase(); heading.textContent = label;
       navigation.append(heading);
       section.forEach((item) => {
         const button = documentRoot.createElement('button');
@@ -20,7 +22,7 @@ export function createShell({ documentRoot = document, navigation, mount }) {
         button.lastElementChild.textContent = item.label; navigation.append(button);
       });
     };
-    renderSection('Team', team); renderSection('Personal', personal);
+    renderSection('Team Workspaces', team); renderSection('Personal Workspaces', personal);
   }
 
   function setActive(id) {

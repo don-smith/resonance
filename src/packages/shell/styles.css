@@ -23,15 +23,16 @@ button { font: inherit; }
 .brand-block { margin-bottom: 52px; }
 .eyebrow { margin: 0 0 14px; color: var(--accent); font: 600 10px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .primary-sidebar h1 { margin: 0; font: 400 clamp(32px, 4vw, 52px)/.95 var(--display); letter-spacing: -.04em; }
+.repository-version { margin: 12px 0 0; color: #f2eee7; font: 10px var(--mono); letter-spacing: .08em; }
 .sidebar-note { max-width: 190px; margin: 16px 0 0; color: var(--sidebar-muted); font: 13px/1.55 var(--mono); }
 .primary-navigation { flex: 1; }
-.nav-label { margin: 0 0 12px; color: var(--faint); font: 10px var(--mono); letter-spacing: .1em; }
+.nav-section-label { margin: 0 0 12px; color: var(--faint); font: 600 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+.nav-section-spaced { margin-top: 32px; }
 .primary-nav-item { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; width: 100%; gap: 6px; padding: 11px 8px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--sidebar-muted); cursor: pointer; text-align: left; font: 13px var(--mono); }
 .primary-nav-item:hover { color: white; }
 .primary-nav-item.active { border-left-color: var(--accent); background: #2b2e30; color: white; }
 .nav-index { color: var(--accent); font-size: 10px; }
-.primary-footer { display: flex; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--sidebar-line); color: var(--sidebar-muted); font: 10px var(--mono); letter-spacing: .08em; }
-.primary-footer span:first-child { color: var(--accent); }
+.primary-footer { display: flex; justify-content: flex-start; color: var(--accent); font: 10px var(--mono); letter-spacing: .08em; }
 .package-mount-region { min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .package-mount { width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .shell-error { padding: 24px; color: #a94325; font: 12px/1.5 var(--mono); }
@@ -44,7 +45,6 @@ button { font: inherit; }
   .brand-block { margin-bottom: 24px; }
   .sidebar-note { display: none; }
   .primary-navigation { display: flex; gap: 8px; }
-  .nav-label { display: none; }
   .primary-nav-item { width: auto; min-width: 110px; }
   .primary-footer { display: none; }
 }

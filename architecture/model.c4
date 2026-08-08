@@ -231,7 +231,11 @@ model {
   resonancePackages -> llmProvider "Configured packages make LLM calls through"
 
   resonanceRuntime.server -> resonanceRuntime.host "Dispatches requests through"
+  resonanceRuntime.server -> resonanceRuntime.member "Loads member configuration via"
   resonanceRuntime.member -> resonanceRuntime.host "Supplies member package manifests to"
+
+  resonanceRuntime.member -> targetRepository "Reads member configuration from"
+  resonanceRuntime.content -> targetRepository "Reads Markdown sources from"
 
   resonancePackages.shell -> resonanceRuntime.host "Registers through"
   resonancePackages.home -> resonanceRuntime.host "Registers through"

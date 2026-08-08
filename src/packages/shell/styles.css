@@ -23,6 +23,11 @@ button { font: inherit; }
 .brand-block { margin-bottom: 52px; }
 .eyebrow { margin: 0 0 14px; color: var(--accent); font: 600 10px/1.3 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .primary-sidebar h1 { margin: 0; font: 400 clamp(32px, 4vw, 52px)/.95 var(--display); letter-spacing: -.04em; }
+.repository-title { appearance: none; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; -webkit-text-fill-color: currentColor; font: inherit; letter-spacing: inherit; line-height: inherit; text-align: left; }
+.repository-title:disabled { opacity: 1; }
+.repository-title:not(:disabled) { cursor: pointer; }
+.repository-title:not(:disabled):hover { color: white; }
+.repository-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .repository-version { margin: 12px 0 0; color: #f2eee7; font: 10px var(--mono); letter-spacing: .08em; }
 .sidebar-note { max-width: 190px; margin: 16px 0 0; color: var(--sidebar-muted); font: 13px/1.55 var(--mono); }
 .primary-navigation { flex: 1; }

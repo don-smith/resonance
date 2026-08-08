@@ -1,7 +1,8 @@
-export function createShell({ documentRoot = document, navigation, mount }) {
+export function createShell({ documentRoot = document, navigation, mount, home }) {
   const roots = new Map();
   const packages = new Map();
   let activeId = null;
+  let homeId = null;
 
   function renderNavigation(items) {
     navigation.querySelectorAll('[data-package], [data-package-section]').forEach((element) => element.remove());
@@ -32,6 +33,11 @@ export function createShell({ documentRoot = document, navigation, mount }) {
       if (active) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     });
+    if (home) {
+      const active = Boolean(homeId && id === homeId);
+      if (active) home.setAttribute('aria-current', 'page');
+      else home.removeAttribute('aria-current');
+    }
     roots.forEach((root, packageId) => { root.hidden = packageId !== id; });
   }
 
@@ -87,8 +93,22 @@ export function createShell({ documentRoot = document, navigation, mount }) {
     }
   });
 
+  home?.addEventListener('click', async () => {
+    if (!homeId) return;
+    try {
+      await activate(homeId);
+    } catch (error) {
+      const root = roots.get(homeId);
+      if (root) showError(root, error);
+    }
+  });
+
   return {
     renderNavigation,
+    setHomePackage(id) {
+      homeId = id;
+      if (home) home.disabled = !id;
+    },
     registerPackage(id, instance) { packages.set(id, instance); },
     createMount(id) {
       const root = documentRoot.createElement('section');

@@ -10,6 +10,8 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
   assert.match(html, /id="primary-navigation"/);
   assert.match(html, /aria-label="Workspaces"/);
   assert.match(html, /<p class="eyebrow">RESONANCE<\/p>/);
+  assert.match(html, /<button class="repository-title" type="button" data-shell-repository-name data-shell-home disabled>resonance<\/button>/);
+  assert.doesNotMatch(html, /<button class="repository-home"/);
   assert.doesNotMatch(html, /RESONANCE \/ WORKSPACE/);
   assert.doesNotMatch(html, /WORKSPACE 0\.1/);
   assert.match(html, /<span>v<span data-shell-runtime-version><\/span><\/span>/);
@@ -24,6 +26,9 @@ test('the Shell document contains only fixed Shell browser wiring', async () => 
 test('the Shell keeps primary navigation fixed while the package area scrolls', async () => {
   const css = await readFile(new URL('./shell/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.repository-version \{[^}]*color: #f2eee7;/);
+  assert.doesNotMatch(css, /\.repository-title \{[^}]*all: unset;/);
+  assert.match(css, /\.repository-title \{[^}]*appearance: none;[^}]*margin: 0;[^}]*padding: 0;[^}]*border: 0;[^}]*background: transparent;[^}]*font: inherit;[^}]*line-height: inherit;/s);
+  assert.match(css, /\.repository-title:not\(:disabled\) \{[^}]*cursor: pointer;/);
   assert.match(css, /\.nav-section-label \{[^}]*font: 600 11px/);
   assert.match(css, /\.primary-footer \{[^}]*justify-content: flex-start;/);
   assert.doesNotMatch(css, /\.primary-footer \{[^}]*border-top:/);
@@ -40,6 +45,8 @@ test('the Docs keeps its tree fixed while both panes scroll when needed', async 
   const css = await readFile(new URL('./docs/docs.css', import.meta.url), 'utf8');
   assert.match(css, /\.docs-layout \{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;/s);
   assert.match(css, /\.document-sidebar \{[^}]*display: flex;[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow: hidden;[^}]*padding: 32px 10px 20px 20px;/s);
+  assert.match(css, /\.document-sidebar h2 \{[^}]*font: 400 28px\/1 var\(--display\);/s);
+  assert.doesNotMatch(css, /\.document-sidebar \.eyebrow \{/);
   assert.match(css, /\.document-tree \{[^}]*min-height: 0;[^}]*flex: 1;[^}]*overflow-y: auto;[^}]*scrollbar-width: thin;[^}]*scrollbar-color: var\(--line\) transparent;/s);
   assert.match(css, /\.document-tree::-webkit-scrollbar \{[^}]*width: 4px;/s);
   assert.match(css, /\.document-tree::-webkit-scrollbar-thumb \{[^}]*background: var\(--line\);/s);

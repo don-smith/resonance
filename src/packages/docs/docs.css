@@ -1,8 +1,7 @@
 .docs-layout { display: grid; grid-template-columns: minmax(230px, 280px) 1fr; height: 100%; min-height: 0; overflow: hidden; }
 .document-sidebar { display: flex; flex-direction: column; min-width: 0; height: 100%; min-height: 0; overflow: hidden; padding: 32px 10px 20px 20px; border-right: 1px solid var(--line); background: var(--paper-deep); }
 .document-sidebar-head { margin-bottom: 30px; }
-.document-sidebar .eyebrow { margin-bottom: 12px; }
-.document-sidebar h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 25px/1 var(--display); letter-spacing: -.03em; }
+.document-sidebar h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 28px/1 var(--display); letter-spacing: -.03em; }
 .document-count { margin: 10px 0 0; color: var(--muted); font: 10px/1.5 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 .document-tree { min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
 .document-tree::-webkit-scrollbar { width: 4px; }

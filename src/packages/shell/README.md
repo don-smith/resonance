@@ -4,8 +4,9 @@ The Shell package owns the application frame. It provides the stable page docume
 
 ## Responsibilities
 
-- Render the shared sidebar and navigation controls.
+- Render the shared sidebar and workspace navigation controls.
 - Present the viewed repository's name, optional version, and tagline from the host manifest.
+- Activate Home from the repository title when the Home package is installed, while keeping Home out of workspace navigation.
 - Create one private DOM mount for each browser package that provides a workspace.
 - Activate and deactivate package instances without owning their internal state.
 - Serve the Shell entrypoint and shared stylesheet.

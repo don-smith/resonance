@@ -1,6 +1,6 @@
 # Home package
 
-The Home package provides the repository landing workspace. It reads the configured source from `.resonance/config.json`, returns its original content and browser-ready HTML, and mounts that content inside a private Home surface.
+The Home package provides the repository landing page. It reads the configured source from `.resonance/config.json`, returns its original content and browser-ready HTML, and mounts that content inside a private Home surface. Shell opens this surface from the repository title rather than listing it as a workspace.
 
 ## Responsibilities
 
@@ -10,6 +10,7 @@ The Home package provides the repository landing workspace. It reads the configu
 - Render Markdown with the safe shared Markdown renderer.
 - Insert repository-owned HTML sources unchanged so a repository can provide a distinct landing page with scoped styles.
 - Serve `/api/home` and the Home browser assets.
+- Contribute no workspace navigation item; Shell makes its repository title clickable when Home loads successfully.
 
 ## Configuration
 
@@ -31,7 +32,7 @@ Configure Home as an entry in the repository manifest’s `packages` object:
 - `enabled` is an optional common package flag; `false` omits Home from the host.
 - `source` is optional and defaults to `README.md`. It must be a non-empty relative path ending in `.md`, `.markdown`, `.html`, or `.htm`; the host only reads files contained in the repository root.
 
-Home reads the configured source through the host repository-containment boundary. Markdown is safely rendered to HTML; HTML is trusted repository-owned markup and is inserted unchanged. Omit Home from `packages`, or set `enabled` to `false`, when the landing-page surface is not needed.
+Home reads the configured source through the host repository-containment boundary. Markdown is safely rendered to HTML; HTML is trusted repository-owned markup and is inserted unchanged. Omit Home from `packages`, or set `enabled` to `false`, when the landing-page surface is not needed. Without Home, Shell renders the repository title as a non-clickable control.
 
 ## Ownership boundary
 

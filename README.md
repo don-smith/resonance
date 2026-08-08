@@ -6,11 +6,11 @@ The repository defines the team’s shared understanding; each developer extends
 
 Resonance is composed from package folders under `src/packages/<package-id>`:
 
-- **Shell** owns navigation, workspace mounts, the fixed browser bootstrap, and shared layout.
-- **Home** renders the configured repository landing source (`README.md` by default, or repository-owned Markdown/HTML).
+- **Shell** owns navigation, workspace mounts, the fixed browser bootstrap, shared layout, and repository-title access to Home.
+- **Home** renders the configured repository landing source (`README.md` by default, or repository-owned Markdown/HTML) without adding a workspace navigation item.
 - **Docs** owns Markdown discovery, tree navigation, and document rendering.
 
-A **package** is Resonance's general extensibility and implementation unit. A **workspace** is a user-visible surface mounted and navigated by Shell. Home, Docs, and Backlog are packages that provide workspaces; Shell is infrastructure and is not a workspace. Member packages are external packages selected per developer. Package terminology remains authoritative for source folders, manifest entries, package IDs, routes, assets, contracts, and the authoring CLI.
+A **package** is Resonance's general extensibility and implementation unit. A **workspace** is a user-visible surface listed in workspace navigation and mounted by Shell. Docs, Architecture, and Backlog provide workspaces; Home is the repository landing page opened from the repository title, and Shell is infrastructure. Member packages are external packages selected per developer. Package terminology remains authoritative for source folders, manifest entries, package IDs, routes, assets, contracts, and the authoring CLI.
 
 ## Try it
 

@@ -49,7 +49,7 @@ function register(_context: HostContext, input: PackageInput): PackageRegistrati
       { path: '/assets/home/home.js', file: 'src/packages/home/home.js', contentType: 'text/javascript; charset=utf-8' },
       { path: '/assets/home/home.css', file: 'src/packages/home/home.css', contentType: 'text/css; charset=utf-8' },
     ],
-    navigation: [{ id: 'home', label: 'Home', order: metadata.order }],
+    navigation: [],
     browser: { id: 'home', entry: '/assets/home/home.js', stylesheet: '/assets/home/home.css' },
   };
 }

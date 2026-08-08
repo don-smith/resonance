@@ -58,7 +58,6 @@ export default function createDocsPackage({ fetchFn = fetch } = {}) {
   let selectedPath = null;
   let treeElement;
   let contentElement;
-  let projectNameElement;
   let countElement;
   let pathElement;
   let collapsedFolders = new Set();
@@ -90,7 +89,6 @@ export default function createDocsPackage({ fetchFn = fetch } = {}) {
     const response = await fetchFn('/api/docs/tree');
     if (!response.ok) throw new Error('Repository tree could not be loaded.');
     repository = await response.json();
-    projectNameElement.textContent = repository.rootName;
     countElement.textContent = repository.documents.length;
     collapsedFoldersStorage = getStorage();
     collapsedFoldersStorageKey = `${COLLAPSED_FOLDERS_STORAGE_PREFIX}${encodeURIComponent(repository.rootName)}`;
@@ -122,10 +120,9 @@ export default function createDocsPackage({ fetchFn = fetch } = {}) {
   return {
     mount(mountRoot) {
       root = mountRoot;
-      root.innerHTML = `<div class="docs-layout"><aside class="document-sidebar"><div class="document-sidebar-head"><p class="eyebrow">DOCS / MARKDOWN</p><h2 class="project-name">Repository</h2><p class="document-count"><span class="count">—</span> documents</p></div><nav class="document-tree" aria-label="Markdown document tree"><p class="docs-loading">Loading repository…</p></nav></aside><article class="document-pane"><header class="document-header"><span class="section-label">DOCS</span><span class="header-rule" aria-hidden="true"></span><span class="document-path">docs</span></header><div class="document-content" aria-live="polite"><p class="docs-loading">Loading repository…</p></div></article></div>`;
+      root.innerHTML = `<div class="docs-layout"><aside class="document-sidebar"><div class="document-sidebar-head"><p class="eyebrow">WORKSPACE</p><h2>Docs</h2><p class="document-count"><span class="count">—</span> documents</p></div><nav class="document-tree" aria-label="Markdown document tree"><p class="docs-loading">Loading repository…</p></nav></aside><article class="document-pane"><header class="document-header"><span class="section-label">DOCS</span><span class="header-rule" aria-hidden="true"></span><span class="document-path">docs</span></header><div class="document-content" aria-live="polite"><p class="docs-loading">Loading repository…</p></div></article></div>`;
       treeElement = root.querySelector('.document-tree');
       contentElement = root.querySelector('.document-content');
-      projectNameElement = root.querySelector('.project-name');
       countElement = root.querySelector('.count');
       pathElement = root.querySelector('.document-path');
       contentElement.addEventListener('click', async (event) => {

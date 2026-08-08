@@ -21,15 +21,48 @@ async function loadCoordinator(window, document) {
 }
 function cleanup() { delete globalThis.window; delete globalThis.document; delete globalThis.__RESONANCE_TEST__; }
 
-test('loads browser modules and stylesheets from the manifest', async () => {
-  const { window, document } = parseHTML('<!doctype html><head></head><body><nav id="primary-navigation"></nav><main id="package-mount"></main></body>');
+test('loads browser modules and opens Home from the repository title', async () => {
+  const { window, document } = parseHTML('<!doctype html><head></head><body><button type="button" data-shell-repository-name data-shell-home disabled>resonance</button><nav id="primary-navigation"></nav><main id="package-mount"></main></body>');
   const calls = [];
-  const fetchFn = async (url) => { calls.push(url); if (url === '/api/manifest') return response({ version: 1, navigation: [{ id: 'home', label: 'Home', order: 10 }, { id: 'docs', label: 'Docs', order: 20, scope: 'member' }], packages: [{ id: 'shell', entry: '/assets/app.js', stylesheet: '/assets/shell/shell.css' }, { id: 'home', entry: '/assets/home/home.js', stylesheet: '/assets/home/home.css' }, { id: 'docs', entry: '/assets/docs/docs.js', stylesheet: '/assets/docs/docs.css' }] }); if (url === '/api/home') return response({ html: '<h1>Fixture Home</h1>' }); if (url === '/api/docs/tree') return response({ rootName: 'fixture', documents: ['README.md'], tree: [{ type: 'file', name: 'README.md', path: 'README.md' }] }); if (url === '/api/docs/document?path=README.md') return response({ path: 'README.md', html: '<h1>README</h1>' }); throw new Error(`Unexpected request: ${url}`); };
-  try { const coordinator = await loadCoordinator(window, document); const application = await coordinator.startApplication({ documentRoot: document, fetchFn }); assert.equal(document.querySelectorAll('#primary-navigation [data-package]').length, 2); assert.deepEqual([...document.querySelectorAll('.nav-section-label')].map((element) => element.textContent), ['Team Workspaces', 'Personal Workspaces']); assert.equal(document.querySelector('[data-package-section="personal workspaces"]').classList.contains('nav-section-spaced'), true); assert.equal(document.querySelectorAll('#package-mount > [data-package]').length, 2); assert.equal(document.querySelectorAll('link[data-package-style]').length, 2); assert.match(document.querySelector('.package-home').innerHTML, /Fixture Home/); await application.activate('docs'); assert.match(document.querySelector('.package-docs .document-content').innerHTML, /README/); assert.deepEqual(calls, ['/api/manifest', '/api/home', '/api/docs/tree', '/api/docs/document?path=README.md']); } finally { cleanup(); }
+  const fetchFn = async (url) => {
+    calls.push(url);
+    if (url === '/api/manifest') return response({ version: 1, navigation: [{ id: 'docs', label: 'Docs', order: 20, scope: 'member' }], packages: [{ id: 'shell', entry: '/assets/app.js', stylesheet: '/assets/shell/shell.css' }, { id: 'home', entry: '/assets/home/home.js', stylesheet: '/assets/home/home.css' }, { id: 'docs', entry: '/assets/docs/docs.js', stylesheet: '/assets/docs/docs.css' }] });
+    if (url === '/api/home') return response({ html: '<h1>Fixture Home</h1>' });
+    if (url === '/api/docs/tree') return response({ rootName: 'fixture', documents: ['README.md'], tree: [{ type: 'file', name: 'README.md', path: 'README.md' }] });
+    if (url === '/api/docs/document?path=README.md') return response({ path: 'README.md', html: '<h1>README</h1>' });
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const coordinator = await loadCoordinator(window, document);
+    const application = await coordinator.startApplication({ documentRoot: document, fetchFn });
+    const home = document.querySelector('[data-shell-home]');
+    assert.equal(home.disabled, false);
+    assert.equal(home.getAttribute('aria-current'), 'page');
+    assert.equal(home.classList.contains('active'), false);
+    assert.equal(document.querySelectorAll('#primary-navigation [data-package]').length, 1);
+    assert.equal(document.querySelector('#primary-navigation [data-package]').dataset.package, 'docs');
+    assert.equal(document.querySelector('.nav-index').textContent, '01');
+    assert.deepEqual([...document.querySelectorAll('.nav-section-label')].map((element) => element.textContent), ['Personal Workspaces']);
+    assert.equal(document.querySelectorAll('#package-mount > [data-package]').length, 2);
+    assert.equal(document.querySelectorAll('link[data-package-style]').length, 2);
+    assert.match(document.querySelector('.package-home').innerHTML, /Fixture Home/);
+
+    await application.activate('docs');
+    assert.equal(home.hasAttribute('aria-current'), false);
+    assert.equal(document.querySelector('.package-docs .document-sidebar .eyebrow').textContent, 'WORKSPACE');
+    assert.equal(document.querySelector('.package-docs .document-sidebar h2').textContent, 'Docs');
+    assert.match(document.querySelector('.package-docs .document-content').innerHTML, /README/);
+
+    home.dispatchEvent(new window.Event('click', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(home.getAttribute('aria-current'), 'page');
+    assert.equal(document.querySelector('.package-home').hidden, false);
+    assert.deepEqual(calls, ['/api/manifest', '/api/home', '/api/docs/tree', '/api/docs/document?path=README.md', '/api/home']);
+  } finally { cleanup(); }
 });
 
 test('renders repository and runtime metadata in the Shell frame', async () => {
-  const { window, document } = parseHTML('<!doctype html><head></head><body><aside><p class="eyebrow">RESONANCE</p><h1 data-shell-repository-name>resonance</h1><p data-shell-repository-tagline hidden></p><p data-shell-repository-version hidden></p><nav id="primary-navigation"></nav><div class="primary-footer"><span>v<span data-shell-runtime-version>0.1.0</span></span></div></aside><main id="package-mount"></main></body>');
+  const { window, document } = parseHTML('<!doctype html><head></head><body><aside><p class="eyebrow">RESONANCE</p><h1><button type="button" data-shell-repository-name data-shell-home disabled>resonance</button></h1><p data-shell-repository-tagline hidden></p><p data-shell-repository-version hidden></p><nav id="primary-navigation"></nav><div class="primary-footer"><span>v<span data-shell-runtime-version>0.1.0</span></span></div></aside><main id="package-mount"></main></body>');
   const fetchFn = async (url) => {
     if (url === '/api/manifest') return response({ version: 1, repository: { name: 'fixture-app', version: '2.4.0', tagline: 'A fixture application.' }, runtime: { version: '0.1.0' }, navigation: [], packages: [{ id: 'shell', entry: '/assets/app.js', stylesheet: '/assets/shell/shell.css' }] });
     throw new Error(`Unexpected request: ${url}`);
@@ -38,6 +71,7 @@ test('renders repository and runtime metadata in the Shell frame', async () => {
     const coordinator = await loadCoordinator(window, document);
     await coordinator.startApplication({ documentRoot: document, fetchFn });
     assert.equal(document.querySelector('[data-shell-repository-name]').textContent, 'fixture-app');
+    assert.equal(document.querySelector('[data-shell-home]').disabled, true);
     assert.equal(document.querySelector('[data-shell-repository-version]').textContent, 'v2.4.0');
     assert.equal(document.querySelector('[data-shell-repository-tagline]').textContent, 'A fixture application.');
     assert.equal(document.querySelector('[data-shell-runtime-version]').textContent, '0.1.0');
@@ -122,6 +156,6 @@ test('leaves external, fragment, and unsupported Markdown links to the browser',
 test('keeps a failed package activation local to that package', async () => {
   const { window, document } = parseHTML('<!doctype html><head></head><body><nav id="primary-navigation"></nav><main id="package-mount"></main></body>');
   let homeCalls = 0;
-  const fetchFn = async (url) => { if (url === '/api/manifest') return response({ version: 1, navigation: [{ id: 'home', label: 'Home', order: 10 }, { id: 'docs', label: 'Docs', order: 20 }], packages: [{ id: 'shell', entry: '/assets/app.js', stylesheet: '/assets/shell/shell.css' }, { id: 'home', entry: '/assets/home/home.js', stylesheet: '/assets/home/home.css' }, { id: 'docs', entry: '/assets/docs/docs.js', stylesheet: '/assets/docs/docs.css' }] }); if (url === '/api/home') return homeCalls++ === 0 ? response({ html: '<h1>Home</h1>' }) : response({ error: 'missing' }, 404); if (url === '/api/docs/tree') return response({ rootName: 'fixture', documents: [], tree: [] }); throw new Error(`Unexpected request: ${url}`); };
+  const fetchFn = async (url) => { if (url === '/api/manifest') return response({ version: 1, navigation: [{ id: 'docs', label: 'Docs', order: 20 }], packages: [{ id: 'shell', entry: '/assets/app.js', stylesheet: '/assets/shell/shell.css' }, { id: 'home', entry: '/assets/home/home.js', stylesheet: '/assets/home/home.css' }, { id: 'docs', entry: '/assets/docs/docs.js', stylesheet: '/assets/docs/docs.css' }] }); if (url === '/api/home') return homeCalls++ === 0 ? response({ html: '<h1>Home</h1>' }) : response({ error: 'missing' }, 404); if (url === '/api/docs/tree') return response({ rootName: 'fixture', documents: [], tree: [] }); throw new Error(`Unexpected request: ${url}`); };
   try { const coordinator = await loadCoordinator(window, document); const application = await coordinator.startApplication({ documentRoot: document, fetchFn }); await assert.rejects(() => application.activate('home'), /Home source could not be loaded/); await application.activate('docs'); assert.match(document.querySelector('.package-docs .document-content').textContent, /no Markdown documents/); } finally { cleanup(); }
 });

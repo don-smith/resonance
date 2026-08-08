@@ -35,9 +35,10 @@ export async function startApplication({ documentRoot = document, fetchFn = fetc
   renderRepositoryMetadata(documentRoot, manifest);
   const navigation = documentRoot.querySelector('#primary-navigation');
   const mount = documentRoot.querySelector('#package-mount');
+  const home = documentRoot.querySelector('[data-shell-home]');
   if (!navigation || !mount) throw new Error('Shell mount is missing.');
 
-  const shell = createShell({ documentRoot, navigation, mount });
+  const shell = createShell({ documentRoot, navigation, mount, home });
   for (const diagnostic of manifest.diagnostics || []) {
     const notice = documentRoot.createElement('p');
     notice.className = 'shell-diagnostic'; notice.dataset.packageDiagnostic = diagnostic.id;
@@ -61,10 +62,13 @@ export async function startApplication({ documentRoot = document, fetchFn = fetc
       console.warn(`Skipping browser package ${packageInfo.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  shell.renderNavigation(manifest.navigation.filter((item) => packages.has(item.id)));
-  const first = manifest.navigation.find((item) => packages.has(item.id));
-  if (first) {
-    try { await shell.activate(first.id); }
+  const homeId = packages.has('home') ? 'home' : null;
+  shell.setHomePackage(homeId);
+  const workspaceNavigation = manifest.navigation.filter((item) => item.id !== homeId && packages.has(item.id));
+  shell.renderNavigation(workspaceNavigation);
+  const initialId = homeId || workspaceNavigation[0]?.id;
+  if (initialId) {
+    try { await shell.activate(initialId); }
     catch { /* keep Shell usable when a package activation fails */ }
   }
   return { manifest, packages, activate: shell.activate };

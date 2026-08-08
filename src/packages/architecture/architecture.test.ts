@@ -29,13 +29,13 @@ test('validates the typed model and rejects unstable or malformed entities', () 
   assert.throws(() => architectureInput({ artifactRoot: 'architecture' }));
 });
 
-test('mounts the renamed C4 codebase architecture skill at the agent skill path', async () => {
-  const skill = await readFile(new URL('./skills/c4-codebase-architecture-skill/SKILL.md', import.meta.url), 'utf8');
-  assert.match(skill, /^---\nname: c4-codebase-architecture-skill\n/);
+test('mounts the LikeC4 DSL skill at the agent skill path', async () => {
+  const skill = await readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8');
+  assert.match(skill, /^---\nname: likec4-dsl\n/);
   const backend = createPackagedSkillBackend(skill);
-  assert.deepEqual(backend.ls('/skills'), { files: [{ path: '/skills/c4-codebase-architecture-skill/', is_dir: true }] });
-  assert.deepEqual(backend.ls('/skills/c4-codebase-architecture-skill'), { files: [{ path: '/skills/c4-codebase-architecture-skill/SKILL.md', is_dir: false }] });
-  assert.deepEqual(backend.read('/skills/c4-codebase-architecture-skill/SKILL.md'), { content: skill, mimeType: 'text/markdown' });
+  assert.deepEqual(backend.ls('/skills'), { files: [{ path: '/skills/likec4-dsl/', is_dir: true }] });
+  assert.deepEqual(backend.ls('/skills/likec4-dsl'), { files: [{ path: '/skills/likec4-dsl/SKILL.md', is_dir: false }] });
+  assert.deepEqual(backend.read('/skills/likec4-dsl/SKILL.md'), { content: skill, mimeType: 'text/markdown' });
   assert.match(String(backend.read('/skills/c4-architecture/SKILL.md').error), /Permission denied/);
 });
 
@@ -49,13 +49,13 @@ test('gives the Architecture agent architecture and Markdown write access withou
     await writeFile(path.join(root, 'README.md'), 'repository needle\n');
     await writeFile(path.join(root, '.hidden.ts'), 'hidden needle\n');
     await writeFile(path.join(root, 'src', 'nested', 'main.ts'), 'nested needle\n');
-    const skill = await readFile(new URL('./skills/c4-codebase-architecture-skill/SKILL.md', import.meta.url), 'utf8');
+    const skill = await readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8');
     const backend = createPackagedSkillBackend(skill, root);
     const listing = await backend.ls('/');
     assert.ok(listing.files?.some((file) => file.path === '/.hidden.ts'));
     assert.ok(listing.files?.some((file) => file.path === '/src/' && file.is_dir));
     assert.match(String((await backend.read('/src/nested/main.ts')).content), /nested needle/);
-    assert.equal((await backend.read('/skills/c4-codebase-architecture-skill/SKILL.md')).content, skill);
+    assert.equal((await backend.read('/skills/likec4-dsl/SKILL.md')).content, skill);
     assert.ok((await backend.glob('**/*.ts')).files?.some((file) => file.path === '/src/nested/main.ts'));
     assert.ok((await backend.grep('needle')).matches?.some((match) => match.path === '/README.md'));
     assert.equal((await backend.write('/architecture/model.c4', 'model content\n')).path, '/architecture/model.c4');

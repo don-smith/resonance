@@ -10,7 +10,7 @@ import type { ArchitectureAgentRuntime, ArchitectureAgentRuntimeFactory, Archite
 import { validateArchitecture } from './architecture-checkers.ts';
 import { getArchitectureModelProfile } from './architecture-model-profiles.ts';
 
-const skillPath = '/skills/c4-codebase-architecture-skill/SKILL.md';
+const skillPath = '/skills/likec4-dsl/SKILL.md';
 const denied = (requestedPath: string) => `Permission denied: ${requestedPath} is not available to the Architecture agent.`;
 const readOnlyDenied = (requestedPath: string) => `Permission denied: ${requestedPath} is read-only for the Architecture agent.`;
 const maxRepositoryFileBytes = 10 * 1024 * 1024;
@@ -269,8 +269,8 @@ export function createPackagedSkillBackend(skill: string, repositoryRoot?: strin
   const skillBackend: BackendProtocolV2 = {
     ls(requestedPath) {
       switch (directory(requestedPath)) {
-        case '/skills/': return { files: [{ path: '/skills/c4-codebase-architecture-skill/', is_dir: true }] };
-        case '/skills/c4-codebase-architecture-skill/': return { files: [{ path: skillPath, is_dir: false }] };
+        case '/skills/': return { files: [{ path: '/skills/likec4-dsl/', is_dir: true }] };
+        case '/skills/likec4-dsl/': return { files: [{ path: skillPath, is_dir: false }] };
         default: return { error: denied(requestedPath) };
       }
     },
@@ -429,7 +429,7 @@ export async function providerFetch(input: RequestInfo | URL, init: RequestInit 
 
 export function createDeepAgentsRuntimeFactory({ provider, model, artifactRoot = 'architecture' }: { provider: 'openai' | 'openrouter'; model: string; artifactRoot?: string }): ArchitectureAgentRuntimeFactory {
   return async (options) => {
-    const skill = await readFile(new URL('./skills/c4-codebase-architecture-skill/SKILL.md', import.meta.url), 'utf8');
+    const skill = await readFile(new URL('./skills/likec4-dsl/SKILL.md', import.meta.url), 'utf8');
     const runtimeTelemetry = options.telemetry.child({ provider, model });
     const chatModel = new ArchitectureChatOpenAI({ model, apiKey: options.apiKey, temperature: 0, configuration: provider === 'openrouter' ? { baseURL: 'https://openrouter.ai/api/v1', maxRetries: 5, fetch: (input, init) => providerFetch(input, init, runtimeTelemetry) } : { maxRetries: 5, fetch: (input, init) => providerFetch(input, init, runtimeTelemetry) } });
     const agent = createDeepAgent({
@@ -438,7 +438,7 @@ export function createDeepAgentsRuntimeFactory({ provider, model, artifactRoot =
       backend: createPackagedSkillBackend(skill, options.context.repositoryRoot, artifactRoot),
       skills: ['/skills/'],
       checkpointer: false,
-      systemPrompt: `You are Resonance Architecture Agent. Read /skills/c4-codebase-architecture-skill/SKILL.md before answering. The whole viewed repository is mounted at /. Use ls, read_file, glob, and grep to inspect any repository file needed for an assessment. You may use write_file and edit_file for files under /${artifactRoot} and for Markdown documents anywhere in the repository. Use those write capabilities to keep the LikeC4 model and architecture metadata current, and to correct or improve repository documentation when asked. If an Architecture tool reports a LikeC4 parse or reference error, do not stop at reporting it: inspect the relevant source under /${artifactRoot}, repair it with edit_file or write_file, and retry the Architecture tool. All other repository files are read-only. Credential files such as .env files and repository-local agent credential files are intentionally unavailable; never modify .git or credentials, and never use shell or network access. Use Architecture tools for model facts and distinguish evidence, intent, and assessment.`,
+      systemPrompt: `You are Resonance Architecture Agent. Read /skills/likec4-dsl/SKILL.md before answering. The whole viewed repository is mounted at /. Use ls, read_file, glob, and grep to inspect any repository file needed for an assessment. You may use write_file and edit_file for files under /${artifactRoot} and for Markdown documents anywhere in the repository. Use those write capabilities to keep the LikeC4 model and architecture metadata current, and to correct or improve repository documentation when asked. If an Architecture tool reports a LikeC4 parse or reference error, do not stop at reporting it: inspect the relevant source under /${artifactRoot}, repair it with edit_file or write_file, and retry the Architecture tool. All other repository files are read-only. Credential files such as .env files and repository-local agent credential files are intentionally unavailable; never modify .git or credentials, and never use shell or network access. Use Architecture tools for model facts and distinguish evidence, intent, and assessment.`,
     });
     return new DeepAgentsRuntime(agent, runtimeTelemetry, chatModel.profile.maxInputTokens);
   };

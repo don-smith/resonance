@@ -56,6 +56,12 @@ test('serves sorted contained decisions through the renamed package', async () =
       const result = await fetch(`${base}/api/backlog/items`).then((response) => response.json());
       assert.deepEqual(result.items.map((value: { title: string }) => value.title), ['Done', 'Progress', 'Ready', 'Planning']);
       assert.match((await fetch(`${base}/api/backlog/plan?path=backlog%2Fplans%2Fprogress.md`).then((response) => response.json())).html, /progress/);
+      const update = await fetch(`${base}/api/backlog/metadata`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'backlog/plans/progress.md', status: 'is-ready', priority: 'P0' }) });
+      assert.equal(update.status, 200); assert.deepEqual(await update.json(), { affectedPaths: ['backlog/todo.yaml'] });
+      const invalidUpdate = await fetch(`${base}/api/backlog/metadata`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: 'backlog/plans/progress.md', status: 'blocked' }) });
+      assert.equal(invalidUpdate.status, 400);
+      const updatedItems = await fetch(`${base}/api/backlog/items`).then((response) => response.json());
+      assert.deepEqual(updatedItems.items.find((value: { path: string }) => value.path === 'backlog/plans/progress.md'), { path: 'backlog/plans/progress.md', title: 'Progress', status: 'is-ready', priority: 'P0' });
       assert.equal((await fetch(`${base}/api/backlog/plan?path=README.md`)).status, 404);
       assert.equal((await fetch(`${base}/api/backlog/items`, { method: 'POST' })).status, 405);
     }, root);
@@ -121,6 +127,8 @@ test('keeps plan and agent header separators aligned', async () => {
   assert.match(css, /\.backlog-agent-toggle:hover \{[^}]*border-color: var\(--accent\);/s);
   assert.match(css, /\.backlog-agent-toggle svg \{[^}]*stroke: currentColor;/s);
   assert.match(css, /\.backlog-agent\[hidden\] \{[^}]*display: none !important;/s);
+  assert.match(css, /\.backlog-content \{[^}]*padding: 28px 52px 72px;/s);
+  assert.match(css, /\.backlog-metadata select \{[^}]*border: 0;[^}]*background: transparent;/s);
 });
 
 test('renders ordered Decisions and selects the first non-done plan', async () => {
@@ -136,8 +144,33 @@ test('renders ordered Decisions and selects the first non-done plan', async () =
   assert.equal(root.querySelector('.backlog-list h2').textContent, 'Decisions');
   assert.deepEqual([...root.querySelectorAll('.backlog-group h3')].map((heading) => heading.textContent), ['recently-done', 'in-progress', 'is-ready', 'in-planning']);
   assert.match(root.querySelector('.backlog-content').textContent, /Progress/);
+  assert.equal(root.querySelector('.backlog-metadata-priority').value, 'P1');
+  assert.equal(root.querySelector('.backlog-metadata-status').value, 'in-progress');
   instance.deactivate();
   assert.equal(root.hidden, true);
+});
+
+test('renders editable priority and status controls and refreshes the decision list', async () => {
+  const { document } = parseHTML('<!doctype html><body></body>');
+  const root = document.createElement('section');
+  const items: any[] = [{ title: 'Queue', path: 'backlog/plans/queue.md', status: 'in-planning', priority: 'P2' }];
+  const updates: any[] = [];
+  const instance = createBacklog({ fetchFn: async (url, options) => {
+    if (url === '/api/backlog/items') return { ok: true, async json() { return { items: items.map((item) => ({ ...item })) }; } };
+    if (url.startsWith('/api/backlog/plan')) return { ok: true, async json() { return { ...items[0], html: '<h1>Queue</h1>' }; } };
+    if (url === '/api/backlog/metadata') { const body = JSON.parse(options.body); updates.push(body); Object.assign(items[0], body); return { ok: true, async json() { return { affectedPaths: ['backlog/todo.yaml'] }; } }; }
+    throw new Error(`Unexpected request: ${url}`);
+  } });
+  instance.mount(root); await instance.activate();
+  assert.equal(root.querySelector('.backlog-metadata-priority').value, 'P2');
+  assert.equal(root.querySelector('.backlog-metadata-status').value, 'in-planning');
+  const priority = root.querySelector('.backlog-metadata-priority') as HTMLSelectElement;
+  (priority.querySelector('option[value="P0"]') as HTMLOptionElement).selected = true; priority.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(updates, [{ path: 'backlog/plans/queue.md', priority: 'P0' }]);
+  assert.equal(root.querySelector('.backlog-metadata-priority').value, 'P0');
+  assert.equal(root.querySelector('.backlog-item .backlog-priority').textContent, 'P0');
+  instance.deactivate();
 });
 
 test('retains user and agent messages across sequential transcript events', async () => {

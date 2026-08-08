@@ -12,6 +12,7 @@ function fakeStore() {
     async readDecision(requestedPath: string) { calls.push(requestedPath); if (requestedPath !== decision.path) throw new Error('Backlog item not found'); return { ...decision }; },
     async createDecision() { return { affectedPaths: ['backlog/todo.yaml'] }; },
     async editPlan() { return { affectedPaths: [decision.path] }; },
+    async updateMetadata() { return { affectedPaths: ['backlog/todo.yaml'] }; },
     async setStatus() { return { affectedPaths: ['backlog/todo.yaml'] }; },
     async setPriority() { return { affectedPaths: ['backlog/todo.yaml'] }; },
     async deleteDecision(requestedPath: string) { calls.push(`delete:${requestedPath}`); return { affectedPaths: ['backlog/todo.yaml', requestedPath] }; },

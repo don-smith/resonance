@@ -19,7 +19,8 @@ The provider and model are non-secret package inputs. `openai` and the OpenAI-co
 ## Routes and lifecycle
 
 - `GET /api/backlog/items` returns the ordered, physically contained Decisions projection.
-- `GET /api/backlog/plan?path=...` re-authorizes and renders one canonical linked plan.
+- `GET /api/backlog/plan?path=...` re-authorizes and renders one canonical linked plan with its metadata.
+- `POST /api/backlog/metadata` deterministically updates a decision's status and/or priority.
 - `GET /api/backlog/agent/state` returns non-secret conversation state.
 - `GET /api/backlog/agent/events` is a snapshot-first SSE stream.
 - `POST /api/backlog/agent/prompt` accepts `{ prompt, selectedPath }`.
@@ -33,4 +34,4 @@ The provider runtime is lazy: navigation, selection, state reads, and SSE subscr
 
 The agent receives a freshly re-read selected decision on every prompt. Its virtual filesystem exposes only the packaged management skill; domain tools enforce canonical paths, YAML validation, repository containment, serialized mutations, atomic individual replacements, and compensating rollback. It can review, create, edit plans, change status or priority, and request deletion. New decisions use a deterministic `plans/<kebab-case-title>.md` path derived by the domain tool; callers do not choose the plan path. Deletion always requires a visible browser confirmation and a chat request alone has no destructive effect.
 
-Committed mutations emit a revision and affected canonical paths. The browser then re-reads the YAML and plan from disk rather than applying optimistic changes. Generic filesystem, shell, arbitrary repository paths, credential inspection, network access, persistence, and cross-process transactionality are non-goals.
+Committed mutations emit a revision and affected canonical paths. The browser then re-reads the YAML and plan from disk rather than applying optimistic changes; the plan metadata controls use the same canonical store for deterministic status and priority changes. Generic filesystem, shell, arbitrary repository paths, credential inspection, network access, persistence, and cross-process transactionality are non-goals.

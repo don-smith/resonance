@@ -52,6 +52,16 @@ test('creates, edits, updates, and deletes a paired decision', async () => {
   } finally { await cleanup(root); }
 });
 
+test('updates decision metadata together and preserves the paired plan', async () => {
+  const root = await fixture(); const store = createBacklogStore({ repositoryRoot: root });
+  try {
+    assert.deepEqual(await store.updateMetadata('backlog/plans/queue.md', { status: 'is-ready', priority: 'P0' }), { affectedPaths: ['backlog/todo.yaml'] });
+    const updated = await store.readDecision('backlog/plans/queue.md');
+    assert.equal(updated.status, 'is-ready'); assert.equal(updated.priority, 'P0'); assert.equal(updated.markdown, '# Queue');
+    await assert.rejects(() => store.updateMetadata('backlog/plans/queue.md', { status: 'blocked' as never }), /invalid/);
+  } finally { await cleanup(root); }
+});
+
 test('rejects prospective symlink parents and serializes concurrent mutations', async () => {
   const root = await fixture(); const outside = await mkdtemp(path.join(tmpdir(), 'resonance-backlog-store-outside-'));
   try {

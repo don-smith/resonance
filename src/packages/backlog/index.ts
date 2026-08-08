@@ -7,7 +7,7 @@ import { createMarkdownRenderer } from '../../markdown.ts';
 import type { HostContext, HostResponse, PackageDefinition, PackageInput, PackageRegistration, Telemetry } from '../../package-contract.ts';
 import { createBacklogAgentSession, type BacklogAgentRuntimeFactory } from './agent-session.ts';
 import { createDeepAgentsRuntimeFactory } from './deepagents.ts';
-import { BacklogSourceError, BacklogStoreError, createBacklogStore, parseBacklogItems } from './backlog-store.ts';
+import { backlogPriorities, backlogStatuses, BacklogSourceError, BacklogStoreError, createBacklogStore, parseBacklogItems, type BacklogMetadata, type BacklogPriority, type BacklogStatus } from './backlog-store.ts';
 
 export { parseBacklogItems } from './backlog-store.ts';
 
@@ -137,8 +137,24 @@ export function createBacklogPackage({ runtimeFactory }: { runtimeFactory?: Back
               const requested = new URL(request.url, 'http://127.0.0.1').searchParams.get('path') || '';
               try {
                 const item = await store.readDecision(requested);
-                response.json(200, { path: item.path, title: item.title, html: renderer.render(item.markdown) });
+                response.json(200, { path: item.path, title: item.title, status: item.status, priority: item.priority, html: renderer.render(item.markdown) });
               } catch (error) { sendReadFailure(response, error, 'Backlog item not found', telemetry); }
+            },
+          },
+          {
+            method: 'POST', path: '/api/backlog/metadata', handler: async (request, response) => {
+              try {
+                const body = await request.readJson<{ path?: unknown; status?: unknown; priority?: unknown }>(8 * 1024);
+                if (!isRecord(body) || typeof body.path !== 'string' || !body.path.trim() || (body.status === undefined && body.priority === undefined)
+                  || (body.status !== undefined && !backlogStatuses.includes(body.status as BacklogStatus))
+                  || (body.priority !== undefined && !backlogPriorities.includes(body.priority as BacklogPriority))) {
+                  response.json(400, { error: 'path and at least one valid metadata field are required.' }); return;
+                }
+                const metadata: BacklogMetadata = {};
+                if (body.status !== undefined) metadata.status = body.status as BacklogStatus;
+                if (body.priority !== undefined) metadata.priority = body.priority as BacklogPriority;
+                response.json(200, await store.updateMetadata(body.path, metadata));
+              } catch (error) { sendError(response, error, telemetry); }
             },
           },
           { method: 'GET', path: '/api/backlog/agent/state', handler: async (_request, response) => response.json(200, session.snapshot()) },

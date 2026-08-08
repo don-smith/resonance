@@ -10,12 +10,14 @@ export type BacklogPriority = typeof backlogPriorities[number];
 export type BacklogDecisionSummary = { path: string; title: string; status: BacklogStatus; priority: BacklogPriority };
 export type BacklogDecision = BacklogDecisionSummary & { markdown: string };
 export type BacklogCreateInput = { title: string; status: BacklogStatus; priority: BacklogPriority; markdown: string };
+export type BacklogMetadata = { status?: BacklogStatus; priority?: BacklogPriority };
 export type BacklogMutation = { affectedPaths: string[] };
 export type BacklogStore = {
   listDecisions(): Promise<BacklogDecisionSummary[]>;
   readDecision(path: string): Promise<BacklogDecision>;
   createDecision(input: BacklogCreateInput): Promise<BacklogMutation>;
   editPlan(path: string, markdown: string): Promise<BacklogMutation>;
+  updateMetadata(path: string, metadata: BacklogMetadata): Promise<BacklogMutation>;
   setStatus(path: string, status: BacklogStatus): Promise<BacklogMutation>;
   setPriority(path: string, priority: BacklogPriority): Promise<BacklogMutation>;
   deleteDecision(path: string): Promise<BacklogMutation>;
@@ -173,6 +175,14 @@ export function createBacklogStore({ repositoryRoot, fileSystem: overrides = {} 
     const decision = { ...fields, plan: planForTitle(fields.title) };
     return { decision, markdown };
   };
+  const updateMetadata = (requestedPath: string, metadata: BacklogMetadata) => serialize(async () => {
+    if (metadata.status !== undefined && !backlogStatuses.includes(metadata.status)) throw new BacklogStoreError('Backlog status is invalid.');
+    if (metadata.priority !== undefined && !backlogPriorities.includes(metadata.priority)) throw new BacklogStoreError('Backlog priority is invalid.');
+    if (metadata.status === undefined && metadata.priority === undefined) throw new BacklogStoreError('Backlog metadata is empty.');
+    const state = await load(); const entry = await findEntry(state, requestedPath);
+    await replaceYaml(state, state.decisions.map((decision) => decision.plan === entry.decision.plan ? { ...decision, ...(metadata.status === undefined ? {} : { status: metadata.status }), ...(metadata.priority === undefined ? {} : { priority: metadata.priority }) } : decision));
+    return { affectedPaths: [TODO_PATH] };
+  });
   return {
     async listDecisions() { return summaries(await load()); },
     async readDecision(requestedPath) {
@@ -205,18 +215,9 @@ export function createBacklogStore({ repositoryRoot, fileSystem: overrides = {} 
       await atomicReplace(entry.filename, markdown);
       return { affectedPaths: [requestedPath] };
     }); },
-    async setStatus(requestedPath, status) { return serialize(async () => {
-      if (!backlogStatuses.includes(status)) throw new BacklogStoreError('Backlog status is invalid.');
-      const state = await load(); const entry = await findEntry(state, requestedPath);
-      await replaceYaml(state, state.decisions.map((decision) => decision.plan === entry.decision.plan ? { ...decision, status } : decision));
-      return { affectedPaths: [TODO_PATH] };
-    }); },
-    async setPriority(requestedPath, priority) { return serialize(async () => {
-      if (!backlogPriorities.includes(priority)) throw new BacklogStoreError('Backlog priority is invalid.');
-      const state = await load(); const entry = await findEntry(state, requestedPath);
-      await replaceYaml(state, state.decisions.map((decision) => decision.plan === entry.decision.plan ? { ...decision, priority } : decision));
-      return { affectedPaths: [TODO_PATH] };
-    }); },
+    updateMetadata,
+    async setStatus(requestedPath, status) { return updateMetadata(requestedPath, { status }); },
+    async setPriority(requestedPath, priority) { return updateMetadata(requestedPath, { priority }); },
     async deleteDecision(requestedPath) { return serialize(async () => {
       const state = await load(); const entry = await findEntry(state, requestedPath);
       const originalPlan = await readText(entry.filename);

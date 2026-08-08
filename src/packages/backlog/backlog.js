@@ -3,6 +3,7 @@ function escapeHtml(value) {
 }
 
 const statuses = ['recently-done', 'in-progress', 'is-ready', 'in-planning'];
+const priorities = ['P0', 'P1', 'P2', 'P3'];
 
 export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (url) => typeof EventSource === 'function' ? new EventSource(url) : null } = {}) {
   let root;
@@ -130,6 +131,17 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
     eventSource.close();
     eventSource = null;
   }
+  function renderMetadata(plan) {
+    const option = (value, selected) => `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(value)}</option>`;
+    return `<div class="backlog-metadata" aria-label="Decision metadata"><label>Priority<select class="backlog-metadata-priority" data-metadata-field="priority" aria-label="Priority">${priorities.map((priority) => option(priority, plan.priority)).join('')}</select></label><label>Status<select class="backlog-metadata-status" data-metadata-field="status" aria-label="Status">${statuses.map((status) => option(status, plan.status)).join('')}</select></label></div>`;
+  }
+  async function updateMetadata(field, value) {
+    const path = selectedPath;
+    if (!path) return;
+    const response = await fetchFn('/api/backlog/metadata', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path, [field]: value }) });
+    if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Decision metadata could not be updated.');
+    if (selectedPath === path) await loadItems();
+  }
   async function showPlan(itemPath) {
     const request = ++planRequest;
     content.innerHTML = '<p class="backlog-loading">Loading plan…</p>';
@@ -140,7 +152,9 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
     selectedPath = plan.path;
     pathLabel.textContent = plan.path;
     renderItems();
-    content.innerHTML = plan.html;
+    const selectedItem = items.find((item) => item.path === plan.path);
+    const metadata = { ...selectedItem, ...plan, priority: plan.priority ?? selectedItem?.priority, status: plan.status ?? selectedItem?.status };
+    content.innerHTML = `${renderMetadata(metadata)}<div class="backlog-plan-markdown">${plan.html}</div>`;
     renderTranscript();
   }
   async function loadItems() {
@@ -215,6 +229,7 @@ export default function createBacklog({ fetchFn = fetch, eventSourceFactory = (u
       workspace = root.querySelector('.backlog-workspace'); list = root.querySelector('.backlog-items'); content = root.querySelector('.backlog-content'); pathLabel = root.querySelector('.backlog-path'); agentPanel = root.querySelector('.backlog-agent'); agentToggle = root.querySelector('.backlog-agent-toggle'); transcript = root.querySelector('.backlog-transcript'); statusLabel = root.querySelector('.backlog-status'); promptInput = root.querySelector('.backlog-composer textarea'); sendButton = root.querySelector('.backlog-composer button[type="submit"]'); credentialPanel = root.querySelector('.backlog-credential'); credentialForm = credentialPanel.querySelector('form'); credentialInput = credentialPanel.querySelector('input'); retryButton = root.querySelector('.backlog-retry'); confirmationPanel = root.querySelector('.backlog-confirmation'); confirmButton = root.querySelector('.backlog-confirm-delete');
       setAgentVisible(agentVisible);
       list.addEventListener('click', async (event) => { const button = event.target.closest('[data-path]'); if (!button || !list.contains(button)) return; try { await showPlan(button.dataset.path); } catch (error) { showError(error); } });
+      content.addEventListener('change', (event) => { const select = event.target.closest('[data-metadata-field]'); if (!select || !content.contains(select)) return; void updateMetadata(select.dataset.metadataField, select.value).catch(showError); });
       root.querySelector('.backlog-composer').addEventListener('submit', (event) => { event.preventDefault(); void submitPrompt().catch(showError); });
       credentialForm.addEventListener('submit', (event) => { void saveCredential(event).catch(showError); });
       retryButton.addEventListener('click', () => { if (lastPrompt) void submitPrompt(lastPrompt).catch(showError); });

@@ -35,7 +35,8 @@ context/
 │   ├── 03-documents/      # CRDT document sync (Yjs + TipTap)
 │   ├── 04-conversations/  # Chat channels, append-only log
 │   ├── 05-packages/       # Package model, event bus, contract
-│   └── 06-repos/          # Git watching, repo registration, repo packages
+│   ├── 06-repos/          # Git watching, repo registration, repo packages
+│   └── 07-observability/  # Local-first telemetry and export policy
 ├── 03-delivery/           # Auto-update, CI, signing, release
 └── 04-contributing/       # Fork guide, RFC process, package authoring
 ```
@@ -93,7 +94,9 @@ Every node that has a non-trivial implementation has a `spec.md` with this struc
 ```
 # <Node> — Spec
 
-Status: Draft | Active | Stable.
+## Status
+
+Draft | Active | Stable.
 
 [Scope paragraph: what this spec defines and what it excludes]
 
@@ -151,7 +154,7 @@ Status: open | closed (<date>, <how resolved>).
 
 ## Enforcement
 
-A Vitest suite (to be added in Phase 1) checks:
+The Vitest suite at `tests/context/vrs-structure.test.ts` runs through `pnpm check` and CI. It checks:
 
 - All IDs referenced in `refines:` markers resolve to a real requirement.
 - No duplicate IDs exist across the tree.

@@ -18,7 +18,7 @@ Role: owns the CI pipeline, update manifest publication, binary signing, platfor
 
 - **RS.DEL-R04 The update manifest is a static JSON file.** The manifest contains the latest version string, per-platform download URLs, and per-platform signatures. It is published to GitHub Pages on every release. `refines: RS-R14`
 
-- **RS.DEL-R05 The manifest URL is configurable in the fork.** Teams self-hosting the manifest set the URL in their Tauri config. The runtime uses this URL for all update checks. The default URL points to the reference repository's GitHub Pages. `refines: RS-T06`
+- **RS.DEL-R05 The manifest URL is configurable in the fork.** A fork provides its HTTPS manifest URL and public verification key as reviewed release configuration. The reference runtime embeds neither a default endpoint nor a key, and it performs no update check until valid fork-owned configuration is bundled into a release. Teams may use GitHub Pages or an equivalent static host. `refines: RS-T06`
 
 ### Fork guide
 

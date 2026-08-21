@@ -16,6 +16,13 @@ or synchronization feature.
 is a readable export, while the adjacent `.yjs` file contains opaque Yjs snapshot
 bytes; neither replaces the other as document authority.
 
+On macOS, the current development application identifier resolves `<app-data>`
+to `~/Library/Application Support/com.resonance.desktop`; the default workspace
+therefore lives at
+`~/Library/Application Support/com.resonance.desktop/.resonance/workspaces/default/`.
+The platform application-data location is owned by Tauri, so use the displayed
+runtime location rather than assuming this macOS path on another platform.
+
 The runtime writes document exports through temporary files and keeps a pending
 marker plus backups during replacement. Opening a workspace removes abandoned
 temporary exports and restores the last complete pair if a replacement was

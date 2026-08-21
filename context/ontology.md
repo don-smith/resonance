@@ -36,7 +36,7 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **Runtime.** The Tauri-based shell that provides the app lifecycle, event bus, sync layer, identity layer, auto-update, and the consistent shared agent-panel surface. Content views remain package-owned; the runtime owns no package-specific content.
 
-**Package.** The extensibility and implementation unit. A package contributes content views to the app shell and interacts with the system through declared events and bounded runtime operations. Packages configure the runtime-owned agent panel but do not render it. `See: 02-system/05-packages/`
+**Package.** The extensibility and implementation unit. In Phase 1, Resonance validates bundled package manifests and declared events but loads no package content view. A later content package contributes a view to the app shell and interacts with the system through declared events and bounded runtime operations. Packages configure the runtime-owned agent panel but do not render it. `See: 02-system/05-packages/`
 
 **Team package.** A package checked into the team's fork of the Resonance runtime. Distributed to all team members as part of the app binary. Team packages win contribution conflicts.
 
@@ -44,7 +44,7 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **Repo package.** A package that reads from a registered Git repository and emits repository events. Repo packages are loaded from the repository's package manifest (`.resonance/config.json`). `See: 02-system/06-repos/`
 
-**Package manifest.** A JSON file declaring a package's ID, display name, navigation metadata, events emitted, events consumed, and webview entry point. Lives at `packages/<id>/manifest.json` in the runtime, or at `.resonance/config.json` in a repository (for repo packages).
+**Package manifest.** A JSON file declaring a package's ID, source, display name, navigation metadata, events emitted, events consumed, minimum role, and optional capabilities/agent configuration. Phase 1's `manifestVersion: 1` has no webview entry point and supports bundled team manifests only. A later content-package contract may add a webview entry through an RFC. A manifest lives at `packages/<id>/manifest.json` in the runtime, or at `.resonance/config.json` in a repository once repo packages are implemented.
 
 **Event bus.** The Tauri event system, used as the cross-package pub/sub channel. Packages emit typed events; other packages subscribe. The runtime routes events but does not interpret semantics. `See: 02-system/05-packages/`
 

@@ -24,6 +24,14 @@ The TypeScript authoring adapter and Rust registry validate the same conformance
 fixtures. The worked [`reference package`](../packages/reference-package/) is
 the complete manifest example.
 
+## Phase 1 boundary
+
+Generation creates a valid manifest contract; it does not yet make a new
+package appear in the desktop shell. Phase 1 bundles and validates only the
+reference manifest, and ships neither package webview loading, tabs, nor agent
+execution. Keep generated packages alongside the runtime and validate them in
+CI while the content-package surface is designed in a later workstream.
+
 ## Manifest rules
 
 - `manifestVersion` is `1`, and `source` is `bundled-team`.

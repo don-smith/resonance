@@ -16,9 +16,9 @@ Role: owns the package model, the package manifest contract, the event bus wirin
 
 ### Package model
 
-- **RS.SYS.PKG-R01 A package is a webview module with an optional Rust side.** The package's UI is an HTML entry point loaded into a Tauri webview tab. The optional Rust side registers Tauri commands. The runtime owns the tab lifecycle.
+- **RS.SYS.PKG-R01 A content package is a webview module with an optional Rust side.** Its UI is an HTML entry point loaded into a Tauri webview tab, and its optional Rust side registers Tauri commands; the runtime owns the tab lifecycle. Phase 1 establishes only the manifest/registry boundary: it validates bundled manifests but loads no package content view or tab. A later content-surface change must extend the contract through an RFC.
 
-- **RS.SYS.PKG-R02 Packages are declared in a manifest.** Each package has a `manifest.json` declaring: `id` (globally unique within the installation), `name`, `description`, `nav` (navigation entry metadata), `events.emits[]`, `events.consumes[]`, `agent` (optional), `minRole` (`viewer` | `contributor` | `developer`). The runtime validates the manifest at load time.
+- **RS.SYS.PKG-R02 Packages are declared in a manifest.** The Phase 1 `manifestVersion: 1` contract declares `source`, `id` (globally unique within the installation), `name`, `description`, `nav` (navigation entry metadata), `events.emits[]`, `events.consumes[]`, `agent` (optional), `capabilities` (optional), and `minRole` (`viewer` | `contributor` | `developer`). It deliberately has no webview entry point; the runtime validates the manifest at load time.
 
 - **RS.SYS.PKG-R03 Package IDs are namespaced.** Team packages use the team's namespace (e.g., `acme.backlog`). Reference packages use the `resonance.*` namespace. Member packages use `member.<id>`. Namespace collisions are rejected at load time.
 

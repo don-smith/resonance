@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.resonance.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "node ../../scripts/vite-supervisor.mjs",
     "beforeBuildCommand": "pnpm build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"

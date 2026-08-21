@@ -11,6 +11,12 @@ fn main() {
             let application_data = app.path().app_data_dir()?;
             commands::workspace::bootstrap_default_workspace(&application_data)
                 .map_err(std::io::Error::other)?;
+            if let Some(window) = app.get_webview_window("main") {
+                window.center()?;
+                window.unminimize()?;
+                window.show()?;
+                window.set_focus()?;
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -22,7 +22,9 @@ Design uncertainties that need resolution before or during implementation. Each 
 
 ## OQ-02 — Yjs snapshot storage format
 
-**Blocks:** `02-system/03-documents/` spec, Phase 1 implementation
+**Status:** Resolved (2026-08-21, RFC 0006).
+
+**Decision:** Store opaque Yjs snapshots as binary files alongside Markdown exports below `.resonance/workspaces/<workspace-id>/documents/`; store structured document metadata in the workspace SQLite database. Write exports through temporary files and replacement so incomplete output is recoverable.
 
 **Question:** Should Yjs document snapshots be stored as binary files alongside the Markdown file, or embedded in SQLite?
 
@@ -31,13 +33,15 @@ Design uncertainties that need resolution before or during implementation. Each 
 - SQLite: all persistence in one store, queryable, easier to manage transactionally. Requires a migration plan as the schema evolves.
 - Yjs snapshots are binary; SQLite stores them as blobs. No semantic advantage to SQLite for binary-only data.
 
-**Resolution path:** Decide at Phase 1 kickoff. Preferred answer: binary alongside, with a `.resonance/` directory in the workspace data folder as the container.
+**Resolution:** RFC 0006 selected binary snapshots beside Markdown exports. SQLite remains the structured metadata store; no snapshot blobs are stored in it.
 
 ---
 
 ## OQ-03 — Package sandboxing level
 
-**Blocks:** `02-system/05-packages/` spec, Phase 1 implementation
+**Status:** Resolved (2026-08-21, RFC 0006).
+
+**Decision:** Bundled, reviewed team packages are trusted but must declare finite semantic capabilities and events. Member and repository package loaders are deferred until separate least-privilege webviews can enforce their capabilities; a shared main webview is not represented as a package sandbox.
 
 **Question:** How strictly should packages be sandboxed? Tauri provides CSP and capability-based permissions. Should the runtime enforce a strict allowlist for package capabilities, or rely on review (team packages are authored by trusted team members)?
 
@@ -47,13 +51,15 @@ Design uncertainties that need resolution before or during implementation. Each 
 - Member packages have a stronger sandboxing argument since they are not team-reviewed.
 - The capability model should probably differ between team packages (lighter) and member packages (stricter).
 
-**Resolution path:** Decide before Phase 1 package manifest design is finalized.
+**Resolution:** RFC 0006 selected capability-declared trusted team packages and deferred untrusted loaders until enforceable webview isolation exists.
 
 ---
 
 ## OQ-04 — Update signing key management
 
-**Blocks:** `03-delivery/` spec, Phase 1 auto-update infrastructure
+**Status:** Resolved (2026-08-21, RFC 0006).
+
+**Decision:** The public verification key and static-manifest endpoint are reviewed fork configuration. The private signing key is held only in CI secrets and two access-controlled recovery locations. Rotation uses an old-key-signed bridge release; loss of the old key before a bridge requires manual reinstall.
 
 **Question:** Who holds the signing key for update binaries, and what is the handover process when team ownership changes?
 
@@ -63,7 +69,7 @@ Design uncertainties that need resolution before or during implementation. Each 
 - Resonance reference implementation should document a key rotation procedure.
 - Losing the signing key requires a manual reinstall by all team members (the updater rejects unsigned binaries).
 
-**Resolution path:** Document the key rotation procedure as part of Phase 1 delivery setup. The procedure does not need to be automated in v1.
+**Resolution:** RFC 0006 establishes the CI/recovery custody and bridge-rotation procedure. Phase 1 supplies a fail-closed template; provisioning keys and secrets remains fork operations.
 
 ---
 

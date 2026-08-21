@@ -44,7 +44,7 @@ Role: owns keypair generation and storage, workspace creation, invite token gene
 
 - **RS.SYS.ID-R11 Member removal gossiped immediately.** When a member is removed, the updated member list (without their key) is gossiped to all online peers. Removed members who are online at the time of removal will see their contributions rejected by peers within one gossip round-trip.
 
-- **RS.SYS.ID-R12 Roles are a fixed set with extensible schema.** The initial roles are `reviewer`, `contributor`, and `developer`. The member list schema must be designed to allow additional roles to be added in a future release without a breaking change. `refines: RS.SYS.ID-R04`
+- **RS.SYS.ID-R12 Roles are a fixed set with extensible schema.** The initial roles are `viewer`, `contributor`, and `developer`. The member list schema must be designed to allow additional roles to be added in a future release without a breaking change. `refines: RS.SYS.ID-R04`
 
 ---
 

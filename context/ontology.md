@@ -34,9 +34,9 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 ## App and packages
 
-**Runtime.** The Tauri-based shell that provides the app lifecycle, event bus, sync layer, identity layer, and auto-update. The runtime does not contain user-facing capability; that belongs to packages.
+**Runtime.** The Tauri-based shell that provides the app lifecycle, event bus, sync layer, identity layer, auto-update, and the consistent shared agent-panel surface. Content views remain package-owned; the runtime owns no package-specific content.
 
-**Package.** The extensibility and implementation unit. A package contributes one or more tabs to the app shell and interacts with the system through the event bus and Tauri commands. All user-visible capability is a package. `See: 02-system/05-packages/`
+**Package.** The extensibility and implementation unit. A package contributes content views to the app shell and interacts with the system through declared events and bounded runtime operations. Packages configure the runtime-owned agent panel but do not render it. `See: 02-system/05-packages/`
 
 **Team package.** A package checked into the team's fork of the Resonance runtime. Distributed to all team members as part of the app binary. Team packages win contribution conflicts.
 

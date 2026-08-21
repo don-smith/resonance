@@ -1,0 +1,26 @@
+{
+  "name": "resonance",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "desktop:dev": "pnpm --filter @resonance/desktop tauri dev",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "rust:check": "cargo fmt --all -- --check && cargo check --workspace",
+    "rust:test": "cargo test --workspace",
+    "rust:clippy": "cargo clippy --workspace -- -D warnings",
+    "build:desktop": "pnpm --filter @resonance/desktop tauri build --debug",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.8.4",
+    "@types/node": "22.15.3",
+    "prettier": "3.5.3",
+    "typescript": "5.8.3",
+    "vite": "6.3.5",
+    "vitest": "3.1.3"
+  }
+}

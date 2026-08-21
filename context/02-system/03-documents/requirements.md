@@ -12,7 +12,7 @@ Role: owns planning document creation, CRDT sync via Yjs, the rendered Markdown 
 
 - **RS.SYS.DOC-R02 Documents are identified by a UUID.** The document ID is stable across renames. Document metadata (title, last-edited-by, last-edited-at) is stored in the workspace SQLite database, not in the document itself.
 
-- **RS.SYS.DOC-R03 Documents are persisted locally as Markdown files.** On every significant edit (debounced), the document is serialized to Markdown and written to the workspace data directory. A Yjs binary snapshot is written alongside it. `refines: OQ-02`
+- **RS.SYS.DOC-R03 Documents are persisted locally as Markdown files.** On every significant edit (debounced), the document is serialized to Markdown and written to the workspace data directory. A Yjs binary snapshot is written alongside it. `refines: RS-R06`
 
 ### Editing
 

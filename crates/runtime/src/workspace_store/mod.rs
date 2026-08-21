@@ -36,6 +36,13 @@ impl DocumentMetadata {
 
 pub type StoredDocument = (DocumentMetadata, String, Vec<u8>);
 
+#[derive(Clone)]
+pub(crate) struct PrivateWorkspaceSettings {
+    pub token: WorkspaceToken,
+    pub display_name: String,
+    pub relay_override: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct WorkspaceStore {
     directory: PathBuf,
@@ -129,6 +136,54 @@ impl WorkspaceStore {
     }
 
     /// Returns the configuration that is safe to show outside the runtime.
+    pub(crate) fn private_settings(&self) -> Result<PrivateWorkspaceSettings, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection
+            .query_row(
+                "SELECT token, display_name, relay_override FROM workspace_configuration WHERE singleton = 1",
+                [],
+                |row| {
+                    let token: Vec<u8> = row.get(0)?;
+                    let token: [u8; 32] = token.try_into().map_err(|_| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Blob,
+                            "workspace token has the wrong length".into(),
+                        )
+                    })?;
+                    Ok(PrivateWorkspaceSettings {
+                        token: WorkspaceToken::from_bytes(token),
+                        display_name: row.get(1)?,
+                        relay_override: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or(WorkspaceStoreError::WorkspaceConfigurationMissing)
+    }
+
+    pub(crate) fn set_lifecycle(
+        &self,
+        lifecycle: &WorkspaceLifecycle,
+    ) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let changed = connection.execute(
+            "UPDATE workspace_configuration SET lifecycle = ?1 WHERE singleton = 1",
+            [lifecycle.as_str()],
+        )?;
+        if changed == 0 {
+            Err(WorkspaceStoreError::WorkspaceConfigurationMissing)
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn settings(&self) -> Result<WorkspaceSettings, WorkspaceStoreError> {
         let connection = self
             .connection
@@ -173,6 +228,19 @@ impl WorkspaceStore {
             params![operation_id, signed_operation],
         )?;
         Ok(())
+    }
+
+    pub(crate) fn membership_operations(&self) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection
+            .prepare("SELECT signed_operation FROM membership_operations ORDER BY operation_id")?;
+        let operations = statement
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<Vec<u8>>, _>>()?;
+        Ok(operations)
     }
 
     pub fn membership_operation_ids(&self) -> Result<Vec<String>, WorkspaceStoreError> {

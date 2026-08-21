@@ -108,9 +108,25 @@ impl WorkspaceCatalog {
         if display_name.trim().is_empty() {
             return Err(WorkspaceDomainError::InvalidWorkspaceId.into());
         }
-        let token = WorkspaceToken::generate()?;
+        self.create_workspace_with_token(
+            WorkspaceToken::generate()?,
+            display_name,
+            relay_override,
+            WorkspaceLifecycle::Ready,
+        )
+    }
+
+    pub(crate) fn create_workspace_with_token(
+        &self,
+        token: WorkspaceToken,
+        display_name: String,
+        relay_override: Option<String>,
+        lifecycle: WorkspaceLifecycle,
+    ) -> Result<WorkspaceSummary, WorkspaceCatalogError> {
+        if display_name.trim().is_empty() {
+            return Err(WorkspaceDomainError::InvalidWorkspaceId.into());
+        }
         let id = token.workspace_id();
-        let lifecycle = WorkspaceLifecycle::Ready;
         let store = WorkspaceStore::open(&self.application_data_directory, id.as_str())?;
         store.initialize_workspace(&token, &display_name, relay_override.as_deref(), &lifecycle)?;
 
@@ -133,6 +149,24 @@ impl WorkspaceCatalog {
             display_name,
             lifecycle,
         })
+    }
+
+    pub(crate) fn set_workspace_lifecycle(
+        &self,
+        id: &WorkspaceId,
+        lifecycle: WorkspaceLifecycle,
+    ) -> Result<(), WorkspaceCatalogError> {
+        let store = self.open_workspace(id)?;
+        store.set_lifecycle(&lifecycle)?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceCatalogError::LockPoisoned)?;
+        connection.execute(
+            "UPDATE workspace_catalog SET lifecycle = ?1 WHERE workspace_id = ?2",
+            params![lifecycle.as_str(), id.as_str()],
+        )?;
+        Ok(())
     }
 
     pub fn open_workspace(

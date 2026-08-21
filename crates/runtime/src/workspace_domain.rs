@@ -120,6 +120,10 @@ impl WorkspaceToken {
         Ok(Self(bytes))
     }
 
+    pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
     pub(crate) fn workspace_id(&self) -> WorkspaceId {
         let mut digest = blake3::Hasher::new();
         digest.update(WORKSPACE_ID_DOMAIN);

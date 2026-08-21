@@ -1,15 +1,18 @@
+import { invoke } from "@tauri-apps/api/core";
+
 import "./styles.css";
-
-type WorkspaceStatus = "Local workspace ready";
-
-const workspaceStatus: WorkspaceStatus = "Local workspace ready";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) {
   throw new Error("Resonance shell mount point is missing.");
 }
 
-app.innerHTML = `
+async function renderShell(shell: HTMLDivElement): Promise<void> {
+  const workspaceStatus = await invoke<string>(
+    "default_workspace_status",
+  ).catch(() => "Local workspace ready");
+
+  shell.innerHTML = `
   <main class="shell" aria-labelledby="app-title">
     <aside class="navigation" aria-label="Runtime navigation">
       <p class="brand">Resonance</p>
@@ -28,3 +31,6 @@ app.innerHTML = `
     </section>
   </main>
 `;
+}
+
+void renderShell(app);

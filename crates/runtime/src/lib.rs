@@ -4,6 +4,7 @@
 //! delivery details into the desktop shell.
 
 pub mod packages;
+pub mod workspace_store;
 
 /// Returns the runtime label used by the desktop bootstrap.
 #[must_use]

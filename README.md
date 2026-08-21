@@ -49,7 +49,8 @@ vocabulary live in [`packages/contracts/`](./packages/contracts/). Start with
 the [package authoring guide](./docs/package-authoring.md) and the worked
 [`reference package`](./packages/reference-package/). Only bundled, reviewed
 team packages are supported in this foundation; no package content view or
-agent execution ships yet.
+agent execution ships yet. Development workspace storage, migration, and recovery
+behavior are documented in [local data](./docs/local-data.md).
 
 ## Design documentation
 

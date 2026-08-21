@@ -52,6 +52,18 @@ team packages are supported in this foundation; no package content view or
 agent execution ships yet. Development workspace storage, migration, and recovery
 behavior are documented in [local data](./docs/local-data.md).
 
+## Fork release delivery
+
+The updater is a shell-only, default-deny seam. Development has no update
+configuration; the checked-in release example is deliberately invalid and
+`pnpm release:validate -- --config config/release.example.json` fails closed.
+A fork owner must provision an HTTPS manifest endpoint, public updater key, CI
+signing secret, signed artifacts, and a static `latest.json` manifest before a
+release can work. Follow the [fork and release guide](./docs/fork-guide.md) for
+first release, two-custodian recovery, compromise response, and old-key bridge
+rotation. Live signing, hosting, and installation remain intentionally outside
+this foundation phase.
+
 ## Design documentation
 
 All vision, requirements, architecture decisions, and open questions live in

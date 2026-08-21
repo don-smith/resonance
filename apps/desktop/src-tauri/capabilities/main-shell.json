@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-shell",
+  "description": "The trusted main shell may use core IPC and the shell-owned updater only.",
+  "windows": ["main"],
+  "permissions": ["core:default", "updater:default"]
+}

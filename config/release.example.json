@@ -1,0 +1,10 @@
+{
+  "manifestEndpoint": "https://REPLACE_WITH_UPDATE_HOST/latest.json",
+  "artifactBaseUrl": "https://REPLACE_WITH_DOWNLOAD_HOST/releases/v0.1.0",
+  "publicKey": "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY",
+  "targets": {
+    "darwin-aarch64": { "artifact": "Resonance_aarch64.app.tar.gz" },
+    "darwin-x86_64": { "artifact": "Resonance_x64.app.tar.gz" },
+    "windows-x86_64": { "artifact": "Resonance_x64-setup.nsis.zip" }
+  }
+}

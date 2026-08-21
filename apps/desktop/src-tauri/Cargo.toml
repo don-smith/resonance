@@ -11,6 +11,7 @@ tauri-build = { version = "2.3.0", features = [] }
 [dependencies]
 resonance-runtime = { path = "../../../crates/runtime" }
 tauri = { version = "2.6.0", features = [] }
+tauri-plugin-updater = "2.9.0"
 
 [lints]
 workspace = true

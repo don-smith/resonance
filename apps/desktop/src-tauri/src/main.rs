@@ -1,13 +1,25 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod release_configuration;
+mod update_service;
 
 use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let _runtime_name = resonance_runtime::runtime_name();
+            if let Some(configuration) =
+                release_configuration::load_for_current_run(app).map_err(std::io::Error::other)?
+            {
+                // Constructing the updater validates the Tauri handoff without
+                // performing an update check during application startup.
+                let _updater = update_service::UpdateService::new(configuration)
+                    .updater(app.handle())
+                    .map_err(std::io::Error::other)?;
+            }
             let application_data = app.path().app_data_dir()?;
             commands::workspace::bootstrap_default_workspace(&application_data)
                 .map_err(std::io::Error::other)?;

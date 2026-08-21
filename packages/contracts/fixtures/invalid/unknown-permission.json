@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 1,
+  "source": "bundled-team",
+  "id": "resonance.unknown-permission",
+  "name": "Unknown permission",
+  "description": "Semantic permissions must use the finite vocabulary.",
+  "nav": { "label": "Invalid", "icon": "x" },
+  "events": { "emits": [], "consumes": [] },
+  "minRole": "viewer",
+  "agent": {
+    "systemPrompt": "prompts/invalid.md",
+    "permissions": ["filesystem.read"],
+    "contextProviders": []
+  }
+}

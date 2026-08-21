@@ -1,0 +1,10 @@
+{
+  "manifestVersion": 1,
+  "source": "bundled-team",
+  "id": "__PACKAGE_ID__",
+  "name": "__PACKAGE_NAME__",
+  "description": "Describe the package contribution.",
+  "nav": { "label": "__PACKAGE_NAME__", "icon": "box" },
+  "events": { "emits": [], "consumes": [] },
+  "minRole": "viewer"
+}

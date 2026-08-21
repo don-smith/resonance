@@ -3,6 +3,8 @@
 //! Feature modules are added here instead of leaking persistence, package, or
 //! delivery details into the desktop shell.
 
+pub mod packages;
+
 /// Returns the runtime label used by the desktop bootstrap.
 #[must_use]
 pub const fn runtime_name() -> &'static str {

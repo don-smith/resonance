@@ -38,8 +38,18 @@ pnpm build:desktop
 ```
 
 `pnpm check` is the CI-equivalent entry point. It runs formatting, TypeScript,
-Vitest, Rust formatting/check/test/Clippy gates. The GitHub Actions quality
-workflow invokes that same command.
+Vitest (including VRS structural validation), Rust formatting/check/test/Clippy,
+and package-contract gates. The GitHub Actions quality workflow invokes that
+same command.
+
+## Package authors
+
+The versioned package-manifest schema, generator, shared fixtures, and API
+vocabulary live in [`packages/contracts/`](./packages/contracts/). Start with
+the [package authoring guide](./docs/package-authoring.md) and the worked
+[`reference package`](./packages/reference-package/). Only bundled, reviewed
+team packages are supported in this foundation; no package content view or
+agent execution ships yet.
 
 ## Design documentation
 

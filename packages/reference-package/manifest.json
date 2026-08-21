@@ -1,0 +1,19 @@
+{
+  "manifestVersion": 1,
+  "source": "bundled-team",
+  "id": "resonance.reference",
+  "name": "Reference package",
+  "description": "A worked manifest and declared-event example.",
+  "nav": { "label": "Reference", "icon": "book" },
+  "events": {
+    "emits": ["doc:opened", "agent-context:document-selected"],
+    "consumes": ["workspace:member-added"]
+  },
+  "minRole": "viewer",
+  "capabilities": ["documents:read", "telemetry:write"],
+  "agent": {
+    "systemPrompt": "prompts/reference.md",
+    "permissions": ["read", "suggest-edits"],
+    "contextProviders": ["document-selected"]
+  }
+}

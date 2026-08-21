@@ -28,7 +28,7 @@ Role: owns conversation channels, message authoring, signature verification, app
 
 - **RS.SYS.CONV-R08 Messages are persisted locally in SQLite.** Received and sent messages are appended to a local SQLite table keyed by channel ID and message hash. The message hash is the content hash of the signed payload.
 
-- **RS.SYS.CONV-R09 History is replicated for new members.** When a peer joins a channel, it requests the channel's compacted log snapshot from an available online peer. The snapshot is an Iroh blob of all messages up to a compaction point; live messages are gossiped after. `refines: OQ-07`
+- **RS.SYS.CONV-R09 History is replicated for new members.** When a peer joins a channel, it requests the channel's compacted log snapshot from an available online peer. The snapshot is an Iroh blob of all messages up to a compaction point; live messages are gossiped after. `refines: RS-R07`
 
 - **RS.SYS.CONV-R10 Unread state is local.** The runtime tracks the last-read message hash per channel per member in local SQLite. Unread counts are computed locally. Peers do not sync read state.
 

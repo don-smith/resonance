@@ -1,0 +1,10 @@
+{
+  "manifestVersion": 1,
+  "source": "member-local",
+  "id": "resonance.invalid-source",
+  "name": "Invalid source",
+  "description": "Member packages are not loadable in Phase 1.",
+  "nav": { "label": "Invalid", "icon": "x" },
+  "events": { "emits": [], "consumes": [] },
+  "minRole": "viewer"
+}

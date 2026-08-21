@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resonance.local/schema/package-manifest.v1.json",
+  "title": "Resonance package manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "source",
+    "id",
+    "name",
+    "description",
+    "nav",
+    "events",
+    "minRole"
+  ],
+  "properties": {
+    "manifestVersion": { "const": 1 },
+    "source": { "const": "bundled-team" },
+    "id": {
+      "type": "string",
+      "pattern": "^(resonance|[a-z][a-z0-9-]*)\\.[a-z][a-z0-9-]*$"
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "nav": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "icon"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "icon": { "type": "string", "minLength": 1 }
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["emits", "consumes"],
+      "properties": {
+        "emits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/eventName" },
+          "uniqueItems": true
+        },
+        "consumes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/eventName" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "minRole": { "enum": ["viewer", "contributor", "developer"] },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "documents:read",
+          "documents:write",
+          "workspace:read",
+          "repository:read",
+          "telemetry:write"
+        ]
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["systemPrompt", "permissions", "contextProviders"],
+      "properties": {
+        "systemPrompt": { "type": "string", "minLength": 1 },
+        "permissions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "read",
+              "suggest-edits",
+              "apply-edits",
+              "create-documents",
+              "post-messages"
+            ]
+          }
+        },
+        "contextProviders": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "eventName": {
+      "type": "string",
+      "pattern": "^(repo:changed|doc:updated|doc:opened|message:received|peer:joined|peer:left|workspace:member-added|workspace:member-removed|agent-context:[a-z][a-z0-9-]*|[a-z][a-z0-9-]*:[a-z][a-z0-9-]*)$"
+    }
+  }
+}

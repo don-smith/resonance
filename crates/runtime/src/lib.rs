@@ -3,8 +3,11 @@
 //! Feature modules are added here instead of leaking persistence, package, or
 //! delivery details into the desktop shell.
 
+pub mod identity;
 pub mod packages;
 pub mod release;
+pub mod workspace_catalog;
+pub mod workspace_domain;
 pub mod workspace_store;
 
 /// Returns the runtime label used by the desktop bootstrap.

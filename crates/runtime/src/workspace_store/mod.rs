@@ -12,7 +12,9 @@ use std::{
 
 use rusqlite::{params, Connection};
 
-const CURRENT_SCHEMA_VERSION: i32 = 1;
+use crate::workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken};
+
+const CURRENT_SCHEMA_VERSION: i32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentMetadata {
@@ -43,6 +45,7 @@ pub struct WorkspaceStore {
 #[derive(Debug)]
 pub enum WorkspaceStoreError {
     InvalidIdentifier(&'static str),
+    WorkspaceConfigurationMissing,
     Io(std::io::Error),
     Database(rusqlite::Error),
     LockPoisoned,
@@ -52,6 +55,9 @@ impl std::fmt::Display for WorkspaceStoreError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidIdentifier(kind) => write!(formatter, "invalid {kind} identifier"),
+            Self::WorkspaceConfigurationMissing => {
+                formatter.write_str("workspace configuration has not been initialized")
+            }
             Self::Io(error) => write!(formatter, "workspace storage I/O failed: {error}"),
             Self::Database(error) => write!(formatter, "workspace database failed: {error}"),
             Self::LockPoisoned => formatter.write_str("workspace store lock was poisoned"),
@@ -95,6 +101,138 @@ impl WorkspaceStore {
             directory,
             connection: Mutex::new(connection),
         })
+    }
+
+    pub(crate) fn initialize_workspace(
+        &self,
+        token: &WorkspaceToken,
+        display_name: &str,
+        relay_override: Option<&str>,
+        lifecycle: &WorkspaceLifecycle,
+    ) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute(
+            "INSERT INTO workspace_configuration (singleton, token, display_name, relay_override, lifecycle)
+             VALUES (1, ?1, ?2, ?3, ?4)
+             ON CONFLICT(singleton) DO NOTHING",
+            params![
+                token.as_bytes().as_slice(),
+                display_name,
+                relay_override,
+                lifecycle.as_str()
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Returns the configuration that is safe to show outside the runtime.
+    pub fn settings(&self) -> Result<WorkspaceSettings, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection
+            .query_row(
+                "SELECT display_name, relay_override, lifecycle FROM workspace_configuration WHERE singleton = 1",
+                [],
+                |row| {
+                    Ok(WorkspaceSettings {
+                        display_name: row.get(0)?,
+                        relay_override: row.get(1)?,
+                        lifecycle: WorkspaceLifecycle::parse(&row.get::<_, String>(2)?).map_err(
+                            |error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    2,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(error),
+                                )
+                            },
+                        )?,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or(WorkspaceStoreError::WorkspaceConfigurationMissing)
+    }
+
+    pub fn record_membership_operation(
+        &self,
+        operation_id: &str,
+        signed_operation: &[u8],
+    ) -> Result<(), WorkspaceStoreError> {
+        validate_identifier(operation_id, "membership operation")?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute(
+            "INSERT OR IGNORE INTO membership_operations (operation_id, signed_operation) VALUES (?1, ?2)",
+            params![operation_id, signed_operation],
+        )?;
+        Ok(())
+    }
+
+    pub fn membership_operation_ids(&self) -> Result<Vec<String>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection
+            .prepare("SELECT operation_id FROM membership_operations ORDER BY operation_id")?;
+        let operation_ids = statement
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(operation_ids)
+    }
+
+    pub fn replace_members(&self, members: &[Member]) -> Result<(), WorkspaceStoreError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        transaction.execute("DELETE FROM workspace_members", [])?;
+        for member in members {
+            transaction.execute(
+                "INSERT INTO workspace_members (public_identity, display_name, role, added_by, added_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    member.public_identity,
+                    member.display_name,
+                    member.role,
+                    member.added_by,
+                    member.added_at
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn members(&self) -> Result<Vec<Member>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT public_identity, display_name, role, added_by, added_at
+             FROM workspace_members ORDER BY public_identity",
+        )?;
+        let members = statement
+            .query_map([], |row| {
+                Ok(Member::new(
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<Member>, _>>()?;
+        Ok(members)
     }
 
     /// Saves all three document domains. A pending marker makes an interrupted
@@ -198,21 +336,22 @@ impl WorkspaceStore {
 }
 
 fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
-    let version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    let mut version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version == 0 && table_exists(connection, "documents")? {
         connection.execute_batch(
             "ALTER TABLE documents ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
              PRAGMA user_version = 1;",
         )?;
+        version = 1;
     } else if version == 0 {
         connection.execute_batch(include_str!("../../migrations/0001_document_metadata.sql"))?;
+        version = 1;
     }
-    connection.execute_batch(
-        "CREATE TABLE IF NOT EXISTS pending_exports (
-           document_id TEXT PRIMARY KEY NOT NULL
-         );",
-    )?;
-    if CURRENT_SCHEMA_VERSION != 1 {
+    if version == 1 {
+        connection.execute_batch(include_str!("../../migrations/0002_workspace_identity.sql"))?;
+        version = 2;
+    }
+    if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));
     }
     Ok(())

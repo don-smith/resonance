@@ -11,7 +11,7 @@ or agent execution.
 
 - [Node.js](https://nodejs.org/) 22 or newer and pnpm 10.14.0 (activate it with
   Corepack if your Node distribution includes Corepack)
-- Rust 1.86.0 with `rustfmt` and `clippy` (the pinned toolchain is declared in
+- Rust 1.98.0 with `rustfmt` and `clippy` (the pinned toolchain is declared in
   `rust-toolchain.toml`)
 - Platform prerequisites for [Tauri v2](https://v2.tauri.app/start/prerequisites/)
   — on macOS, Xcode command-line tools; on Windows, WebView2 and the Microsoft

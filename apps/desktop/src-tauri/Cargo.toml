@@ -10,6 +10,7 @@ tauri-build = { version = "2.3.0", features = [] }
 
 [dependencies]
 resonance-runtime = { path = "../../../crates/runtime" }
+serde_json = "1.0.145"
 tauri = { version = "2.6.0", features = [] }
 tauri-plugin-updater = "2.9.0"
 

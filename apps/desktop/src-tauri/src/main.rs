@@ -38,3 +38,18 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running Resonance");
 }
+
+#[cfg(test)]
+mod tests {
+    const TAURI_CONFIGURATION: &str = include_str!("../tauri.conf.json");
+
+    #[test]
+    fn keeps_the_unprovisioned_updater_plugin_deserializable() {
+        let configuration: serde_json::Value =
+            serde_json::from_str(TAURI_CONFIGURATION).expect("Tauri configuration is valid JSON");
+        let updater = &configuration["plugins"]["updater"];
+
+        assert_eq!(updater["pubkey"], "");
+        assert_eq!(updater["endpoints"], serde_json::json!([]));
+    }
+}

@@ -46,8 +46,10 @@ update seam disabled.
      --artifacts release-artifacts --version X.Y.Z --output pages/latest.json
    ```
 
-   Publish the artifacts at `artifactBaseUrl` and publish `latest.json` at
-   `manifestEndpoint`; the template's Pages job is one compatible option.
+   The template copies the signed artifacts, their `.sig` files, and
+   `latest.json` to GitHub Pages. Set `artifactBaseUrl` and `manifestEndpoint`
+   to that Pages location (or replace that job with an equivalent HTTPS static
+   host) so every generated manifest URL resolves.
 
 4. Before telling users to update, verify that the hosted URL is HTTPS, the
    manifest URLs resolve to the signed artifacts, and a separately installed

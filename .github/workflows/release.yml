@@ -45,10 +45,13 @@ jobs:
         include:
           - os: macos-14
             target: aarch64-apple-darwin
+            updater_target: darwin-aarch64
           - os: macos-13
             target: x86_64-apple-darwin
+            updater_target: darwin-x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            updater_target: windows-x86_64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -71,13 +74,15 @@ jobs:
           # Development keeps updater artifacts off. This CI-only merge enables
           # signatures after the guards above have accepted real credentials.
           cp config/release.json apps/desktop/src-tauri/release-configuration.json
-          printf '%s' '{"bundle":{"createUpdaterArtifacts":true,"resources":["release-configuration.json"]}}' > tauri.release.conf.json
-          pnpm --filter @resonance/desktop tauri build --config tauri.release.conf.json --target ${{ matrix.target }}
-      - name: Upload signed updater artifacts
+          printf '%s' '{"bundle":{"createUpdaterArtifacts":true,"resources":["release-configuration.json"]}}' > apps/desktop/src-tauri/tauri.release.conf.json
+          pnpm --filter @resonance/desktop tauri build --config src-tauri/tauri.release.conf.json --target ${{ matrix.target }}
+          pnpm release:collect -- --config config/release.json --target ${{ matrix.updater_target }} \
+            --source target/${{ matrix.target }}/release/bundle --output release-artifacts
+      - name: Upload signed updater artifact pair
         uses: actions/upload-artifact@v4
         with:
           name: updater-${{ matrix.target }}
-          path: apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**
+          path: release-artifacts/*
 
   publish-static-manifest:
     needs: build-signed-artifacts
@@ -97,9 +102,11 @@ jobs:
           path: release-artifacts
           pattern: updater-*
           merge-multiple: true
-      - name: Generate latest.json from signed artifacts
+      - name: Publish signed artifacts and latest.json to the static host
         shell: bash
         run: |
+          mkdir -p pages
+          cp release-artifacts/* pages/
           pnpm release:manifest -- --config config/release.json --artifacts release-artifacts \
             --version "${GITHUB_REF_NAME#v}" --output pages/latest.json
       - uses: actions/upload-pages-artifact@v3

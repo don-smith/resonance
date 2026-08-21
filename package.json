@@ -15,6 +15,7 @@
     "build:desktop": "pnpm --filter @resonance/desktop tauri build --debug",
     "release:validate": "node scripts/validate-release-config.mjs",
     "release:manifest": "node scripts/generate-update-manifest.mjs",
+    "release:collect": "node scripts/collect-signed-update-artifacts.mjs",
     "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
   },
   "devDependencies": {

@@ -68,7 +68,7 @@ pub enum WorkspaceSessionError {
     Invite(InviteError),
     Protocol(ProtocolError),
     NoActiveWorkspace,
-    InvalidInviteAdmission,
+    InvalidInviteAdmission(&'static str),
     ClockUnavailable,
 }
 
@@ -81,9 +81,7 @@ impl fmt::Display for WorkspaceSessionError {
             Self::Invite(error) => write!(formatter, "invite processing failed: {error}"),
             Self::Protocol(error) => write!(formatter, "workspace protocol failed: {error}"),
             Self::NoActiveWorkspace => formatter.write_str("there is no active workspace"),
-            Self::InvalidInviteAdmission => {
-                formatter.write_str("join request is not addressed to this canonical inviter")
-            }
+            Self::InvalidInviteAdmission(reason) => formatter.write_str(reason),
             Self::ClockUnavailable => formatter.write_str("system clock is unavailable"),
         }
     }
@@ -130,6 +128,7 @@ struct ActiveWorkspace {
     log: MembershipLog,
     joining_inviter: Option<[u8; 32]>,
     bootstrap: Option<String>,
+    joining_display_name: Option<String>,
     peers: BTreeMap<String, PeerState>,
 }
 
@@ -229,10 +228,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             invite.relay_override().map(ToOwned::to_owned),
             WorkspaceLifecycle::Joining,
         )?;
+        let display_name = display_name.into();
         let store = self.catalog.open_workspace(&summary.id)?;
-        store.set_pending_join_admission(invite.inviter(), invite.bootstrap())?;
+        store.set_pending_join_admission(invite.inviter(), invite.bootstrap(), &display_name)?;
         self.activate(summary)?;
-        self.send_join_request(display_name.into())?;
+        self.send_join_request(display_name)?;
         debug_assert_eq!(self.active()?.summary.id.as_str(), workspace_id);
         self.view()
     }
@@ -246,7 +246,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         if self.active()?.summary.lifecycle != WorkspaceLifecycle::Joining {
             return Ok(false);
         }
-        self.send_join_request(display_name.into())?;
+        let display_name = display_name.into();
+        self.set_pending_join_display_name(&display_name)?;
+        self.send_join_request(display_name)?;
         Ok(true)
     }
 
@@ -357,11 +359,15 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 if inviter != *self.identity.public_identity().as_bytes()
                     || !projection.contains(&self.identity.public_identity().to_string())
                 {
-                    return Err(WorkspaceSessionError::InvalidInviteAdmission);
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "join request is not addressed to this installation",
+                    ));
                 }
-                let head = projection
-                    .canonical_head
-                    .ok_or(WorkspaceSessionError::InvalidInviteAdmission)?;
+                let head = projection.canonical_head.ok_or(
+                    WorkspaceSessionError::InvalidInviteAdmission(
+                        "inviter has no canonical membership authority",
+                    ),
+                )?;
                 let operation = SignedMembershipOperation::add_member(
                     &self.identity,
                     self.active()?.summary.id.as_str(),
@@ -382,24 +388,31 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             }
             EnvelopeBody::MembershipOperation(operation) => {
                 if !sender_is_member && !sender_is_inviter {
-                    return Err(WorkspaceSessionError::InvalidInviteAdmission);
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "membership operation is not from the inviter or a member",
+                    ));
                 }
                 self.ensure_join_admission(&operation)?;
                 self.persist_operation(operation)?;
             }
             EnvelopeBody::MembershipSyncRequest => {
-                if !sender_is_member {
-                    return Err(WorkspaceSessionError::InvalidInviteAdmission);
+                // A ready inviter can ask for sync as soon as the Gossip
+                // neighbor appears. A pending joiner has not necessarily
+                // received the inviter's genesis record yet, so it cannot
+                // authorize or answer that request until admission completes.
+                if sender_is_member {
+                    let operations = self.active()?.log.encoded_operations();
+                    self.send(
+                        EnvelopeBody::MembershipSyncResponse(operations),
+                        envelope.workspace_id,
+                    )?;
                 }
-                let operations = self.active()?.log.encoded_operations();
-                self.send(
-                    EnvelopeBody::MembershipSyncResponse(operations),
-                    envelope.workspace_id,
-                )?;
             }
             EnvelopeBody::MembershipSyncResponse(operations) => {
                 if !sender_is_member && !sender_is_inviter {
-                    return Err(WorkspaceSessionError::InvalidInviteAdmission);
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "membership sync response is not from the inviter or a member",
+                    ));
                 }
                 for operation in operations {
                     self.ensure_join_admission(&operation)?;
@@ -450,6 +463,17 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
 
     pub(crate) fn transport_bootstrap(&self) -> Result<Option<&str>, WorkspaceSessionError> {
         Ok(self.active()?.bootstrap.as_deref())
+    }
+
+    pub(crate) fn resend_pending_join(&mut self) -> Result<bool, WorkspaceSessionError> {
+        if self.is_ready()? {
+            return Ok(false);
+        }
+        let display_name = self.active()?.joining_display_name.clone().ok_or(
+            WorkspaceSessionError::InvalidInviteAdmission("pending join has no display name"),
+        )?;
+        self.send_join_request(display_name)?;
+        Ok(true)
     }
 
     pub fn delivery_mut(&mut self) -> &mut D {
@@ -516,6 +540,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             log,
             joining_inviter: settings.joining_inviter,
             bootstrap: settings.bootstrap,
+            joining_display_name: settings.joining_display_name,
             peers: BTreeMap::new(),
         });
         Ok(())
@@ -534,7 +559,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         if public_identity == self.identity.public_identity().as_bytes()
             && (signed.operation.author != inviter || role != "contributor")
         {
-            return Err(WorkspaceSessionError::InvalidInviteAdmission);
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "membership admission is not signed by the named inviter",
+            ));
         }
         Ok(())
     }
@@ -567,15 +594,38 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
             self.active_mut()?.joining_inviter = None;
             self.active_mut()?.bootstrap = None;
+            self.active_mut()?.joining_display_name = None;
         }
         Ok(())
     }
 
+    fn set_pending_join_display_name(
+        &mut self,
+        display_name: &str,
+    ) -> Result<(), WorkspaceSessionError> {
+        let id = self.active()?.summary.id.clone();
+        let inviter =
+            self.active()?
+                .joining_inviter
+                .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                    "pending join has no named inviter",
+                ))?;
+        let bootstrap = self.active()?.bootstrap.clone().ok_or(
+            WorkspaceSessionError::InvalidInviteAdmission("pending join has no bootstrap address"),
+        )?;
+        let store = self.catalog.open_workspace(&id)?;
+        store.set_pending_join_admission(inviter, &bootstrap, display_name)?;
+        self.active_mut()?.joining_display_name = Some(display_name.to_owned());
+        Ok(())
+    }
+
     fn send_join_request(&mut self, display_name: String) -> Result<(), WorkspaceSessionError> {
-        let inviter = self
-            .active()?
-            .joining_inviter
-            .ok_or(WorkspaceSessionError::InvalidInviteAdmission)?;
+        let inviter =
+            self.active()?
+                .joining_inviter
+                .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                    "pending join has no named inviter",
+                ))?;
         let workspace_id = self.active()?.summary.id.as_str().to_owned();
         self.send(
             EnvelopeBody::JoinRequest {

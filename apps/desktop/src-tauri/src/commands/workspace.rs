@@ -486,15 +486,15 @@ fn network_delivery_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
         IrohSessionAdapterError::Transport(IrohTransportError::Receive) => {
             "Peer networking could not receive workspace traffic."
         }
-        IrohSessionAdapterError::Session(WorkspaceSessionError::InvalidInviteAdmission) => {
-            "The inviter does not recognize this join admission. Create a new invite and join again."
+        IrohSessionAdapterError::Session(WorkspaceSessionError::InvalidInviteAdmission(reason)) => {
+            return WorkspaceIssue::Network(format!(
+                "Peer networking rejected this message: {reason}."
+            ));
         }
         IrohSessionAdapterError::Session(WorkspaceSessionError::Protocol(_)) => {
             "Peer networking received an invalid workspace message."
         }
-        IrohSessionAdapterError::Session(_) => {
-            "Peer networking could not apply workspace state."
-        }
+        IrohSessionAdapterError::Session(_) => "Peer networking could not apply workspace state.",
         _ => "Peer networking is offline. Local workspace data is still available.",
     };
     WorkspaceIssue::Network(message.to_owned())
@@ -529,11 +529,11 @@ mod tests {
             "Peer networking closed the workspace channel before it could send a message."
         );
         let rejected = issue_message(network_delivery_issue(IrohSessionAdapterError::Session(
-            WorkspaceSessionError::InvalidInviteAdmission,
+            WorkspaceSessionError::InvalidInviteAdmission("test admission rejection"),
         )));
         assert_eq!(
             rejected,
-            "The inviter does not recognize this join admission. Create a new invite and join again."
+            "Peer networking rejected this message: test admission rejection."
         );
         for forbidden in ["secret", "token", "bootstrap", "path", "iroh"] {
             assert!(!message.to_ascii_lowercase().contains(forbidden));

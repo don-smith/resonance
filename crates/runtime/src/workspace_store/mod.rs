@@ -14,7 +14,7 @@ use rusqlite::{params, Connection};
 
 use crate::workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken};
 
-const CURRENT_SCHEMA_VERSION: i32 = 3;
+const CURRENT_SCHEMA_VERSION: i32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentMetadata {
@@ -43,6 +43,7 @@ pub(crate) struct PrivateWorkspaceSettings {
     pub relay_override: Option<String>,
     pub joining_inviter: Option<[u8; 32]>,
     pub bootstrap: Option<String>,
+    pub joining_display_name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -145,7 +146,7 @@ impl WorkspaceStore {
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         connection
             .query_row(
-                "SELECT token, display_name, relay_override, joining_inviter, bootstrap FROM workspace_configuration WHERE singleton = 1",
+                "SELECT token, display_name, relay_override, joining_inviter, bootstrap, joining_display_name FROM workspace_configuration WHERE singleton = 1",
                 [],
                 |row| {
                     let token: Vec<u8> = row.get(0)?;
@@ -174,6 +175,7 @@ impl WorkspaceStore {
                         relay_override: row.get(2)?,
                         joining_inviter,
                         bootstrap: row.get(4)?,
+                        joining_display_name: row.get(5)?,
                     })
                 },
             )
@@ -185,14 +187,15 @@ impl WorkspaceStore {
         &self,
         inviter: [u8; 32],
         bootstrap: &str,
+        display_name: &str,
     ) -> Result<(), WorkspaceStoreError> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         let changed = connection.execute(
-            "UPDATE workspace_configuration SET joining_inviter = ?1, bootstrap = ?2 WHERE singleton = 1",
-            params![inviter.as_slice(), bootstrap],
+            "UPDATE workspace_configuration SET joining_inviter = ?1, bootstrap = ?2, joining_display_name = ?3 WHERE singleton = 1",
+            params![inviter.as_slice(), bootstrap, display_name],
         )?;
         if changed == 0 {
             Err(WorkspaceStoreError::WorkspaceConfigurationMissing)
@@ -207,7 +210,7 @@ impl WorkspaceStore {
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         let changed = connection.execute(
-            "UPDATE workspace_configuration SET joining_inviter = NULL, bootstrap = NULL WHERE singleton = 1",
+            "UPDATE workspace_configuration SET joining_inviter = NULL, bootstrap = NULL, joining_display_name = NULL WHERE singleton = 1",
             [],
         )?;
         if changed == 0 {
@@ -476,6 +479,12 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
             "../../migrations/0003_pending_join_admission.sql"
         ))?;
         version = 3;
+    }
+    if version == 3 {
+        connection.execute_batch(include_str!(
+            "../../migrations/0004_pending_join_display_name.sql"
+        ))?;
+        version = 4;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

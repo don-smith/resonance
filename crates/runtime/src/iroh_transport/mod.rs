@@ -332,6 +332,8 @@ impl IrohTransport {
                 session.observe_connection(public_identity, peer_connection(path))?;
                 if session.is_ready()? {
                     session.request_membership_sync()?;
+                } else {
+                    let _ = session.resend_pending_join()?;
                 }
             }
             TransportEvent::NeighborDown { public_identity } => {

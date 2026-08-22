@@ -81,6 +81,74 @@ async fn carries_workspace_scoped_bytes_between_independent_identities_over_the_
 }
 
 #[tokio::test]
+#[ignore = "requires the public default relay"]
+async fn completes_a_pending_join_over_the_default_relay() {
+    let inviter_directory = tempfile::tempdir().expect("inviter directory creates");
+    let joiner_directory = tempfile::tempdir().expect("joiner directory creates");
+    let mut inviter = session(inviter_directory.path());
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let mut inviter_transport = IrohTransport::start_for_session(&inviter)
+        .await
+        .expect("inviter transport starts");
+    inviter_transport.endpoint.online().await;
+    let invite = inviter
+        .create_invite(
+            inviter_transport
+                .bootstrap_hint()
+                .await
+                .expect("bootstrap encodes"),
+        )
+        .expect("invite creates");
+    let mut joiner = session(joiner_directory.path());
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    let mut joiner_transport = IrohTransport::start_for_session(&joiner)
+        .await
+        .expect("joiner transport starts");
+    joiner_transport
+        .flush_session(&mut joiner)
+        .await
+        .expect("join request flushes");
+
+    for _ in 0..100 {
+        match tokio::time::timeout(
+            Duration::from_millis(100),
+            inviter_transport.apply_next_session_event(&mut inviter),
+        )
+        .await
+        {
+            Ok(Err(error)) => panic!("inviter session event fails: {error}"),
+            Ok(Ok(_)) | Err(_) => {}
+        }
+        inviter_transport
+            .flush_session(&mut inviter)
+            .await
+            .expect("inviter flushes");
+        match tokio::time::timeout(
+            Duration::from_millis(100),
+            joiner_transport.apply_next_session_event(&mut joiner),
+        )
+        .await
+        {
+            Ok(Err(error)) => panic!("joiner session event fails: {error}"),
+            Ok(Ok(_)) | Err(_) => {}
+        }
+        joiner_transport
+            .flush_session(&mut joiner)
+            .await
+            .expect("joiner flushes");
+        if joiner.view().expect("joiner view").members.len() == 2 {
+            break;
+        }
+    }
+
+    assert_eq!(joiner.view().expect("joined view").members.len(), 2);
+    inviter_transport.shutdown().await.expect("inviter stops");
+    joiner_transport.shutdown().await.expect("joiner stops");
+}
+
+#[tokio::test]
 async fn carries_workspace_scoped_bytes_between_independent_identities_over_a_local_relay() {
     let (relay_map, _relay_url, _server) = iroh::test_utils::run_relay_server()
         .await

@@ -13,6 +13,7 @@ if (!app) {
   throw new Error("Resonance shell mount point is missing.");
 }
 const shell = app;
+let actionMessage: string | null = null;
 
 function field(label: string, name: string, type = "text"): string {
   return `<label>${label}<input name="${name}" type="${type}" required /></label>`;
@@ -50,7 +51,10 @@ function render(view: WorkspaceShellView): void {
         <section class="active-workspace" ${onboarding || blocked ? "hidden" : ""}>
           <div class="workspace-actions">
             <button type="button" data-action="invite">Copy invite</button>
-            <button type="button" data-action="retry" ${view.state === "joining" ? "" : "hidden"}>Retry join</button>
+            <form class="retry-join" data-action="retry" ${view.state === "joining" ? "" : "hidden"}>
+              ${field("Your name", "displayName")}
+              <button type="submit">Retry join</button>
+            </form>
           </div>
           <h2>Members</h2>
           <ul class="members"></ul>
@@ -66,7 +70,7 @@ function render(view: WorkspaceShellView): void {
     ? "Create a workspace or join one with an invite."
     : (view.workspace?.displayName ?? "Workspace unavailable");
   requiredElement<HTMLParagraphElement>(".message").textContent =
-    view.message ?? "";
+    actionMessage ?? view.message ?? "";
   requiredElement<HTMLDivElement>(".identity").textContent =
     view.localPublicIdentity
       ? `This installation: ${view.localPublicIdentity}`
@@ -93,31 +97,40 @@ function render(view: WorkspaceShellView): void {
   document
     .querySelector<HTMLButtonElement>('[data-action="invite"]')
     ?.addEventListener("click", copyInvite);
-  document
-    .querySelector<HTMLButtonElement>('[data-action="retry"]')
-    ?.addEventListener("click", retryJoin);
 }
 
 async function submitForm(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   const form = event.currentTarget as HTMLFormElement;
   const values = new FormData(form);
+  const action = form.dataset.action;
+  actionMessage = null;
   try {
-    const command =
-      form.dataset.action === "create" ? "create_workspace" : "join_workspace";
-    const result = await invoke<WorkspaceShellView>(command, {
-      request:
-        command === "create_workspace"
-          ? {
-              displayName: String(values.get("displayName") ?? ""),
-              relayOverride: optionalValue(values.get("relayOverride")),
-            }
-          : {
-              displayName: String(values.get("displayName") ?? ""),
-              invite: String(values.get("invite") ?? ""),
-            },
-    });
+    const result = await invoke<WorkspaceShellView>(
+      action === "create"
+        ? "create_workspace"
+        : action === "join"
+          ? "join_workspace"
+          : "retry_workspace_join",
+      {
+        request:
+          action === "create"
+            ? {
+                displayName: String(values.get("displayName") ?? ""),
+                relayOverride: optionalValue(values.get("relayOverride")),
+              }
+            : action === "join"
+              ? {
+                  displayName: String(values.get("displayName") ?? ""),
+                  invite: String(values.get("invite") ?? ""),
+                }
+              : { displayName: String(values.get("displayName") ?? "") },
+      },
+    );
     if (isWorkspaceShellView(result)) {
+      if (action === "retry") {
+        actionMessage = "Join retry sent. Waiting for the inviter.";
+      }
       render(result);
     }
   } catch (error) {
@@ -137,29 +150,13 @@ async function copyInvite(): Promise<void> {
   }
 }
 
-async function retryJoin(): Promise<void> {
-  const displayName = window.prompt("Your name")?.trim();
-  if (!displayName) {
-    return;
-  }
-  try {
-    const result = await invoke<WorkspaceShellView>("retry_workspace_join", {
-      request: { displayName },
-    });
-    if (isWorkspaceShellView(result)) {
-      render(result);
-    }
-  } catch (error) {
-    showActionError(error);
-  }
-}
-
 function optionalValue(value: FormDataEntryValue | null): string | null {
   const text = typeof value === "string" ? value.trim() : "";
   return text || null;
 }
 
 function showActionMessage(message: string): void {
+  actionMessage = message;
   requiredElement<HTMLParagraphElement>(".message").textContent = message;
 }
 

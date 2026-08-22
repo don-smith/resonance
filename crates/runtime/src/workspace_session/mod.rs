@@ -1,6 +1,7 @@
 //! Active-workspace state machine over a secret-free delivery port.
 
 use std::{
+    collections::BTreeMap,
     fmt,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -14,9 +15,13 @@ use crate::{
     },
     protocol::{Envelope, EnvelopeBody, ProtocolError},
     workspace_catalog::{WorkspaceCatalog, WorkspaceCatalogError},
-    workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken},
+    workspace_domain::{
+        KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
+    },
     workspace_store::WorkspaceStoreError,
 };
+
+pub const HEARTBEAT_TTL_SECONDS: i64 = 30;
 
 pub trait DeliveryPort {
     fn send(&mut self, message: Vec<u8>);
@@ -45,12 +50,14 @@ pub struct ActiveWorkspaceView {
     pub workspace: WorkspaceSummary,
     pub local_public_identity: String,
     pub members: Vec<Member>,
+    pub peers: Vec<KnownPeer>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceTransition {
     WorkspaceChanged(ActiveWorkspaceView),
     MemberJoined(Member),
+    PeerPresenceChanged(KnownPeer),
 }
 
 #[derive(Debug)]
@@ -122,6 +129,13 @@ struct ActiveWorkspace {
     summary: WorkspaceSummary,
     log: MembershipLog,
     joining_inviter: Option<[u8; 32]>,
+    peers: BTreeMap<String, PeerState>,
+}
+
+#[derive(Clone)]
+struct PeerState {
+    last_heartbeat: i64,
+    connection: PeerConnection,
 }
 
 impl<D: DeliveryPort> WorkspaceSession<D> {
@@ -213,6 +227,71 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         self.send(EnvelopeBody::MembershipSyncRequest, workspace_id)
     }
 
+    pub(crate) fn is_ready(&self) -> Result<bool, WorkspaceSessionError> {
+        Ok(self.active()?.summary.lifecycle == WorkspaceLifecycle::Ready)
+    }
+
+    pub fn send_heartbeat(&mut self) -> Result<(), WorkspaceSessionError> {
+        let workspace_id = self.active()?.summary.id.as_str().to_owned();
+        self.send(EnvelopeBody::Heartbeat { sent_at: now()? }, workspace_id)
+    }
+
+    /// Refines a validated member's current connection without treating a gossip neighbor as a member.
+    pub fn observe_connection(
+        &mut self,
+        public_identity: [u8; 32],
+        connection: PeerConnection,
+    ) -> Result<(), WorkspaceSessionError> {
+        let public_identity = public_identity_text(&public_identity);
+        if !self.projection().contains(&public_identity) {
+            return Ok(());
+        }
+        let peer = {
+            let active = self.active_mut()?;
+            let state = active
+                .peers
+                .entry(public_identity.clone())
+                .or_insert(PeerState {
+                    last_heartbeat: 0,
+                    connection: PeerConnection::Unknown,
+                });
+            state.connection = connection;
+            KnownPeer {
+                public_identity: public_identity.clone(),
+                online: state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) >= now()?,
+                connection: state.connection.clone(),
+            }
+        };
+        self.transitions
+            .push(WorkspaceTransition::PeerPresenceChanged(peer));
+        Ok(())
+    }
+
+    /// Expires old heartbeat observations while retaining known-member connection data.
+    pub fn expire_presence(&mut self, at: i64) -> Result<(), WorkspaceSessionError> {
+        let members = self.projection();
+        let changed = self
+            .active_mut()?
+            .peers
+            .iter()
+            .filter(|(public_identity, state)| {
+                members.contains(public_identity)
+                    && state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) < at
+            })
+            .map(|(public_identity, state)| KnownPeer {
+                public_identity: public_identity.clone(),
+                online: false,
+                connection: state.connection.clone(),
+            })
+            .collect::<Vec<_>>();
+        self.transitions.extend(
+            changed
+                .into_iter()
+                .map(WorkspaceTransition::PeerPresenceChanged),
+        );
+        Ok(())
+    }
+
     pub fn receive(&mut self, bytes: &[u8]) -> Result<(), WorkspaceSessionError> {
         let envelope = Envelope::decode(bytes)?;
         envelope.verify()?;
@@ -281,6 +360,12 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                     self.persist_operation(operation)?;
                 }
             }
+            EnvelopeBody::Heartbeat { sent_at } => {
+                if !sender_is_member {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission);
+                }
+                self.record_heartbeat(sender, sent_at)?;
+            }
         }
         Ok(())
     }
@@ -290,6 +375,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let view = ActiveWorkspaceView {
             workspace: self.active()?.summary.clone(),
             local_public_identity: self.identity.public_identity().to_string(),
+            peers: self.known_peers(&projection, now()?),
             members: projection.members,
         };
         self.transitions
@@ -302,6 +388,18 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         std::mem::take(&mut self.transitions)
     }
 
+    pub(crate) fn transport_identity(&self) -> &InstallationIdentity {
+        &self.identity
+    }
+
+    pub(crate) fn transport_settings(
+        &self,
+    ) -> Result<([u8; 32], Option<String>), WorkspaceSessionError> {
+        let store = self.catalog.open_workspace(&self.active()?.summary.id)?;
+        let settings = store.private_settings()?;
+        Ok((*settings.token.as_bytes(), settings.relay_override))
+    }
+
     pub fn delivery_mut(&mut self) -> &mut D {
         &mut self.delivery
     }
@@ -309,6 +407,47 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     #[must_use]
     pub fn into_delivery(self) -> D {
         self.delivery
+    }
+
+    fn record_heartbeat(
+        &mut self,
+        sender: String,
+        sent_at: i64,
+    ) -> Result<(), WorkspaceSessionError> {
+        let peer = {
+            let active = self.active_mut()?;
+            let state = active.peers.entry(sender.clone()).or_insert(PeerState {
+                last_heartbeat: sent_at,
+                connection: PeerConnection::Unknown,
+            });
+            state.last_heartbeat = state.last_heartbeat.max(sent_at);
+            KnownPeer {
+                public_identity: sender,
+                online: true,
+                connection: state.connection.clone(),
+            }
+        };
+        self.transitions
+            .push(WorkspaceTransition::PeerPresenceChanged(peer));
+        Ok(())
+    }
+
+    fn known_peers(&self, projection: &MembershipProjection, at: i64) -> Vec<KnownPeer> {
+        self.active
+            .as_ref()
+            .map(|active| {
+                active
+                    .peers
+                    .iter()
+                    .filter(|(public_identity, _)| projection.contains(public_identity))
+                    .map(|(public_identity, state)| KnownPeer {
+                        public_identity: public_identity.clone(),
+                        online: state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) >= at,
+                        connection: state.connection.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn activate(
@@ -325,6 +464,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             summary,
             log,
             joining_inviter,
+            peers: BTreeMap::new(),
         });
         Ok(())
     }

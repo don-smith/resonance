@@ -5,6 +5,7 @@
 
 pub mod identity;
 pub mod invite;
+pub mod iroh_transport;
 pub mod membership_log;
 pub mod packages;
 pub mod protocol;

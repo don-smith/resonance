@@ -111,6 +111,10 @@ impl InstallationIdentity {
     pub(crate) fn sign(&self, message: &[u8]) -> [u8; 64] {
         self.secret_key.sign(message).to_bytes()
     }
+
+    pub(crate) fn transport_secret_key(&self) -> SecretKey {
+        self.secret_key.clone()
+    }
 }
 
 pub struct NativeKeyCustody {

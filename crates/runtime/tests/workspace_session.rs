@@ -9,8 +9,8 @@ use resonance_runtime::{
     invite::Invite,
     protocol::{Envelope, EnvelopeBody},
     workspace_catalog::WorkspaceCatalog,
-    workspace_domain::WorkspaceLifecycle,
-    workspace_session::{FakeDeliveryPort, WorkspaceSession},
+    workspace_domain::{PeerConnection, WorkspaceLifecycle},
+    workspace_session::{FakeDeliveryPort, WorkspaceSession, WorkspaceTransition},
 };
 
 fn temporary_directory(name: &str) -> PathBuf {
@@ -124,6 +124,53 @@ fn keeps_joining_retryable_and_recovers_the_full_operation_set() {
         .expect("joiner restores membership log");
 
     assert_eq!(joiner.view().expect("view").members.len(), 2);
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
+fn derives_known_member_presence_from_signed_heartbeats_not_unknown_senders() {
+    let inviter_directory = temporary_directory("presence-inviter");
+    let joiner_directory = temporary_directory("presence-joiner");
+    let mut inviter = session(&inviter_directory);
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let invite = inviter.create_invite("bootstrap").expect("invite creates");
+    let mut joiner = session(&joiner_directory);
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    let request = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("join request sends");
+    inviter.receive(&request).expect("inviter admits joiner");
+    let admission = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("admission sends");
+    joiner.receive(&admission).expect("joiner is admitted");
+
+    joiner.send_heartbeat().expect("heartbeat sends");
+    let heartbeat = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("heartbeat queues");
+    inviter
+        .receive(&heartbeat)
+        .expect("member heartbeat applies");
+    let peers = inviter.view().expect("view remains available").peers;
+    assert_eq!(peers.len(), 1);
+    assert!(peers[0].online);
+    assert_eq!(peers[0].connection, PeerConnection::Unknown);
+
+    inviter.expire_presence(i64::MAX).expect("presence expires");
+    assert!(inviter
+        .take_transitions()
+        .iter()
+        .any(|transition| matches!(transition, WorkspaceTransition::PeerPresenceChanged(peer) if !peer.online)));
     fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
     fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
 }

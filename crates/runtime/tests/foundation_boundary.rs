@@ -1,6 +1,7 @@
 const RUNTIME_MANIFEST: &str = include_str!("../Cargo.toml");
 const RUNTIME_MODULES: &str = include_str!("../src/lib.rs");
 const IDENTITY_MODULE: &str = include_str!("../src/identity/mod.rs");
+const IROH_TRANSPORT_MODULE: &str = include_str!("../src/iroh_transport/mod.rs");
 const WORKSPACE_DOMAIN: &str = include_str!("../src/workspace_domain.rs");
 const DESKTOP_BOOTSTRAP: &str = include_str!("../../../apps/desktop/src-tauri/src/main.rs");
 const DESKTOP_COMMANDS: &str =
@@ -22,6 +23,7 @@ fn permits_identity_and_transport_dependencies_behind_runtime_modules() {
     }
     for module in [
         "pub mod identity;",
+        "pub mod iroh_transport;",
         "pub mod workspace_catalog;",
         "pub mod workspace_domain;",
     ] {
@@ -59,6 +61,8 @@ fn keeps_private_keys_tokens_raw_transport_values_and_paths_out_of_shell_and_pac
 #[test]
 fn keeps_custody_and_workspace_tokens_runtime_private() {
     assert!(IDENTITY_MODULE.contains("secret_key: SecretKey"));
+    assert!(IROH_TRANSPORT_MODULE.contains("use iroh::"));
+    assert!(IROH_TRANSPORT_MODULE.contains("use iroh_gossip::"));
     assert!(WORKSPACE_DOMAIN.contains("pub(crate) struct WorkspaceToken"));
     assert!(!WORKSPACE_DOMAIN.contains("pub struct WorkspaceToken"));
 }

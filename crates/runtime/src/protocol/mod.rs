@@ -28,6 +28,9 @@ pub enum EnvelopeBody {
     },
     MembershipSyncRequest,
     MembershipSyncResponse(Vec<Vec<u8>>),
+    Heartbeat {
+        sent_at: i64,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]

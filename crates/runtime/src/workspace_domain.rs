@@ -65,6 +65,20 @@ pub struct Member {
     pub added_at: i64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PeerConnection {
+    Unknown,
+    Direct,
+    Relayed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KnownPeer {
+    pub public_identity: String,
+    pub online: bool,
+    pub connection: PeerConnection,
+}
+
 impl Member {
     #[must_use]
     pub fn new(

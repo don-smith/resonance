@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import {
   profileLaunches,
   removeProfileConfigurations,
+  removeProfileConfigurationsSync,
   resetProfile,
   tauriArguments,
   viteArguments,
@@ -12,7 +13,9 @@ import {
 } from "./desktop-profiles-lib.mjs";
 import { loadLocalDevelopmentEnvironment } from "./local-development-environment.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const scriptDirectory = dirname(fileURLToPath(import.meta.url));
+const root = resolve(scriptDirectory, "..");
+const cleanupScript = resolve(scriptDirectory, "desktop-profiles-cleanup.mjs");
 loadLocalDevelopmentEnvironment(root);
 const arguments_ = process.argv.slice(2);
 // pnpm keeps the forwarding separator in argv for package scripts.
@@ -33,13 +36,24 @@ async function main() {
 
   const profiles = profileLaunches(arguments_, root);
   await writeProfileConfigurations(profiles);
+  let configurationsRemoved = false;
+  const removeConfigurations = async () => {
+    if (configurationsRemoved) return;
+    configurationsRemoved = true;
+    await removeProfileConfigurations(profiles);
+  };
+  process.once("exit", () => {
+    if (!configurationsRemoved) removeProfileConfigurationsSync(profiles);
+  });
+  startCleanupSupervisor(profiles);
+
   const children = [];
   let stopping = false;
   const stop = async (exitCode) => {
     if (stopping) return;
     stopping = true;
     for (const child of children) child.kill("SIGTERM");
-    await removeProfileConfigurations(profiles);
+    await removeConfigurations();
     process.exitCode = exitCode;
   };
   const start = (command, childArguments, profile) => {
@@ -64,6 +78,19 @@ async function main() {
     start("pnpm", viteArguments(profile), profile);
   for (const profile of profiles)
     start("pnpm", tauriArguments(profile), profile);
+}
+
+function startCleanupSupervisor(profiles) {
+  const cleanup = spawn(
+    process.execPath,
+    [
+      cleanupScript,
+      String(process.pid),
+      ...profiles.map((profile) => profile.name),
+    ],
+    { cwd: root, detached: true, stdio: "ignore" },
+  );
+  cleanup.unref();
 }
 
 main().catch((error) => {

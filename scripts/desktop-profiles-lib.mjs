@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import {
   lstat,
   mkdir,
@@ -115,6 +115,10 @@ export async function removeProfileConfigurations(profiles) {
   await Promise.all(
     profiles.map((profile) => rm(profile.configPath, { force: true })),
   );
+}
+
+export function removeProfileConfigurationsSync(profiles) {
+  for (const profile of profiles) rmSync(profile.configPath, { force: true });
 }
 
 async function checkedDirectory(path) {

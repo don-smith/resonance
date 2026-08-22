@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   profileLaunches,
+  removeProfileConfigurationsSync,
   resetProfile,
   tauriArguments,
   validateProfileName,
@@ -31,13 +32,14 @@ describe("desktop profile launcher contract", () => {
       "alice",
     ]);
     expect(viteArguments(profiles[1])).toContain("--strictPort");
-
     await writeProfileConfigurations(profiles);
     const configuration = JSON.parse(
       await readFile(profiles[0].configPath, "utf8"),
     );
     expect(configuration.build.devUrl).toBe("http://127.0.0.1:1421");
     expect(configuration.identifier).toBe("com.resonance.desktop.debug.alice");
+    removeProfileConfigurationsSync(profiles);
+    await expect(readFile(profiles[0].configPath, "utf8")).rejects.toThrow();
   });
 
   it("rejects unsafe, duplicate, and incomplete launch input", () => {

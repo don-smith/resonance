@@ -86,7 +86,11 @@ if [[ -z "$signed_team" ]]; then
   exit 1
 fi
 
-open -n -a "$bundle" --args "${run_args[@]}"
+if ((${#run_args[@]})); then
+  open -n -a "$bundle" --args "${run_args[@]}"
+else
+  open -n -a "$bundle"
+fi
 
 for _ in {1..20}; do
   app_pid=$(pgrep -f "^$binary( |$)" | tail -n 1 || true)

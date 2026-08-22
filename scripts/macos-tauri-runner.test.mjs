@@ -10,6 +10,16 @@ const macosOnly = process.platform === "darwin" ? it : it.skip;
 
 describe("macOS Tauri runner", () => {
   macosOnly(
+    "launches the ordinary app without expanding an empty argument array",
+    async () => {
+      const runner = await readFile("scripts/macos-tauri-runner.sh", "utf8");
+
+      expect(runner).toContain("if ((${#run_args[@]})); then");
+      expect(runner).toContain('open -n -a "$bundle"');
+    },
+  );
+
+  macosOnly(
     "recognizes a profile app process that has application arguments",
     async () => {
       const runner = await readFile("scripts/macos-tauri-runner.sh", "utf8");

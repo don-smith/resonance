@@ -54,7 +54,7 @@ pub(crate) fn profile_argument(
     let arguments: Vec<_> = arguments.into_iter().collect();
     let has_profile_option = arguments
         .iter()
-        .any(|argument| argument == "--debug-profile");
+        .any(|argument| argument == "--debug-profile" || argument.starts_with("--debug-profile="));
     if !has_profile_option {
         return Ok(None);
     }
@@ -89,6 +89,10 @@ mod tests {
             profile_argument(arguments(&["--debug-profile", "alice"]), false),
             Err(StartupArgumentError::DebugProfilesDisabled)
         );
+        assert_eq!(
+            profile_argument(arguments(&["--debug-profile=alice"]), false),
+            Err(StartupArgumentError::DebugProfilesDisabled)
+        );
     }
 
     #[test]
@@ -101,6 +105,10 @@ mod tests {
         );
         assert_eq!(
             profile_argument(arguments(&["--debug-profile"]), true),
+            Err(StartupArgumentError::InvalidProfileArgument)
+        );
+        assert_eq!(
+            profile_argument(arguments(&["--debug-profile=alice"]), true),
             Err(StartupArgumentError::InvalidProfileArgument)
         );
         assert_eq!(

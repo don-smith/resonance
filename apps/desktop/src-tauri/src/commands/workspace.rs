@@ -131,6 +131,7 @@ impl ManagedWorkspaceState {
         let workspace = Arc::clone(&self.inner);
         tauri::async_runtime::spawn(async move {
             workspace.restart_transport(None).await;
+            workspace.emit_view().await;
             let mut last_heartbeat = time::Instant::now();
             loop {
                 workspace.poll_transport().await;
@@ -254,7 +255,7 @@ impl ManagedWorkspace {
     async fn poll_transport(&self) {
         let mut transport_guard = self.transport.lock().await;
         let mut session_guard = self.session.lock().await;
-        let has_transport = if let (Some(transport), Some(session)) =
+        let (has_transport, should_emit) = if let (Some(transport), Some(session)) =
             (transport_guard.as_mut(), session_guard.as_mut())
         {
             let result = time::timeout(
@@ -262,24 +263,28 @@ impl ManagedWorkspace {
                 transport.apply_next_session_event(session),
             )
             .await;
-            match result {
+            let should_emit = match result {
                 Ok(Ok(true)) => {
                     if transport.flush_session(session).await.is_err() {
                         *self.issue.lock().await = Some(network_issue());
                     }
+                    true
                 }
-                Ok(Ok(false)) | Err(_) => {}
-                Ok(Err(_)) => *self.issue.lock().await = Some(network_issue()),
-            }
-            true
+                Ok(Ok(false)) | Err(_) => false,
+                Ok(Err(_)) => {
+                    *self.issue.lock().await = Some(network_issue());
+                    true
+                }
+            };
+            (true, should_emit)
         } else {
-            false
+            (false, false)
         };
         drop(session_guard);
         drop(transport_guard);
-        if has_transport {
+        if should_emit {
             self.emit_view().await;
-        } else {
+        } else if !has_transport {
             time::sleep(Duration::from_secs(1)).await;
         }
     }

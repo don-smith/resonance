@@ -7,6 +7,7 @@ import {
   peerStatus,
   type WorkspaceShellView,
 } from "./workspace-view.js";
+import { createTemporaryMessage } from "./temporary-message.js";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) {
@@ -14,12 +15,20 @@ if (!app) {
 }
 const shell = app;
 let actionMessage: string | null = null;
+let currentView: WorkspaceShellView | null = null;
+const temporaryMessage = createTemporaryMessage((message) => {
+  actionMessage = message;
+  if (currentView) {
+    render(currentView);
+  }
+});
 
 function field(label: string, name: string, type = "text"): string {
   return `<label>${label}<input name="${name}" type="${type}" required /></label>`;
 }
 
 function render(view: WorkspaceShellView): void {
+  currentView = view;
   const onboarding = view.state === "onboarding";
   const blocked =
     view.state === "identity-error" || view.state === "storage-error";
@@ -33,7 +42,6 @@ function render(view: WorkspaceShellView): void {
         <p class="eyebrow">${onboarding ? "Get started" : "Workspace"}</p>
         <h1 id="app-title"></h1>
         <p class="message" role="status"></p>
-        <div class="identity"></div>
         <section class="onboarding" ${onboarding ? "" : "hidden"}>
           <h2>Create a workspace</h2>
           <form data-action="create">
@@ -72,10 +80,6 @@ function render(view: WorkspaceShellView): void {
     : (view.workspace?.displayName ?? "Workspace unavailable");
   requiredElement<HTMLParagraphElement>(".message").textContent =
     actionMessage ?? view.message ?? "";
-  requiredElement<HTMLDivElement>(".identity").textContent =
-    view.localPublicIdentity
-      ? `This installation: ${view.localPublicIdentity}`
-      : "";
 
   const members = requiredElement<HTMLUListElement>(".members");
   for (const member of view.members) {
@@ -105,7 +109,7 @@ async function submitForm(event: SubmitEvent): Promise<void> {
   const form = event.currentTarget as HTMLFormElement;
   const values = new FormData(form);
   const action = form.dataset.action;
-  actionMessage = null;
+  temporaryMessage.clear();
   try {
     const result = await invoke<WorkspaceShellView>(
       action === "create"
@@ -163,14 +167,14 @@ function optionalValue(value: FormDataEntryValue | null): string | null {
 }
 
 function showActionMessage(message: string): void {
-  actionMessage = message;
-  requiredElement<HTMLParagraphElement>(".message").textContent = message;
+  temporaryMessage.show(message);
 }
 
 function showActionError(error: unknown): void {
-  showActionMessage(
-    typeof error === "string" ? error : "The request could not be completed.",
-  );
+  temporaryMessage.clear();
+  actionMessage =
+    typeof error === "string" ? error : "The request could not be completed.";
+  requiredElement<HTMLParagraphElement>(".message").textContent = actionMessage;
 }
 
 function requiredElement<T extends Element>(selector: string): T {

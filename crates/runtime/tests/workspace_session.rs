@@ -111,6 +111,40 @@ fn ignores_a_joiners_own_gossip_echo() {
 }
 
 #[test]
+fn pending_joiner_ignores_an_inviter_heartbeat_before_membership_arrives() {
+    let inviter_directory = temporary_directory("early-heartbeat-inviter");
+    let joiner_directory = temporary_directory("early-heartbeat-joiner");
+    let mut inviter = session(&inviter_directory);
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let invite = inviter.create_invite("bootstrap").expect("invite creates");
+    assert!(inviter.send_heartbeat().expect("inviter heartbeat queues"));
+    let heartbeat = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("heartbeat is outbound");
+    let mut joiner = session(&joiner_directory);
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+
+    joiner
+        .receive(&heartbeat)
+        .expect("pre-admission inviter heartbeat is ignored");
+    assert_eq!(
+        joiner
+            .view()
+            .expect("joining view remains available")
+            .workspace
+            .lifecycle,
+        WorkspaceLifecycle::Joining
+    );
+
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
 fn pending_joiner_does_not_queue_a_heartbeat() {
     let inviter_directory = temporary_directory("heartbeat-inviter");
     let joiner_directory = temporary_directory("heartbeat-joiner");

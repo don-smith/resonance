@@ -407,10 +407,12 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 }
             }
             EnvelopeBody::Heartbeat { sent_at } => {
-                if !sender_is_member {
-                    return Err(WorkspaceSessionError::InvalidInviteAdmission);
+                // An inviter can be connected before its genesis/member record
+                // reaches a pending joiner. Its early heartbeat grants no
+                // authority and is safely ignored until membership is known.
+                if sender_is_member {
+                    self.record_heartbeat(sender, sent_at)?;
                 }
-                self.record_heartbeat(sender, sent_at)?;
             }
         }
         Ok(())

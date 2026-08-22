@@ -14,11 +14,12 @@ or agent execution.
 - Rust 1.98.0 with `rustfmt` and `clippy` (the pinned toolchain is declared in
   `rust-toolchain.toml`)
 - Platform prerequisites for [Tauri v2](https://v2.tauri.app/start/prerequisites/)
-  — on macOS, Xcode command-line tools; on Windows, WebView2 and the Microsoft
-  C++ Build Tools
+  — on macOS, full Xcode for initial signing setup; on Windows, WebView2 and the
+  Microsoft C++ Build Tools
 
-No secret, signing key, update endpoint, or cloud account is needed to develop
-this shell.
+No release secret, updater key, endpoint, or paid cloud account is needed to
+develop this shell. macOS development uses an Apple Development certificate
+from the developer's own Apple Account and free Xcode Personal Team.
 
 ## Start from a clean checkout
 
@@ -26,6 +27,28 @@ this shell.
 corepack pnpm install --frozen-lockfile
 pnpm desktop:dev
 ```
+
+On macOS, first sign in under Xcode Settings > Accounts and use Manage
+Certificates to create an Apple Development certificate. Then run:
+
+```sh
+scripts/setup-macos-development-signing.sh
+pnpm desktop:dev
+```
+
+The setup command asks once for the login Keychain password. If an existing
+Resonance installation identity still trusts an older development signer,
+choose Always Allow in the one-time Keychain dialog. The command stores only
+the selected certificate hash in the ignored `.resonance/.env`; it does not
+print or persist the installation identity or Keychain password. If Xcode has
+created a certificate but the command cannot find a valid identity, install the
+current WWDR intermediate certificate from [Apple PKI](https://www.apple.com/certificateauthority/)
+and rerun it.
+
+Each Mac developer should provision a separate Apple Development certificate.
+Do not share its private key. Rerun the setup after replacing or renewing the
+certificate. The development launcher fails before launch if the configured
+identity is missing instead of falling back to ad-hoc or self-signed code.
 
 The shell opens with navigation, local-workspace bootstrap status, and no
 content surface.

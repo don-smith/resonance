@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "scripts": {
-    "desktop:dev": "pnpm --filter @resonance/desktop tauri dev",
+    "desktop:dev": "node scripts/desktop-dev.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",

@@ -210,7 +210,7 @@ impl WorkspaceStore {
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         let changed = connection.execute(
-            "UPDATE workspace_configuration SET joining_inviter = NULL, bootstrap = NULL, joining_display_name = NULL WHERE singleton = 1",
+            "UPDATE workspace_configuration SET joining_inviter = NULL, joining_display_name = NULL WHERE singleton = 1",
             [],
         )?;
         if changed == 0 {

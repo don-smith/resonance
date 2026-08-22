@@ -606,7 +606,6 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             store.clear_pending_join_admission()?;
             self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
             self.active_mut()?.joining_inviter = None;
-            self.active_mut()?.bootstrap = None;
             self.active_mut()?.joining_display_name = None;
         }
         Ok(())
@@ -692,4 +691,74 @@ fn now() -> Result<i64, WorkspaceSessionError> {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs().try_into().unwrap_or(i64::MAX))
         .map_err(|_| WorkspaceSessionError::ClockUnavailable)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        identity::{InMemoryKeyCustody, InstallationIdentity},
+        workspace_catalog::WorkspaceCatalog,
+    };
+
+    use super::{FakeDeliveryPort, WorkspaceSession};
+
+    #[test]
+    fn retains_an_admitted_inviter_as_a_restart_bootstrap_peer() {
+        let inviter_directory = tempfile::tempdir().expect("inviter directory creates");
+        let joiner_directory = tempfile::tempdir().expect("joiner directory creates");
+        let inviter_custody = InMemoryKeyCustody::default();
+        let joiner_custody = InMemoryKeyCustody::default();
+        let mut inviter = WorkspaceSession::new(
+            InstallationIdentity::load_or_create(&inviter_custody)
+                .expect("inviter identity creates"),
+            WorkspaceCatalog::open(inviter_directory.path()).expect("inviter catalog opens"),
+            FakeDeliveryPort::default(),
+        );
+        inviter
+            .create_workspace("Team Resonance", None)
+            .expect("workspace creates");
+        let invite = inviter.create_invite("bootstrap").expect("invite creates");
+        let mut joiner = WorkspaceSession::new(
+            InstallationIdentity::load_or_create(&joiner_custody).expect("joiner identity creates"),
+            WorkspaceCatalog::open(joiner_directory.path()).expect("joiner catalog opens"),
+            FakeDeliveryPort::default(),
+        );
+        joiner.join_workspace(&invite, "Lin").expect("join starts");
+        let join_request = joiner
+            .delivery_mut()
+            .take_outbound()
+            .pop()
+            .expect("join request queues");
+        inviter.receive(&join_request).expect("inviter admits");
+        let admission = inviter
+            .delivery_mut()
+            .take_outbound()
+            .pop()
+            .expect("admission queues");
+        joiner.receive(&admission).expect("joiner is admitted");
+
+        assert_eq!(
+            joiner
+                .transport_bootstrap()
+                .expect("bootstrap is available"),
+            Some("bootstrap")
+        );
+        drop(joiner);
+
+        let mut restarted_joiner = WorkspaceSession::new(
+            InstallationIdentity::load_or_create(&joiner_custody).expect("joiner identity reloads"),
+            WorkspaceCatalog::open(joiner_directory.path()).expect("joiner catalog reopens"),
+            FakeDeliveryPort::default(),
+        );
+        restarted_joiner
+            .activate_active_workspace()
+            .expect("workspace activates");
+
+        assert_eq!(
+            restarted_joiner
+                .transport_bootstrap()
+                .expect("persisted bootstrap is available"),
+            Some("bootstrap")
+        );
+    }
 }

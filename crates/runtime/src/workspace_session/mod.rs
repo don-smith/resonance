@@ -129,6 +129,7 @@ struct ActiveWorkspace {
     summary: WorkspaceSummary,
     log: MembershipLog,
     joining_inviter: Option<[u8; 32]>,
+    bootstrap: Option<String>,
     peers: BTreeMap<String, PeerState>,
 }
 
@@ -168,7 +169,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let Some(summary) = self.catalog.active_workspace()? else {
             return Ok(None);
         };
-        self.activate(summary, None)?;
+        self.activate(summary)?;
         self.view().map(Some)
     }
 
@@ -187,7 +188,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             relay_override,
             WorkspaceLifecycle::Ready,
         )?;
-        self.activate(summary, None)?;
+        self.activate(summary)?;
         let workspace_id = self.active()?.summary.id.as_str().to_owned();
         let genesis = SignedMembershipOperation::genesis(
             &self.identity,
@@ -228,7 +229,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             invite.relay_override().map(ToOwned::to_owned),
             WorkspaceLifecycle::Joining,
         )?;
-        self.activate(summary, Some(invite.inviter()))?;
+        let store = self.catalog.open_workspace(&summary.id)?;
+        store.set_pending_join_admission(invite.inviter(), invite.bootstrap())?;
+        self.activate(summary)?;
         self.send_join_request(display_name.into())?;
         debug_assert_eq!(self.active()?.summary.id.as_str(), workspace_id);
         self.view()
@@ -433,6 +436,10 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         Ok((*settings.token.as_bytes(), settings.relay_override))
     }
 
+    pub(crate) fn transport_bootstrap(&self) -> Result<Option<&str>, WorkspaceSessionError> {
+        Ok(self.active()?.bootstrap.as_deref())
+    }
+
     pub fn delivery_mut(&mut self) -> &mut D {
         &mut self.delivery
     }
@@ -485,12 +492,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             .unwrap_or_default()
     }
 
-    fn activate(
-        &mut self,
-        summary: WorkspaceSummary,
-        joining_inviter: Option<[u8; 32]>,
-    ) -> Result<(), WorkspaceSessionError> {
+    fn activate(&mut self, summary: WorkspaceSummary) -> Result<(), WorkspaceSessionError> {
         let store = self.catalog.open_workspace(&summary.id)?;
+        let settings = store.private_settings()?;
         let mut log = MembershipLog::new();
         for operation in store.membership_operations()? {
             log.insert_bytes(&operation)?;
@@ -498,7 +502,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         self.active = Some(ActiveWorkspace {
             summary,
             log,
-            joining_inviter,
+            joining_inviter: settings.joining_inviter,
+            bootstrap: settings.bootstrap,
             peers: BTreeMap::new(),
         });
         Ok(())
@@ -545,8 +550,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             let id = self.active()?.summary.id.clone();
             self.catalog
                 .set_workspace_lifecycle(&id, WorkspaceLifecycle::Ready)?;
+            let store = self.catalog.open_workspace(&id)?;
+            store.clear_pending_join_admission()?;
             self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
             self.active_mut()?.joining_inviter = None;
+            self.active_mut()?.bootstrap = None;
         }
         Ok(())
     }

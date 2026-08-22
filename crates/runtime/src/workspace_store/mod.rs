@@ -14,7 +14,7 @@ use rusqlite::{params, Connection};
 
 use crate::workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken};
 
-const CURRENT_SCHEMA_VERSION: i32 = 2;
+const CURRENT_SCHEMA_VERSION: i32 = 3;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentMetadata {
@@ -41,6 +41,8 @@ pub(crate) struct PrivateWorkspaceSettings {
     pub token: WorkspaceToken,
     pub display_name: String,
     pub relay_override: Option<String>,
+    pub joining_inviter: Option<[u8; 32]>,
+    pub bootstrap: Option<String>,
 }
 
 #[derive(Debug)]
@@ -143,7 +145,7 @@ impl WorkspaceStore {
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         connection
             .query_row(
-                "SELECT token, display_name, relay_override FROM workspace_configuration WHERE singleton = 1",
+                "SELECT token, display_name, relay_override, joining_inviter, bootstrap FROM workspace_configuration WHERE singleton = 1",
                 [],
                 |row| {
                     let token: Vec<u8> = row.get(0)?;
@@ -154,15 +156,65 @@ impl WorkspaceStore {
                             "workspace token has the wrong length".into(),
                         )
                     })?;
+                    let joining_inviter: Option<Vec<u8>> = row.get(3)?;
+                    let joining_inviter = joining_inviter
+                        .map(|bytes| {
+                            bytes.try_into().map_err(|_| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    3,
+                                    rusqlite::types::Type::Blob,
+                                    "joining inviter has the wrong length".into(),
+                                )
+                            })
+                        })
+                        .transpose()?;
                     Ok(PrivateWorkspaceSettings {
                         token: WorkspaceToken::from_bytes(token),
                         display_name: row.get(1)?,
                         relay_override: row.get(2)?,
+                        joining_inviter,
+                        bootstrap: row.get(4)?,
                     })
                 },
             )
             .optional()?
             .ok_or(WorkspaceStoreError::WorkspaceConfigurationMissing)
+    }
+
+    pub(crate) fn set_pending_join_admission(
+        &self,
+        inviter: [u8; 32],
+        bootstrap: &str,
+    ) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let changed = connection.execute(
+            "UPDATE workspace_configuration SET joining_inviter = ?1, bootstrap = ?2 WHERE singleton = 1",
+            params![inviter.as_slice(), bootstrap],
+        )?;
+        if changed == 0 {
+            Err(WorkspaceStoreError::WorkspaceConfigurationMissing)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn clear_pending_join_admission(&self) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let changed = connection.execute(
+            "UPDATE workspace_configuration SET joining_inviter = NULL, bootstrap = NULL WHERE singleton = 1",
+            [],
+        )?;
+        if changed == 0 {
+            Err(WorkspaceStoreError::WorkspaceConfigurationMissing)
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) fn set_lifecycle(
@@ -418,6 +470,12 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
     if version == 1 {
         connection.execute_batch(include_str!("../../migrations/0002_workspace_identity.sql"))?;
         version = 2;
+    }
+    if version == 2 {
+        connection.execute_batch(include_str!(
+            "../../migrations/0003_pending_join_admission.sql"
+        ))?;
+        version = 3;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

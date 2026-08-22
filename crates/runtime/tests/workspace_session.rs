@@ -80,6 +80,42 @@ fn creates_an_invite_and_completes_a_named_inviter_join() {
 }
 
 #[test]
+fn restores_pending_join_admission_after_a_session_restart() {
+    let inviter_directory = temporary_directory("resume-inviter");
+    let joiner_directory = temporary_directory("resume-joiner");
+    let mut inviter = session(&inviter_directory);
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let invite = inviter.create_invite("bootstrap").expect("invite creates");
+
+    let custody = InMemoryKeyCustody::default();
+    let mut joiner = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("joiner identity creates"),
+        WorkspaceCatalog::open(&joiner_directory).expect("joiner catalog opens"),
+        FakeDeliveryPort::default(),
+    );
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    drop(joiner);
+
+    let mut resumed = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("joiner identity reloads"),
+        WorkspaceCatalog::open(&joiner_directory).expect("joiner catalog reopens"),
+        FakeDeliveryPort::default(),
+    );
+    resumed
+        .activate_active_workspace()
+        .expect("pending workspace restores");
+    assert!(resumed
+        .retry_join("Lin")
+        .expect("restored pending join retries"));
+    assert_eq!(resumed.delivery_mut().take_outbound().len(), 1);
+
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
 fn keeps_joining_retryable_and_recovers_the_full_operation_set() {
     let inviter_directory = temporary_directory("retry-inviter");
     let joiner_directory = temporary_directory("retry-joiner");

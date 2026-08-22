@@ -23,7 +23,6 @@ struct ManagedWorkspace {
     app: AppHandle,
     session: Mutex<Option<WorkspaceSession<FakeDeliveryPort>>>,
     transport: Mutex<Option<IrohTransport>>,
-    bootstrap: Mutex<Option<String>>,
     issue: Mutex<Option<WorkspaceIssue>>,
     local_public_identity: Option<String>,
 }
@@ -120,7 +119,6 @@ impl ManagedWorkspaceState {
                 app,
                 session: Mutex::new(session),
                 transport: Mutex::new(None),
-                bootstrap: Mutex::new(None),
                 issue: Mutex::new(issue),
                 local_public_identity,
             }),
@@ -130,7 +128,7 @@ impl ManagedWorkspaceState {
     pub fn start_lifecycle(&self) {
         let workspace = Arc::clone(&self.inner);
         tauri::async_runtime::spawn(async move {
-            workspace.restart_transport(None).await;
+            workspace.restart_transport().await;
             workspace.emit_view().await;
             let mut last_heartbeat = time::Instant::now();
             loop {
@@ -229,7 +227,7 @@ impl ManagedWorkspace {
         }
     }
 
-    async fn restart_transport(&self, bootstrap: Option<String>) {
+    async fn restart_transport(&self) {
         let mut transport = self.transport.lock().await;
         if let Some(mut active) = transport.take() {
             let _ = active.shutdown().await;
@@ -238,14 +236,13 @@ impl ManagedWorkspace {
         let Some(session) = session.as_mut() else {
             return;
         };
-        match IrohTransport::start_for_session(session, bootstrap.as_deref()).await {
+        match IrohTransport::start_for_session(session).await {
             Ok(active) => {
                 if active.flush_session(session).await.is_err() {
                     *self.issue.lock().await = Some(network_issue());
                 } else {
                     *self.issue.lock().await = None;
                 }
-                *self.bootstrap.lock().await = bootstrap;
                 *transport = Some(active);
             }
             Err(error) => *self.issue.lock().await = Some(network_start_issue(error)),
@@ -344,7 +341,7 @@ pub async fn create_workspace(
             .create_workspace(request.display_name, request.relay_override)
             .map_err(|_| "Resonance could not create this workspace.".to_owned())?;
     }
-    state.inner.restart_transport(None).await;
+    state.inner.restart_transport().await;
     state.inner.emit_view().await;
     Ok(state.inner.view().await)
 }
@@ -376,10 +373,8 @@ pub async fn join_workspace(
     request: JoinWorkspaceRequest,
     state: State<'_, ManagedWorkspaceState>,
 ) -> Result<WorkspaceShellView, String> {
-    let bootstrap = Invite::decode(&request.invite)
-        .map_err(|_| "That invite is invalid or has been altered.".to_owned())?
-        .bootstrap()
-        .to_owned();
+    Invite::decode(&request.invite)
+        .map_err(|_| "That invite is invalid or has been altered.".to_owned())?;
     {
         let mut session = state.inner.session.lock().await;
         let session = session.as_mut().ok_or_else(|| {
@@ -389,7 +384,7 @@ pub async fn join_workspace(
             .join_workspace(&request.invite, request.display_name)
             .map_err(|_| "Resonance could not join this workspace.".to_owned())?;
     }
-    state.inner.restart_transport(Some(bootstrap)).await;
+    state.inner.restart_transport().await;
     state.inner.emit_view().await;
     Ok(state.inner.view().await)
 }
@@ -409,8 +404,7 @@ pub async fn retry_workspace_join(
             .map_err(|_| "Resonance could not retry this workspace join.".to_owned())?
     };
     if retry_sent {
-        let bootstrap = state.inner.bootstrap.lock().await.clone();
-        state.inner.restart_transport(bootstrap).await;
+        state.inner.restart_transport().await;
         state.inner.emit_view().await;
     }
     Ok(state.inner.view().await)

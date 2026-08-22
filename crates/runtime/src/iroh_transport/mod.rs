@@ -138,14 +138,13 @@ impl IrohTransport {
 
     pub async fn start_for_session(
         session: &WorkspaceSession<FakeDeliveryPort>,
-        bootstrap: Option<&str>,
     ) -> Result<Self, IrohSessionAdapterError> {
         let (workspace_token, relay_override) = session.transport_settings()?;
         Ok(Self::start(
             session.transport_identity(),
             workspace_token,
             relay_override.as_deref(),
-            bootstrap,
+            session.transport_bootstrap()?,
         )
         .await?)
     }

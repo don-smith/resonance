@@ -26,6 +26,9 @@ describe("package manifest v1", () => {
     expect("manifest" in result && result.manifest.id).toBe(
       "resonance.reference",
     );
+    expect("manifest" in result && result.manifest.events.emits).toContain(
+      "peer:connection",
+    );
   });
 
   it("generates a manifest that validates through the author adapter", async () => {

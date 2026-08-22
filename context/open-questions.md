@@ -6,17 +6,11 @@ Design uncertainties that need resolution before or during implementation. Each 
 
 ## OQ-01 — Iroh relay: use default or self-host?
 
-**Blocks:** `02-system/02-transport/` spec, Phase 2 implementation
+**Status:** Resolved (2026-08-21, RFC 0007).
 
-**Question:** Should the reference implementation use Iroh's default public relay (`relay.iroh.network`) or ship a self-hosted relay that teams control?
+**Decision:** Persist an optional workspace relay override. Its absence uses Iroh's public production relay mode; a configured URL creates the custom relay mode for that active workspace. The reference implementation hosts no relay and defers self-hosting documentation.
 
-**Considerations:**
-- Default relay is zero-configuration and removes infrastructure from the critical path for early development.
-- Self-hosted relay is better for privacy (the relay operator can see connection metadata, though not content).
-- Teams forking the runtime may want to self-host regardless of the default.
-- A configurable relay URL (defaulting to the Iroh public relay) satisfies both: simple out of the box, overridable.
-
-**Resolution path:** Decide before Phase 2. Preferred answer: configurable URL, default to Iroh public relay, document self-hosting.
+**Rationale:** This provides zero-configuration onboarding without making the public relay a permanent or compiled-in deployment decision.
 
 ---
 
@@ -90,16 +84,11 @@ Design uncertainties that need resolution before or during implementation. Each 
 
 ## OQ-06 — Workspace scope: single or multi-team?
 
-**Blocks:** `01-product/` requirements, Phase 2 identity design
+**Status:** Resolved (2026-08-21, RFC 0007).
 
-**Question:** Does one Resonance installation support one workspace (one team) or multiple workspaces (multiple teams)?
+**Decision:** An installation identity may join multiple independently stored workspaces. The first desktop shell exposes one active workspace and intentionally has no workspace switcher.
 
-**Considerations:**
-- Single workspace: simpler identity and UI model. A consultant who works with multiple teams must run separate installations.
-- Multiple workspaces: more complex (workspace switching in the shell, separate member lists, separate event buses per workspace). Required if Resonance itself is used across multiple client teams.
-- Don's use case (consulting across multiple teams) suggests multi-workspace is the right long-term model.
-
-**Resolution path:** Design the identity layer (Phase 2) to be workspace-scoped but not workspace-singular. Defer the multi-workspace UI to a post-Phase 2 follow-up.
+**Rationale:** Workspace isolation is established before collaboration data arrives, while the first UI remains small and focused.
 
 ---
 

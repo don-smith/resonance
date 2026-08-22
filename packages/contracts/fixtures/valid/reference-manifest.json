@@ -6,7 +6,11 @@
   "description": "A validated example package.",
   "nav": { "label": "Reference", "icon": "book" },
   "events": {
-    "emits": ["doc:opened", "agent-context:document-selected"],
+    "emits": [
+      "doc:opened",
+      "peer:connection",
+      "agent-context:document-selected"
+    ],
     "consumes": ["workspace:member-added"]
   },
   "minRole": "viewer",

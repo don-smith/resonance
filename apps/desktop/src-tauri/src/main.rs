@@ -21,8 +21,12 @@ fn main() {
                     .map_err(std::io::Error::other)?;
             }
             let application_data = app.path().app_data_dir()?;
-            commands::workspace::bootstrap_default_workspace(&application_data)
-                .map_err(std::io::Error::other)?;
+            let workspace = commands::workspace::ManagedWorkspaceState::initialize(
+                app.handle().clone(),
+                &application_data,
+            );
+            workspace.start_lifecycle();
+            app.manage(workspace);
             if let Some(window) = app.get_webview_window("main") {
                 window.center()?;
                 window.unminimize()?;
@@ -33,7 +37,11 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::packages::bundled_package_ids,
-            commands::workspace::default_workspace_status
+            commands::workspace::workspace_view,
+            commands::workspace::create_workspace,
+            commands::workspace::create_workspace_invite,
+            commands::workspace::join_workspace,
+            commands::workspace::retry_workspace_join
         ])
         .run(tauri::generate_context!())
         .expect("error while running Resonance");

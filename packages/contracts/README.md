@@ -14,7 +14,8 @@ namespace is `resonance.*`.
 
 Roles are `viewer`, `contributor`, and `developer`. Standard events are
 `repo:changed`, `doc:updated`, `doc:opened`, `message:received`, `peer:joined`,
-`peer:left`, `workspace:member-added`, and `workspace:member-removed`. A package
+`peer:left`, `peer:connection`, `workspace:member-added`, and
+`workspace:member-removed`. A package
 may declare its own lowercase `namespace:event` or `agent-context:event` name.
 The runtime routes declared events without interpreting their payloads.
 

@@ -8,11 +8,11 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **Identity.** An Ed25519 keypair held by one team member on one device. The public key is the member's identity. The private key never leaves the device's OS keychain. `See: 02-system/01-identity/`
 
-**Workspace.** A set of members who share a workspace token. A workspace has a member list (a signed set of public keys), a set of conversation channels, and a set of planning documents. A member belongs to exactly one workspace per app installation. `See: 02-system/01-identity/`
+**Workspace.** A set of members who share a workspace token. A workspace has a member list (a causally signed, deterministically projected set of public keys), a set of conversation channels, and a set of planning documents. An installation identity may belong to multiple independently stored workspaces; the first shell presents one active workspace. `See: 02-system/01-identity/`
 
-**Workspace token.** A 32-byte random key that identifies a workspace. Used as the Iroh topic key for workspace membership gossip. A new token invalidates access for all prior holders (the basis of v1 revocation).
+**Workspace token.** A 32-byte random key that identifies a workspace. A domain-separated digest derives its Iroh topic ID for workspace membership gossip. A new token invalidates access for all prior holders (the basis of v1 revocation).
 
-**Invite token.** A short encoded string containing a workspace token, the inviter's public key, and a bootstrap peer hint. Shared over any side channel. Accepting an invite joins the workspace.
+**Invite token.** A short base58-encoded, inviter-signed string containing workspace data, the inviter's public key, relay configuration, and a bootstrap peer hint. Shared over any side channel. Accepting an invite requests a contributor membership through the named inviter.
 
 **Member.** A team member whose public key appears in the workspace member list. Members may author documents and messages; updates from non-members are dropped by peers.
 
@@ -54,7 +54,7 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **P2P transport.** The Iroh-based layer that manages peer connections, hole-punching, relay fallback, blob replication, and gossip. Used for CRDT document sync, conversation replication, and workspace membership. `See: 02-system/02-transport/`
 
-**Gossip topic.** An Iroh gossip channel identified by a 32-byte key. Used for workspace membership, document awareness, and chat channel discovery.
+**Gossip topic.** An Iroh gossip channel identified by a domain-separated digest of the workspace token. Used for membership delivery/recovery, signed presence, document awareness, and chat channel discovery. It is not the membership authority or a durable history.
 
 **CRDT.** Conflict-free Replicated Data Type. Resonance uses Yjs as the CRDT implementation for planning documents. A CRDT guarantees eventual convergence without coordination. `See: 02-system/03-documents/`
 

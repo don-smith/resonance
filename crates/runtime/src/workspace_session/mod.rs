@@ -150,6 +150,27 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         }
     }
 
+    #[must_use]
+    pub fn local_public_identity(&self) -> String {
+        self.identity.public_identity().to_string()
+    }
+
+    #[must_use]
+    pub fn has_active_workspace(&self) -> bool {
+        self.active.is_some()
+    }
+
+    /// Restores the catalog's active workspace, if this installation has one.
+    pub fn activate_active_workspace(
+        &mut self,
+    ) -> Result<Option<ActiveWorkspaceView>, WorkspaceSessionError> {
+        let Some(summary) = self.catalog.active_workspace()? else {
+            return Ok(None);
+        };
+        self.activate(summary, None)?;
+        self.view().map(Some)
+    }
+
     pub fn create_workspace(
         &mut self,
         display_name: impl Into<String>,

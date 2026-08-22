@@ -30,7 +30,7 @@ Role: owns the package model, the package manifest contract, the event bus wirin
 
 - **RS.SYS.PKG-R05 A package may only emit events it declares.** In development mode, the runtime rejects undeclared emits and logs a warning. In production mode, undeclared emits are silently dropped to avoid crashes. `refines: RS.SYS.PKG-R02`
 
-- **RS.SYS.PKG-R06 Standard events are defined by the runtime.** The runtime defines a vocabulary of standard events that packages use for common interactions. Packages may define additional domain-specific events, which must be declared in the manifest. Standard events include: `repo:changed`, `doc:updated`, `doc:opened`, `message:received`, `peer:joined`, `peer:left`, `workspace:member-added`, `workspace:member-removed`.
+- **RS.SYS.PKG-R06 Standard events are defined by the runtime.** The runtime defines a vocabulary of standard events that packages use for common interactions. Packages may define additional domain-specific events, which must be declared in the manifest. Standard events include: `repo:changed`, `doc:updated`, `doc:opened`, `message:received`, `peer:joined`, `peer:left`, `peer:connection`, `workspace:member-added`, `workspace:member-removed`. Peer events carry only runtime-validated, secret-free state.
 
 ### Agent panel
 

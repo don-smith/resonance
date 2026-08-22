@@ -19,13 +19,14 @@ const AGENT_PERMISSIONS: [&str; 5] = [
     "create-documents",
     "post-messages",
 ];
-const STANDARD_EVENTS: [&str; 8] = [
+const STANDARD_EVENTS: [&str; 9] = [
     "repo:changed",
     "doc:updated",
     "doc:opened",
     "message:received",
     "peer:joined",
     "peer:left",
+    "peer:connection",
     "workspace:member-added",
     "workspace:member-removed",
 ];

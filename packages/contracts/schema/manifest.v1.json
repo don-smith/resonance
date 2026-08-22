@@ -93,7 +93,7 @@
   "$defs": {
     "eventName": {
       "type": "string",
-      "pattern": "^(repo:changed|doc:updated|doc:opened|message:received|peer:joined|peer:left|workspace:member-added|workspace:member-removed|agent-context:[a-z][a-z0-9-]*|[a-z][a-z0-9-]*:[a-z][a-z0-9-]*)$"
+      "pattern": "^(repo:changed|doc:updated|doc:opened|message:received|peer:joined|peer:left|peer:connection|workspace:member-added|workspace:member-removed|agent-context:[a-z][a-z0-9-]*|[a-z][a-z0-9-]*:[a-z][a-z0-9-]*)$"
     }
   }
 }

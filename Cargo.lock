@@ -4879,10 +4879,12 @@ name = "resonance-desktop"
 version = "0.1.0"
 dependencies = [
  "resonance-runtime",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-updater",
+ "tokio",
 ]
 
 [[package]]

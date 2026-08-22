@@ -54,22 +54,93 @@ h1 {
   font-size: clamp(2rem, 5vw, 3.5rem);
 }
 
-.workspace > p:not(.eyebrow) {
+h2 {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+.message,
+.identity,
+.workspace li {
   color: #cdc8d6;
-  font-size: 1.125rem;
   line-height: 1.6;
 }
 
-.status {
-  display: inline-flex;
-  gap: 0.6rem;
-  align-items: center;
-  color: #b7f7d0 !important;
+.message:not(:empty) {
+  margin: 1rem 0;
+  color: #ffd18a;
 }
 
-.status span {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 50%;
-  background: #59d98e;
+.identity {
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+}
+
+form {
+  display: grid;
+  gap: 0.85rem;
+  max-width: 32rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  color: #cdc8d6;
+}
+
+input,
+button {
+  border: 1px solid #4b4560;
+  border-radius: 0.4rem;
+  padding: 0.7rem 0.8rem;
+  color: inherit;
+  background: #242034;
+  font: inherit;
+}
+
+button {
+  width: fit-content;
+  cursor: pointer;
+  background: #665bd5;
+  border-color: #776ceb;
+}
+
+.workspace-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.members,
+.peers {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace li {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #3b354d;
+  border-radius: 0.4rem;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 700px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .navigation {
+    padding: 1rem 1.5rem;
+    border-right: 0;
+    border-bottom: 1px solid #3b354d;
+  }
+
+  .brand {
+    margin: 0;
+  }
 }

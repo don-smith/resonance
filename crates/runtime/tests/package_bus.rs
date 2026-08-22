@@ -20,6 +20,14 @@ fn routes_declared_events_without_interpreting_payloads() {
         ),
         BusOutcome::Routed
     );
+    assert_eq!(
+        bus.emit(
+            "resonance.reference",
+            "peer:connection",
+            br#"{"privateKey":"not interpreted"}"#
+        ),
+        BusOutcome::Routed
+    );
 }
 
 #[test]

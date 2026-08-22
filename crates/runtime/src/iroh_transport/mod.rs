@@ -307,9 +307,12 @@ impl IrohTransport {
     pub async fn send_session_heartbeat(
         &self,
         session: &mut WorkspaceSession<FakeDeliveryPort>,
-    ) -> Result<(), IrohSessionAdapterError> {
-        session.send_heartbeat()?;
-        self.flush_session(session).await
+    ) -> Result<bool, IrohSessionAdapterError> {
+        if !session.send_heartbeat()? {
+            return Ok(false);
+        }
+        self.flush_session(session).await?;
+        Ok(true)
     }
 
     /// Applies one network observation without allowing Gossip to author membership.

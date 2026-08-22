@@ -111,6 +111,28 @@ fn ignores_a_joiners_own_gossip_echo() {
 }
 
 #[test]
+fn pending_joiner_does_not_queue_a_heartbeat() {
+    let inviter_directory = temporary_directory("heartbeat-inviter");
+    let joiner_directory = temporary_directory("heartbeat-joiner");
+    let mut inviter = session(&inviter_directory);
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let invite = inviter.create_invite("bootstrap").expect("invite creates");
+    let mut joiner = session(&joiner_directory);
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    let _ = joiner.delivery_mut().take_outbound();
+
+    assert!(!joiner
+        .send_heartbeat()
+        .expect("pending join heartbeat is safely ignored"));
+    assert!(joiner.delivery_mut().take_outbound().is_empty());
+
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
 fn restores_pending_join_admission_after_a_session_restart() {
     let inviter_directory = temporary_directory("resume-inviter");
     let joiner_directory = temporary_directory("resume-joiner");
@@ -222,7 +244,7 @@ fn derives_known_member_presence_from_signed_heartbeats_not_unknown_senders() {
         .expect("admission sends");
     joiner.receive(&admission).expect("joiner is admitted");
 
-    joiner.send_heartbeat().expect("heartbeat sends");
+    assert!(joiner.send_heartbeat().expect("heartbeat sends"));
     let heartbeat = joiner
         .delivery_mut()
         .take_outbound()

@@ -259,9 +259,14 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         Ok(self.active()?.summary.lifecycle == WorkspaceLifecycle::Ready)
     }
 
-    pub fn send_heartbeat(&mut self) -> Result<(), WorkspaceSessionError> {
+    /// Queues a heartbeat only after the local identity is an admitted member.
+    pub fn send_heartbeat(&mut self) -> Result<bool, WorkspaceSessionError> {
+        if !self.is_ready()? {
+            return Ok(false);
+        }
         let workspace_id = self.active()?.summary.id.as_str().to_owned();
-        self.send(EnvelopeBody::Heartbeat { sent_at: now()? }, workspace_id)
+        self.send(EnvelopeBody::Heartbeat { sent_at: now()? }, workspace_id)?;
+        Ok(true)
     }
 
     /// Refines a validated member's current connection without treating a gossip neighbor as a member.

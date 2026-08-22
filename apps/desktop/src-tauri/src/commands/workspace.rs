@@ -3,7 +3,7 @@ use std::{path::Path, sync::Arc, time::Duration};
 use resonance_runtime::{
     identity::InstallationIdentity,
     invite::Invite,
-    iroh_transport::IrohTransport,
+    iroh_transport::{IrohSessionAdapterError, IrohTransport, IrohTransportError},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary},
     workspace_session::{FakeDeliveryPort, WorkspaceSession, WorkspaceTransition},
@@ -32,7 +32,7 @@ struct ManagedWorkspace {
 enum WorkspaceIssue {
     Identity(String),
     Storage,
-    Network,
+    Network(String),
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -177,7 +177,7 @@ impl ManagedWorkspace {
                     WorkspaceLifecycle::Joining => "joining".to_owned(),
                 },
                 message: issue.and_then(|issue| match issue {
-                    WorkspaceIssue::Network => Some(issue_message(issue)),
+                    WorkspaceIssue::Network(_) => Some(issue_message(issue)),
                     WorkspaceIssue::Identity(_) | WorkspaceIssue::Storage => None,
                 }),
                 workspace: Some(workspace_summary_view(&view.workspace)),
@@ -240,14 +240,14 @@ impl ManagedWorkspace {
         match IrohTransport::start_for_session(session, bootstrap.as_deref()).await {
             Ok(active) => {
                 if active.flush_session(session).await.is_err() {
-                    *self.issue.lock().await = Some(WorkspaceIssue::Network);
+                    *self.issue.lock().await = Some(network_issue());
                 } else {
                     *self.issue.lock().await = None;
                 }
                 *self.bootstrap.lock().await = bootstrap;
                 *transport = Some(active);
             }
-            Err(_) => *self.issue.lock().await = Some(WorkspaceIssue::Network),
+            Err(error) => *self.issue.lock().await = Some(network_start_issue(error)),
         }
     }
 
@@ -265,11 +265,11 @@ impl ManagedWorkspace {
             match result {
                 Ok(Ok(true)) => {
                     if transport.flush_session(session).await.is_err() {
-                        *self.issue.lock().await = Some(WorkspaceIssue::Network);
+                        *self.issue.lock().await = Some(network_issue());
                     }
                 }
                 Ok(Ok(false)) | Err(_) => {}
-                Ok(Err(_)) => *self.issue.lock().await = Some(WorkspaceIssue::Network),
+                Ok(Err(_)) => *self.issue.lock().await = Some(network_issue()),
             }
             true
         } else {
@@ -302,7 +302,7 @@ impl ManagedWorkspace {
         let mut session = self.session.lock().await;
         if let (Some(transport), Some(session)) = (transport.as_ref(), session.as_mut()) {
             if transport.send_session_heartbeat(session).await.is_err() {
-                *self.issue.lock().await = Some(WorkspaceIssue::Network);
+                *self.issue.lock().await = Some(network_issue());
             }
         }
         drop(session);
@@ -437,10 +437,37 @@ fn issue_message(issue: WorkspaceIssue) -> String {
     match issue {
         WorkspaceIssue::Identity(message) => message,
         WorkspaceIssue::Storage => "Resonance cannot open its local workspace data.".to_owned(),
-        WorkspaceIssue::Network => {
-            "Peer networking is offline. Local workspace data is still available.".to_owned()
-        }
+        WorkspaceIssue::Network(message) => message,
     }
+}
+
+fn network_issue() -> WorkspaceIssue {
+    WorkspaceIssue::Network(
+        "Peer networking is offline. Local workspace data is still available.".to_owned(),
+    )
+}
+
+fn network_start_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
+    let message = match error {
+        IrohSessionAdapterError::Transport(IrohTransportError::Bind) => {
+            "Peer networking could not start its local endpoint."
+        }
+        IrohSessionAdapterError::Transport(IrohTransportError::Bootstrap) => {
+            "The invite's peer address is invalid."
+        }
+        IrohSessionAdapterError::Transport(IrohTransportError::Subscribe) => {
+            "The workspace peer channel could not start."
+        }
+        IrohSessionAdapterError::Transport(
+            IrohTransportError::Broadcast
+            | IrohTransportError::Receive
+            | IrohTransportError::Shutdown,
+        )
+        | IrohSessionAdapterError::Session(_) => {
+            "Peer networking could not start for this workspace."
+        }
+    };
+    WorkspaceIssue::Network(message.to_owned())
 }
 
 fn unix_seconds() -> i64 {
@@ -452,7 +479,21 @@ fn unix_seconds() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{MemberView, PeerView, WorkspaceShellView, WorkspaceView};
+    use super::{
+        issue_message, network_start_issue, IrohSessionAdapterError, IrohTransportError,
+        MemberView, PeerView, WorkspaceShellView, WorkspaceView,
+    };
+
+    #[test]
+    fn maps_transport_start_errors_to_safe_actionable_messages() {
+        let message = issue_message(network_start_issue(IrohSessionAdapterError::Transport(
+            IrohTransportError::Bootstrap,
+        )));
+        assert_eq!(message, "The invite's peer address is invalid.");
+        for forbidden in ["secret", "token", "bootstrap", "path", "iroh"] {
+            assert!(!message.to_ascii_lowercase().contains(forbidden));
+        }
+    }
 
     #[test]
     fn public_workspace_event_contains_no_secret_or_transport_fields() {

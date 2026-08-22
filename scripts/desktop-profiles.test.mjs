@@ -21,7 +21,12 @@ describe("desktop profile launcher contract", () => {
     expect(new Set(profiles.map((profile) => profile.devUrl)).size).toBe(2);
     expect(new Set(profiles.map((profile) => profile.identifier)).size).toBe(2);
     expect(tauriArguments(profiles[0])).toContain("debug-local-profiles");
-    expect(tauriArguments(profiles[0]).slice(-2)).toEqual([
+    if (process.platform === "darwin") {
+      expect(tauriArguments(profiles[0])).toContain("--runner");
+      expect(profiles[0].runner).toMatch(/macos-tauri-runner\.sh$/);
+    }
+    expect(tauriArguments(profiles[0]).slice(-3)).toEqual([
+      "--",
       "--debug-profile",
       "alice",
     ]);

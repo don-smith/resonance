@@ -47,6 +47,10 @@ export function profileLaunches(names, root) {
         "desktop-profiles",
         `${name}.tauri.conf.json`,
       ),
+      runner:
+        process.platform === "darwin"
+          ? resolve(root, "scripts", "macos-tauri-runner.sh")
+          : undefined,
     };
   });
 }
@@ -59,8 +63,10 @@ export function tauriArguments(profile) {
     "dev",
     "--config",
     profile.configPath,
+    ...(profile.runner ? ["--runner", profile.runner] : []),
     "--features",
     "debug-local-profiles",
+    "--",
     "--",
     "--debug-profile",
     profile.name,

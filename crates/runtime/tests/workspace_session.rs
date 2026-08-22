@@ -80,6 +80,37 @@ fn creates_an_invite_and_completes_a_named_inviter_join() {
 }
 
 #[test]
+fn ignores_a_joiners_own_gossip_echo() {
+    let inviter_directory = temporary_directory("echo-inviter");
+    let joiner_directory = temporary_directory("echo-joiner");
+    let mut inviter = session(&inviter_directory);
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let invite = inviter.create_invite("bootstrap").expect("invite creates");
+    let mut joiner = session(&joiner_directory);
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    let echo = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("join request queues");
+
+    joiner.receive(&echo).expect("own echo is ignored");
+    assert_eq!(
+        joiner
+            .view()
+            .expect("joining view remains available")
+            .workspace
+            .lifecycle,
+        WorkspaceLifecycle::Joining
+    );
+
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
 fn restores_pending_join_admission_after_a_session_restart() {
     let inviter_directory = temporary_directory("resume-inviter");
     let joiner_directory = temporary_directory("resume-joiner");

@@ -334,6 +334,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         if envelope.workspace_id != self.active()?.summary.id.as_str() {
             return Err(ProtocolError::InvalidWorkspace.into());
         }
+        // Gossip may deliver a publisher's signed envelope back to that same
+        // publisher. Local state was already changed before the broadcast.
+        if envelope.sender == *self.identity.public_identity().as_bytes() {
+            return Ok(());
+        }
         let sender = public_identity_text(&envelope.sender);
         let projection = self.projection();
         let sender_is_member = projection.contains(&sender);

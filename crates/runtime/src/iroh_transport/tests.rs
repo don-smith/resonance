@@ -64,6 +64,10 @@ async fn carries_workspace_scoped_bytes_between_independent_identities_over_the_
     let mut joiner = IrohTransport::start(&identity(), token, None, Some(&bootstrap))
         .await
         .expect("joiner transport starts");
+    joiner
+        .broadcast(vec![4, 5, 6])
+        .await
+        .expect("initial join message broadcasts before neighbor arrival");
 
     wait_for_neighbor(&mut joiner).await;
     inviter

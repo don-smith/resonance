@@ -52,6 +52,7 @@ pub enum IrohTransportError {
     Bootstrap,
     Subscribe,
     Broadcast,
+    BroadcastClosed,
     Receive,
     Shutdown,
 }
@@ -63,6 +64,7 @@ impl fmt::Display for IrohTransportError {
             Self::Bootstrap => formatter.write_str("workspace bootstrap address is invalid"),
             Self::Subscribe => formatter.write_str("workspace gossip topic could not start"),
             Self::Broadcast => formatter.write_str("workspace gossip message could not send"),
+            Self::BroadcastClosed => formatter.write_str("workspace gossip topic closed"),
             Self::Receive => formatter.write_str("workspace gossip subscription failed"),
             Self::Shutdown => formatter.write_str("Iroh endpoint could not stop cleanly"),
         }
@@ -262,7 +264,10 @@ impl IrohTransport {
             .ok_or(IrohTransportError::Broadcast)?
             .broadcast(bytes.into())
             .await
-            .map_err(|_| IrohTransportError::Broadcast)
+            .map_err(|error| match error {
+                iroh_gossip::api::ApiError::Closed { .. } => IrohTransportError::BroadcastClosed,
+                _ => IrohTransportError::Broadcast,
+            })
     }
 
     /// Waits for the next workspace-scoped message or neighbor observation.

@@ -238,8 +238,8 @@ impl ManagedWorkspace {
         };
         match IrohTransport::start_for_session(session).await {
             Ok(active) => {
-                if active.flush_session(session).await.is_err() {
-                    *self.issue.lock().await = Some(network_issue());
+                if let Err(error) = active.flush_session(session).await {
+                    *self.issue.lock().await = Some(network_delivery_issue(error));
                 } else {
                     *self.issue.lock().await = None;
                 }
@@ -262,14 +262,14 @@ impl ManagedWorkspace {
             .await;
             let should_emit = match result {
                 Ok(Ok(true)) => {
-                    if transport.flush_session(session).await.is_err() {
-                        *self.issue.lock().await = Some(network_issue());
+                    if let Err(error) = transport.flush_session(session).await {
+                        *self.issue.lock().await = Some(network_delivery_issue(error));
                     }
                     true
                 }
                 Ok(Ok(false)) | Err(_) => false,
-                Ok(Err(_)) => {
-                    *self.issue.lock().await = Some(network_issue());
+                Ok(Err(error)) => {
+                    *self.issue.lock().await = Some(network_delivery_issue(error));
                     true
                 }
             };
@@ -307,8 +307,8 @@ impl ManagedWorkspace {
         let transport = self.transport.lock().await;
         let mut session = self.session.lock().await;
         if let (Some(transport), Some(session)) = (transport.as_ref(), session.as_mut()) {
-            if transport.send_session_heartbeat(session).await.is_err() {
-                *self.issue.lock().await = Some(network_issue());
+            if let Err(error) = transport.send_session_heartbeat(session).await {
+                *self.issue.lock().await = Some(network_delivery_issue(error));
                 should_emit = true;
             }
         }
@@ -449,12 +449,6 @@ fn issue_message(issue: WorkspaceIssue) -> String {
     }
 }
 
-fn network_issue() -> WorkspaceIssue {
-    WorkspaceIssue::Network(
-        "Peer networking is offline. Local workspace data is still available.".to_owned(),
-    )
-}
-
 fn network_start_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
     let message = match error {
         IrohSessionAdapterError::Transport(IrohTransportError::Bind) => {
@@ -468,12 +462,29 @@ fn network_start_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
         }
         IrohSessionAdapterError::Transport(
             IrohTransportError::Broadcast
+            | IrohTransportError::BroadcastClosed
             | IrohTransportError::Receive
             | IrohTransportError::Shutdown,
         )
         | IrohSessionAdapterError::Session(_) => {
             "Peer networking could not start for this workspace."
         }
+    };
+    WorkspaceIssue::Network(message.to_owned())
+}
+
+fn network_delivery_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
+    let message = match error {
+        IrohSessionAdapterError::Transport(IrohTransportError::BroadcastClosed) => {
+            "Peer networking closed the workspace channel before it could send a message."
+        }
+        IrohSessionAdapterError::Transport(IrohTransportError::Broadcast) => {
+            "Peer networking could not send a workspace message."
+        }
+        IrohSessionAdapterError::Transport(IrohTransportError::Receive) => {
+            "Peer networking could not receive workspace traffic."
+        }
+        _ => "Peer networking is offline. Local workspace data is still available.",
     };
     WorkspaceIssue::Network(message.to_owned())
 }
@@ -488,8 +499,8 @@ fn unix_seconds() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        issue_message, network_start_issue, IrohSessionAdapterError, IrohTransportError,
-        MemberView, PeerView, WorkspaceShellView, WorkspaceView,
+        issue_message, network_delivery_issue, network_start_issue, IrohSessionAdapterError,
+        IrohTransportError, MemberView, PeerView, WorkspaceShellView, WorkspaceView,
     };
 
     #[test]
@@ -498,6 +509,13 @@ mod tests {
             IrohTransportError::Bootstrap,
         )));
         assert_eq!(message, "The invite's peer address is invalid.");
+        let closed = issue_message(network_delivery_issue(IrohSessionAdapterError::Transport(
+            IrohTransportError::BroadcastClosed,
+        )));
+        assert_eq!(
+            closed,
+            "Peer networking closed the workspace channel before it could send a message."
+        );
         for forbidden in ["secret", "token", "bootstrap", "path", "iroh"] {
             assert!(!message.to_ascii_lowercase().contains(forbidden));
         }

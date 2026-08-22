@@ -6,7 +6,9 @@ use resonance_runtime::{
     iroh_transport::{IrohSessionAdapterError, IrohTransport, IrohTransportError},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary},
-    workspace_session::{FakeDeliveryPort, WorkspaceSession, WorkspaceTransition},
+    workspace_session::{
+        FakeDeliveryPort, WorkspaceSession, WorkspaceSessionError, WorkspaceTransition,
+    },
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -484,6 +486,15 @@ fn network_delivery_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
         IrohSessionAdapterError::Transport(IrohTransportError::Receive) => {
             "Peer networking could not receive workspace traffic."
         }
+        IrohSessionAdapterError::Session(WorkspaceSessionError::InvalidInviteAdmission) => {
+            "The inviter does not recognize this join admission. Create a new invite and join again."
+        }
+        IrohSessionAdapterError::Session(WorkspaceSessionError::Protocol(_)) => {
+            "Peer networking received an invalid workspace message."
+        }
+        IrohSessionAdapterError::Session(_) => {
+            "Peer networking could not apply workspace state."
+        }
         _ => "Peer networking is offline. Local workspace data is still available.",
     };
     WorkspaceIssue::Network(message.to_owned())
@@ -500,7 +511,8 @@ fn unix_seconds() -> i64 {
 mod tests {
     use super::{
         issue_message, network_delivery_issue, network_start_issue, IrohSessionAdapterError,
-        IrohTransportError, MemberView, PeerView, WorkspaceShellView, WorkspaceView,
+        IrohTransportError, MemberView, PeerView, WorkspaceSessionError, WorkspaceShellView,
+        WorkspaceView,
     };
 
     #[test]
@@ -515,6 +527,13 @@ mod tests {
         assert_eq!(
             closed,
             "Peer networking closed the workspace channel before it could send a message."
+        );
+        let rejected = issue_message(network_delivery_issue(IrohSessionAdapterError::Session(
+            WorkspaceSessionError::InvalidInviteAdmission,
+        )));
+        assert_eq!(
+            rejected,
+            "The inviter does not recognize this join admission. Create a new invite and join again."
         );
         for forbidden in ["secret", "token", "bootstrap", "path", "iroh"] {
             assert!(!message.to_ascii_lowercase().contains(forbidden));

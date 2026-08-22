@@ -285,10 +285,14 @@ impl ManagedWorkspace {
         let now = unix_seconds();
         {
             let mut session = self.session.lock().await;
-            if let Some(session) = session.as_mut() {
-                if session.expire_presence(now).is_err() {
-                    *self.issue.lock().await = Some(WorkspaceIssue::Storage);
-                }
+            let Some(session) = session.as_mut() else {
+                return;
+            };
+            if !session.has_active_workspace() {
+                return;
+            }
+            if session.expire_presence(now).is_err() {
+                *self.issue.lock().await = Some(WorkspaceIssue::Storage);
             }
         }
         let transport = self.transport.lock().await;

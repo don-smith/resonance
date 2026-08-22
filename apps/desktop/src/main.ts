@@ -129,7 +129,10 @@ async function submitForm(event: SubmitEvent): Promise<void> {
     );
     if (isWorkspaceShellView(result)) {
       if (action === "retry") {
-        actionMessage = "Join retry sent. Waiting for the inviter.";
+        actionMessage =
+          result.state === "ready"
+            ? "Membership is already active."
+            : "Join retry sent. Waiting for the inviter.";
       }
       render(result);
     }

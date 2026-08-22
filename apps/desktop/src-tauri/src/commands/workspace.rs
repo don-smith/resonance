@@ -291,7 +291,7 @@ impl ManagedWorkspace {
 
     async fn send_heartbeat_and_expire(&self) {
         let now = unix_seconds();
-        {
+        let mut should_emit = {
             let mut session = self.session.lock().await;
             let Some(session) = session.as_mut() else {
                 return;
@@ -299,20 +299,27 @@ impl ManagedWorkspace {
             if !session.has_active_workspace() {
                 return;
             }
-            if session.expire_presence(now).is_err() {
-                *self.issue.lock().await = Some(WorkspaceIssue::Storage);
+            match session.expire_presence(now) {
+                Ok(changed) => changed,
+                Err(_) => {
+                    *self.issue.lock().await = Some(WorkspaceIssue::Storage);
+                    true
+                }
             }
-        }
+        };
         let transport = self.transport.lock().await;
         let mut session = self.session.lock().await;
         if let (Some(transport), Some(session)) = (transport.as_ref(), session.as_mut()) {
             if transport.send_session_heartbeat(session).await.is_err() {
                 *self.issue.lock().await = Some(network_issue());
+                should_emit = true;
             }
         }
         drop(session);
         drop(transport);
-        self.emit_view().await;
+        if should_emit {
+            self.emit_view().await;
+        }
     }
 }
 
@@ -392,18 +399,20 @@ pub async fn retry_workspace_join(
     request: RetryJoinRequest,
     state: State<'_, ManagedWorkspaceState>,
 ) -> Result<WorkspaceShellView, String> {
-    {
+    let retry_sent = {
         let mut session = state.inner.session.lock().await;
         let session = session.as_mut().ok_or_else(|| {
             "The installation identity or workspace storage is unavailable.".to_owned()
         })?;
         session
             .retry_join(request.display_name)
-            .map_err(|_| "This workspace is not waiting for invite admission.".to_owned())?;
+            .map_err(|_| "Resonance could not retry this workspace join.".to_owned())?
+    };
+    if retry_sent {
+        let bootstrap = state.inner.bootstrap.lock().await.clone();
+        state.inner.restart_transport(bootstrap).await;
+        state.inner.emit_view().await;
     }
-    let bootstrap = state.inner.bootstrap.lock().await.clone();
-    state.inner.restart_transport(bootstrap).await;
-    state.inner.emit_view().await;
     Ok(state.inner.view().await)
 }
 

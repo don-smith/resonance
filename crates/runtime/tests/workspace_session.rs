@@ -90,9 +90,9 @@ fn keeps_joining_retryable_and_recovers_the_full_operation_set() {
     let invite = inviter.create_invite("bootstrap").expect("invite creates");
     let mut joiner = session(&joiner_directory);
     joiner.join_workspace(&invite, "Lin").expect("join starts");
-    joiner
+    assert!(joiner
         .retry_join("Lin")
-        .expect("join retries while pending");
+        .expect("join retries while pending"));
 
     let requests = joiner.delivery_mut().take_outbound();
     assert_eq!(requests.len(), 2);
@@ -124,6 +124,9 @@ fn keeps_joining_retryable_and_recovers_the_full_operation_set() {
         .expect("joiner restores membership log");
 
     assert_eq!(joiner.view().expect("view").members.len(), 2);
+    assert!(!joiner
+        .retry_join("Lin")
+        .expect("accepted join retry becomes a no-op"));
     fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
     fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
 }
@@ -166,11 +169,15 @@ fn derives_known_member_presence_from_signed_heartbeats_not_unknown_senders() {
     assert!(peers[0].online);
     assert_eq!(peers[0].connection, PeerConnection::Unknown);
 
-    inviter.expire_presence(i64::MAX).expect("presence expires");
+    assert!(inviter.expire_presence(i64::MAX).expect("presence expires"));
     assert!(inviter
         .take_transitions()
         .iter()
         .any(|transition| matches!(transition, WorkspaceTransition::PeerPresenceChanged(peer) if !peer.online)));
+    assert!(!inviter
+        .expire_presence(i64::MAX)
+        .expect("already-offline peer does not emit again"));
+    assert!(inviter.take_transitions().is_empty());
     fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
     fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
 }

@@ -135,6 +135,7 @@ struct ActiveWorkspace {
 #[derive(Clone)]
 struct PeerState {
     last_heartbeat: i64,
+    online: bool,
     connection: PeerConnection,
 }
 
@@ -233,14 +234,17 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         self.view()
     }
 
+    /// Reissues a pending join request. A workspace already admitted by the
+    /// inviter is a successful no-op so callers can refresh stale shell state.
     pub fn retry_join(
         &mut self,
         display_name: impl Into<String>,
-    ) -> Result<(), WorkspaceSessionError> {
+    ) -> Result<bool, WorkspaceSessionError> {
         if self.active()?.summary.lifecycle != WorkspaceLifecycle::Joining {
-            return Err(WorkspaceSessionError::InvalidInviteAdmission);
+            return Ok(false);
         }
-        self.send_join_request(display_name.into())
+        self.send_join_request(display_name.into())?;
+        Ok(true)
     }
 
     pub fn request_membership_sync(&mut self) -> Result<(), WorkspaceSessionError> {
@@ -274,12 +278,13 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 .entry(public_identity.clone())
                 .or_insert(PeerState {
                     last_heartbeat: 0,
+                    online: false,
                     connection: PeerConnection::Unknown,
                 });
             state.connection = connection;
             KnownPeer {
                 public_identity: public_identity.clone(),
-                online: state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) >= now()?,
+                online: state.online,
                 connection: state.connection.clone(),
             }
         };
@@ -289,28 +294,35 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     }
 
     /// Expires old heartbeat observations while retaining known-member connection data.
-    pub fn expire_presence(&mut self, at: i64) -> Result<(), WorkspaceSessionError> {
+    pub fn expire_presence(&mut self, at: i64) -> Result<bool, WorkspaceSessionError> {
         let members = self.projection();
         let changed = self
             .active_mut()?
             .peers
-            .iter()
-            .filter(|(public_identity, state)| {
-                members.contains(public_identity)
+            .iter_mut()
+            .filter_map(|(public_identity, state)| {
+                if members.contains(public_identity)
+                    && state.online
                     && state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) < at
-            })
-            .map(|(public_identity, state)| KnownPeer {
-                public_identity: public_identity.clone(),
-                online: false,
-                connection: state.connection.clone(),
+                {
+                    state.online = false;
+                    Some(KnownPeer {
+                        public_identity: public_identity.clone(),
+                        online: false,
+                        connection: state.connection.clone(),
+                    })
+                } else {
+                    None
+                }
             })
             .collect::<Vec<_>>();
+        let changed_presence = !changed.is_empty();
         self.transitions.extend(
             changed
                 .into_iter()
                 .map(WorkspaceTransition::PeerPresenceChanged),
         );
-        Ok(())
+        Ok(changed_presence)
     }
 
     pub fn receive(&mut self, bytes: &[u8]) -> Result<(), WorkspaceSessionError> {
@@ -396,7 +408,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let view = ActiveWorkspaceView {
             workspace: self.active()?.summary.clone(),
             local_public_identity: self.identity.public_identity().to_string(),
-            peers: self.known_peers(&projection, now()?),
+            peers: self.known_peers(&projection),
             members: projection.members,
         };
         self.transitions
@@ -439,9 +451,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             let active = self.active_mut()?;
             let state = active.peers.entry(sender.clone()).or_insert(PeerState {
                 last_heartbeat: sent_at,
+                online: true,
                 connection: PeerConnection::Unknown,
             });
             state.last_heartbeat = state.last_heartbeat.max(sent_at);
+            state.online = true;
             KnownPeer {
                 public_identity: sender,
                 online: true,
@@ -453,7 +467,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         Ok(())
     }
 
-    fn known_peers(&self, projection: &MembershipProjection, at: i64) -> Vec<KnownPeer> {
+    fn known_peers(&self, projection: &MembershipProjection) -> Vec<KnownPeer> {
         self.active
             .as_ref()
             .map(|active| {
@@ -463,7 +477,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                     .filter(|(public_identity, _)| projection.contains(public_identity))
                     .map(|(public_identity, state)| KnownPeer {
                         public_identity: public_identity.clone(),
-                        online: state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) >= at,
+                        online: state.online,
                         connection: state.connection.clone(),
                     })
                     .collect()

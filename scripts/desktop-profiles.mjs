@@ -10,8 +10,10 @@ import {
   viteArguments,
   writeProfileConfigurations,
 } from "./desktop-profiles-lib.mjs";
+import { loadLocalDevelopmentEnvironment } from "./local-development-environment.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadLocalDevelopmentEnvironment(root);
 const arguments_ = process.argv.slice(2);
 // pnpm keeps the forwarding separator in argv for package scripts.
 if (arguments_[0] === "--") arguments_.shift();

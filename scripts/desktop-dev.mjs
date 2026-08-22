@@ -1,14 +1,11 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { loadLocalDevelopmentEnvironment } from "./local-development-environment.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const localEnvironment = resolve(root, ".resonance", ".env");
-if (existsSync(localEnvironment)) {
-  loadEnvFile(localEnvironment);
-}
+loadLocalDevelopmentEnvironment(root);
 
 const tauriArgs = ["--filter", "@resonance/desktop", "tauri", "dev"];
 

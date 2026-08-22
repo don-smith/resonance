@@ -70,7 +70,7 @@ cat >"$bundle/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 binary="$bundle/Contents/MacOS/resonance-desktop"
-existing_pids=$(pgrep -f "^$binary$" || true)
+existing_pids=$(pgrep -f "^$binary( |$)" || true)
 if [[ -n "$existing_pids" ]]; then
   kill $existing_pids 2>/dev/null || true
   sleep 0.2
@@ -89,7 +89,7 @@ fi
 open -n -a "$bundle" --args "${run_args[@]}"
 
 for _ in {1..20}; do
-  app_pid=$(pgrep -f "^$binary$" | tail -n 1 || true)
+  app_pid=$(pgrep -f "^$binary( |$)" | tail -n 1 || true)
   [[ -n "$app_pid" ]] && break
   sleep 0.1
 done

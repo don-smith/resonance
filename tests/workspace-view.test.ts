@@ -15,7 +15,12 @@ describe("workspace shell view", () => {
         localPublicIdentity: "public-id",
         members: [],
         peers: [
-          { publicIdentity: "peer-id", online: true, connection: "relayed" },
+          {
+            publicIdentity: "peer-id",
+            displayName: "Ada",
+            online: true,
+            connection: "relayed",
+          },
         ],
       }),
     ).toBe(true);
@@ -25,6 +30,7 @@ describe("workspace shell view", () => {
     expect(
       peerStatus({
         publicIdentity: "peer-id",
+        displayName: "Ada",
         online: false,
         connection: "direct",
       }),

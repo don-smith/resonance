@@ -67,6 +67,7 @@ pub struct MemberView {
 #[serde(rename_all = "camelCase")]
 pub struct PeerView {
     pub public_identity: String,
+    pub display_name: String,
     pub online: bool,
     pub connection: String,
 }
@@ -75,6 +76,7 @@ pub struct PeerView {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateWorkspaceRequest {
     pub display_name: String,
+    pub creator_display_name: String,
     pub relay_override: Option<String>,
 }
 
@@ -184,7 +186,11 @@ impl ManagedWorkspace {
                 workspace: Some(workspace_summary_view(&view.workspace)),
                 local_public_identity: Some(view.local_public_identity),
                 members: view.members.iter().map(member_view).collect(),
-                peers: view.peers.iter().map(peer_view).collect(),
+                peers: view
+                    .peers
+                    .iter()
+                    .map(|peer| peer_view(peer, &view.members))
+                    .collect(),
             },
             Err(_) => WorkspaceShellView {
                 state: "storage-error".to_owned(),
@@ -216,7 +222,7 @@ impl ManagedWorkspace {
                         .emit("workspace:member-joined", member_view(&member));
                 }
                 WorkspaceTransition::PeerPresenceChanged(peer) => {
-                    let peer = peer_view(&peer);
+                    let peer = peer_view(&peer, &[]);
                     let _ = self.app.emit("peer:connection", peer.clone());
                     let event = if peer.online {
                         "peer:joined"
@@ -340,7 +346,11 @@ pub async fn create_workspace(
             "The installation identity or workspace storage is unavailable.".to_owned()
         })?;
         session
-            .create_workspace(request.display_name, request.relay_override)
+            .create_workspace_with_creator(
+                request.display_name,
+                request.creator_display_name,
+                request.relay_override,
+            )
             .map_err(|_| "Resonance could not create this workspace.".to_owned())?;
     }
     state.inner.restart_transport().await;
@@ -431,9 +441,15 @@ fn member_view(member: &Member) -> MemberView {
     }
 }
 
-fn peer_view(peer: &KnownPeer) -> PeerView {
+fn peer_view(peer: &KnownPeer, members: &[Member]) -> PeerView {
+    let display_name = members
+        .iter()
+        .find(|member| member.public_identity == peer.public_identity)
+        .map(|member| member.display_name.clone())
+        .unwrap_or_else(|| peer.public_identity[..12.min(peer.public_identity.len())].to_owned());
     PeerView {
         public_identity: peer.public_identity.clone(),
+        display_name,
         online: peer.online,
         connection: match peer.connection {
             PeerConnection::Direct => "direct".to_owned(),
@@ -558,6 +574,7 @@ mod tests {
             }],
             peers: vec![PeerView {
                 public_identity: "member-id".to_owned(),
+                display_name: "Ada".to_owned(),
                 online: true,
                 connection: "direct".to_owned(),
             }],

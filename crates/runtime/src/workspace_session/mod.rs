@@ -177,6 +177,19 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         display_name: impl Into<String>,
         relay_override: Option<String>,
     ) -> Result<ActiveWorkspaceView, WorkspaceSessionError> {
+        self.create_workspace_with_creator(
+            display_name,
+            self.identity.public_identity().to_string(),
+            relay_override,
+        )
+    }
+
+    pub fn create_workspace_with_creator(
+        &mut self,
+        display_name: impl Into<String>,
+        creator_display_name: impl Into<String>,
+        relay_override: Option<String>,
+    ) -> Result<ActiveWorkspaceView, WorkspaceSessionError> {
         if let Some(relay) = relay_override.as_deref() {
             validate_relay_override(relay)?;
         }
@@ -192,7 +205,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let genesis = SignedMembershipOperation::genesis(
             &self.identity,
             workspace_id,
-            self.identity.public_identity().to_string(),
+            creator_display_name.into(),
             now()?,
         )?;
         self.persist_operation(genesis.encode()?)?;

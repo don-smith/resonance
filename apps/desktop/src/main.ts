@@ -38,6 +38,7 @@ function render(view: WorkspaceShellView): void {
           <h2>Create a workspace</h2>
           <form data-action="create">
             ${field("Workspace name", "displayName")}
+            ${field("Your name", "creatorDisplayName")}
             <label>Relay override, optional<input name="relayOverride" type="url" /></label>
             <button type="submit">Create workspace</button>
           </form>
@@ -85,7 +86,7 @@ function render(view: WorkspaceShellView): void {
   const peers = requiredElement<HTMLUListElement>(".peers");
   for (const peer of view.peers) {
     const item = document.createElement("li");
-    item.textContent = `${peer.publicIdentity.slice(0, 12)} · ${peerStatus(peer)}`;
+    item.textContent = `${peer.displayName} · ${peerStatus(peer)}`;
     peers.append(item);
   }
 
@@ -117,6 +118,9 @@ async function submitForm(event: SubmitEvent): Promise<void> {
           action === "create"
             ? {
                 displayName: String(values.get("displayName") ?? ""),
+                creatorDisplayName: String(
+                  values.get("creatorDisplayName") ?? "",
+                ),
                 relayOverride: optionalValue(values.get("relayOverride")),
               }
             : action === "join"

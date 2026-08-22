@@ -19,6 +19,7 @@ export type WorkspaceShellView = {
   }>;
   peers: Array<{
     publicIdentity: string;
+    displayName: string;
     online: boolean;
     connection: "direct" | "relayed" | "unknown";
   }>;

@@ -36,7 +36,7 @@ fn creates_an_invite_and_completes_a_named_inviter_join() {
     let joiner_directory = temporary_directory("joiner-session");
     let mut inviter = session(&inviter_directory);
     let creator_view = inviter
-        .create_workspace("Team Resonance", None)
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
         .expect("workspace creates");
     let invite = inviter
         .create_invite("opaque-bootstrap-address")
@@ -70,6 +70,10 @@ fn creates_an_invite_and_completes_a_named_inviter_join() {
     assert_eq!(joined_view.workspace.id, creator_view.workspace.id);
     assert_eq!(joined_view.workspace.lifecycle, WorkspaceLifecycle::Ready);
     assert_eq!(joined_view.members.len(), 2);
+    assert!(joined_view
+        .members
+        .iter()
+        .any(|member| member.role == "developer" && member.display_name == "Ada"));
     assert!(joined_view
         .members
         .iter()

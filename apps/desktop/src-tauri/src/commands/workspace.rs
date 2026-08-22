@@ -91,27 +91,30 @@ pub struct RetryJoinRequest {
 }
 
 impl ManagedWorkspaceState {
-    pub fn initialize(app: AppHandle, application_data: &Path) -> Self {
-        let (session, local_public_identity, issue) =
-            match InstallationIdentity::load_or_create_native() {
-                Ok(identity) => match WorkspaceCatalog::open(application_data) {
-                    Ok(catalog) => {
-                        let mut session =
-                            WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
-                        let local_public_identity = session.local_public_identity();
-                        match session.activate_active_workspace() {
-                            Ok(_) => (Some(session), Some(local_public_identity), None),
-                            Err(_) => (None, None, Some(WorkspaceIssue::Storage)),
-                        }
+    pub fn initialize(
+        app: AppHandle,
+        identity: Result<InstallationIdentity, resonance_runtime::identity::IdentityError>,
+        application_data: &Path,
+    ) -> Self {
+        let (session, local_public_identity, issue) = match identity {
+            Ok(identity) => match WorkspaceCatalog::open(application_data) {
+                Ok(catalog) => {
+                    let mut session =
+                        WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+                    let local_public_identity = session.local_public_identity();
+                    match session.activate_active_workspace() {
+                        Ok(_) => (Some(session), Some(local_public_identity), None),
+                        Err(_) => (None, None, Some(WorkspaceIssue::Storage)),
                     }
-                    Err(_) => (None, None, Some(WorkspaceIssue::Storage)),
-                },
-                Err(error) => (
-                    None,
-                    None,
-                    Some(WorkspaceIssue::Identity(error.to_string())),
-                ),
-            };
+                }
+                Err(_) => (None, None, Some(WorkspaceIssue::Storage)),
+            },
+            Err(error) => (
+                None,
+                None,
+                Some(WorkspaceIssue::Identity(error.to_string())),
+            ),
+        };
         Self {
             inner: Arc::new(ManagedWorkspace {
                 app,

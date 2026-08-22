@@ -6,7 +6,7 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 ## Identity and membership
 
-**Identity.** An Ed25519 keypair held by one team member on one device. The public key is the member's identity. The private key never leaves the device's OS keychain. `See: 02-system/01-identity/`
+**Identity.** An Ed25519 keypair held by one team member on one device. The public key is the member's identity. In normal and release builds, the private key never leaves the device's OS keychain. RFC 0008 permits only the dedicated feature-gated debug local-peer launcher to keep an owner-only checkout-local key for a validated profile; it does not expose private bytes. `See: 02-system/01-identity/`
 
 **Workspace.** A set of members who share a workspace token. A workspace has a member list (a causally signed, deterministically projected set of public keys), a set of conversation channels, and a set of planning documents. An installation identity may belong to multiple independently stored workspaces; the first shell presents one active workspace. `See: 02-system/01-identity/`
 

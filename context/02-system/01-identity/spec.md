@@ -8,7 +8,7 @@ This spec defines installation key custody, multi-workspace identity persistence
 
 ## 1. Installation identity
 
-The runtime owns one Iroh Ed25519 `SecretKey` per installation. It reads a named binary secret from the OS credential store; only a missing entry generates and writes a new 32-byte key. Locked, unavailable, malformed, ambiguous, read, and write failures are identity errors, not generation triggers. The private bytes are never returned by Tauri commands/events or package interfaces and are not written to application storage.
+The runtime owns one Iroh Ed25519 `SecretKey` per installation. Normal and release builds read a named binary secret from the OS credential store; only a missing entry generates and writes a new 32-byte key. Locked, unavailable, malformed, ambiguous, read, and write failures are identity errors, not generation triggers. RFC 0008 permits one bounded exception: a debug Rust build with `debug-local-profiles`, started through its dedicated launcher and `--debug-profile <validated-name>` argument, may use an owner-only key under that checkout's `.resonance/debug-profiles/<name>/identity/`. The argument is rejected before custody or profile-path access in normal builds, and the feature fails compilation in release builds. The file adapter atomically publishes a first key and never replaces malformed or failed storage. The private bytes are never returned by Tauri commands/events or package interfaces and are not written to normal application storage.
 
 The matching public key is the stable member ID and Iroh node ID. It may appear in workspace data, invites, signed envelopes, and shell read models.
 

@@ -50,6 +50,21 @@ Do not share its private key. Rerun the setup after replacing or renewing the
 certificate. The development launcher fails before launch if the configured
 identity is missing instead of falling back to ad-hoc or self-signed code.
 
+For a real two-peer local collaboration demonstration on macOS, use two valid
+lowercase profile names:
+
+```sh
+pnpm desktop:profiles -- alice bob
+# later, only after closing alice:
+pnpm desktop:profiles -- --reset alice
+```
+
+This command builds debug-only profile peers with separate signed app bundles.
+It stores their ignored state under `.resonance/debug-profiles/` and needs the
+same Apple Development signing setup. `pnpm desktop:dev` remains the ordinary
+single-app launcher and uses native Keychain custody; it does not accept a
+profile argument.
+
 The shell opens with navigation, local-workspace bootstrap status, and no
 content surface.
 

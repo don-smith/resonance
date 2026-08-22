@@ -26,24 +26,44 @@ if [[ "$identity_record" != *'"Apple Development:'* ]]; then
 fi
 
 cargo_args=()
+run_args=()
+after_separator=false
 for argument in "$@"; do
-  [[ "$argument" == "--" ]] && break
-  cargo_args+=("$argument")
+  if [[ "$argument" == "--" ]]; then
+    after_separator=true
+  elif [[ "$after_separator" == true ]]; then
+    run_args+=("$argument")
+  else
+    cargo_args+=("$argument")
+  fi
 done
 cargo build "${cargo_args[@]}"
 
+profile_name="${RESONANCE_DEBUG_PROFILE_NAME:-}"
+if [[ -n "$profile_name" && ( ! "$profile_name" =~ ^[a-z][a-z0-9-]{0,31}$ || "$profile_name" == *- ) ]]; then
+  echo "The debug profile bundle name is invalid." >&2
+  exit 1
+fi
+if [[ -n "$profile_name" ]]; then
+  bundle_name="Resonance Debug $profile_name"
+  bundle_identifier="com.resonance.desktop.debug.$profile_name"
+else
+  bundle_name="Resonance Dev"
+  bundle_identifier="com.resonance.desktop.dev"
+fi
+
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-bundle="$root/target/debug/Resonance Dev.app"
+bundle="$root/target/debug/$bundle_name.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-cat >"$bundle/Contents/Info.plist" <<'PLIST'
+cat >"$bundle/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleDisplayName</key><string>Resonance Dev</string>
+  <key>CFBundleDisplayName</key><string>$bundle_name</string>
   <key>CFBundleExecutable</key><string>resonance-desktop</string>
-  <key>CFBundleIdentifier</key><string>com.resonance.desktop.dev</string>
-  <key>CFBundleName</key><string>Resonance Dev</string>
+  <key>CFBundleIdentifier</key><string>$bundle_identifier</string>
+  <key>CFBundleName</key><string>$bundle_name</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>
@@ -58,15 +78,15 @@ fi
 rm -f "$binary"
 cp "$root/target/debug/resonance-desktop" "$binary"
 
-codesign --force --sign "$identity" --timestamp=none --identifier com.resonance.desktop.dev "$binary"
-codesign --force --sign "$identity" --timestamp=none --identifier com.resonance.desktop.dev "$bundle"
+codesign --force --sign "$identity" --timestamp=none --identifier "$bundle_identifier" "$binary"
+codesign --force --sign "$identity" --timestamp=none --identifier "$bundle_identifier" "$bundle"
 signed_team=$(codesign -dvv "$bundle" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')
 if [[ -z "$signed_team" ]]; then
   echo "Resonance Dev was signed without an Apple Team ID; refusing to launch." >&2
   exit 1
 fi
 
-open -n -a "$bundle"
+open -n -a "$bundle" --args "${run_args[@]}"
 
 for _ in {1..20}; do
   app_pid=$(pgrep -f "^$binary$" | tail -n 1 || true)

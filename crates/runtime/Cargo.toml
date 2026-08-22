@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+debug-local-profiles = []
+
 [dependencies]
 blake3 = "1.8.2"
 bs58 = "0.5.1"

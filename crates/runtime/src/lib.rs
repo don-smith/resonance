@@ -3,6 +3,9 @@
 //! Feature modules are added here instead of leaking persistence, package, or
 //! delivery details into the desktop shell.
 
+#[cfg(all(feature = "debug-local-profiles", not(debug_assertions)))]
+compile_error!("debug-local-profiles is limited to debug Rust builds");
+
 pub mod identity;
 pub mod invite;
 pub mod iroh_transport;

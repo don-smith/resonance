@@ -2,6 +2,8 @@ node_modules/
 target/
 dist/
 .resonance/.env
+.resonance/debug-profiles/
+.resonance/desktop-profiles/
 config/release.json
 apps/desktop/src-tauri/release-configuration.json
 release-artifacts/

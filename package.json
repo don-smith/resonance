@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.14.0",
   "scripts": {
     "desktop:dev": "node scripts/desktop-dev.mjs",
+    "desktop:profiles": "node scripts/desktop-profiles.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",

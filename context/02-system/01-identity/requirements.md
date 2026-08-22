@@ -16,7 +16,7 @@ Role: owns keypair generation and storage, workspace creation, invite token gene
 
 ### Keypair management
 
-- **RS.SYS.ID-R01 Keypair generated on first launch.** If and only if no keypair exists in the OS keychain, one is generated before any workspace interaction. Locked, unavailable, malformed, ambiguous, read, and write failures block identity actions; the private key is never persisted outside the keychain or exposed through frontend/package APIs.
+- **RS.SYS.ID-R01 Keypair generated on first launch.** Normal and release builds generate a keypair if and only if no keypair exists in the OS keychain, before any workspace interaction. Locked, unavailable, malformed, ambiguous, read, and write failures block identity actions; the private key is never persisted outside the keychain or exposed through frontend/package APIs. The only exception is RFC 0008's debug-only `debug-local-profiles` build and dedicated launcher, which persist an owner-only checkout-local key for a validated named local peer and remain unreachable from normal or release builds.
 
 - **RS.SYS.ID-R02 Public key is the stable identity.** The public key is used as the member's ID in all signed artifacts (messages, document updates, member list entries). Display names are advisory and may change; the public key does not.
 

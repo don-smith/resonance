@@ -50,6 +50,33 @@ async fn receive_message(transport: &mut IrohTransport, expected: &[u8]) {
 }
 
 #[tokio::test]
+#[ignore = "requires the public default relay"]
+async fn carries_workspace_scoped_bytes_between_independent_identities_over_the_default_relay() {
+    let token = [24; 32];
+    let mut inviter = IrohTransport::start(&identity(), token, None, None)
+        .await
+        .expect("inviter transport starts");
+    inviter.endpoint.online().await;
+    let bootstrap = inviter
+        .bootstrap_hint()
+        .await
+        .expect("bootstrap hint encodes");
+    let mut joiner = IrohTransport::start(&identity(), token, None, Some(&bootstrap))
+        .await
+        .expect("joiner transport starts");
+
+    wait_for_neighbor(&mut joiner).await;
+    inviter
+        .broadcast(vec![1, 2, 3])
+        .await
+        .expect("membership envelope broadcasts");
+    receive_message(&mut joiner, &[1, 2, 3]).await;
+
+    inviter.shutdown().await.expect("inviter stops cleanly");
+    joiner.shutdown().await.expect("joiner stops cleanly");
+}
+
+#[tokio::test]
 async fn carries_workspace_scoped_bytes_between_independent_identities_over_a_local_relay() {
     let (relay_map, _relay_url, _server) = iroh::test_utils::run_relay_server()
         .await

@@ -4,14 +4,20 @@
 //! SQLite, filesystem layout, migrations, and interrupted-write recovery remain
 //! internal to this module.
 
-use std::{path::Path, sync::Mutex};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
 use rusqlite::{params, Connection};
 
 use crate::{
     local_root_binding::{MaterializedRecord, RootHealth},
     workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken},
-    workspace_files::{FileOperationError, SignedFileOperation},
+    workspace_files::{
+        blobs::{BlobError, WorkspaceBlobStore},
+        FileOperationError, SignedFileOperation,
+    },
 };
 
 const CURRENT_SCHEMA_VERSION: i32 = 8;
@@ -27,9 +33,10 @@ pub(crate) struct PrivateWorkspaceSettings {
     pub creation_creator_display_name: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct WorkspaceStore {
-    connection: Mutex<Connection>,
+    private_directory: PathBuf,
+    connection: Arc<Mutex<Connection>>,
 }
 
 #[derive(Debug)]
@@ -39,6 +46,7 @@ pub enum WorkspaceStoreError {
     Io(std::io::Error),
     Database(rusqlite::Error),
     FileOperation(FileOperationError),
+    Blob(BlobError),
     LockPoisoned,
 }
 
@@ -54,6 +62,7 @@ impl std::fmt::Display for WorkspaceStoreError {
             Self::FileOperation(error) => {
                 write!(formatter, "workspace file operation failed: {error}")
             }
+            Self::Blob(error) => write!(formatter, "workspace blob storage failed: {error}"),
             Self::LockPoisoned => formatter.write_str("workspace store lock was poisoned"),
         }
     }
@@ -79,6 +88,12 @@ impl From<FileOperationError> for WorkspaceStoreError {
     }
 }
 
+impl From<BlobError> for WorkspaceStoreError {
+    fn from(error: BlobError) -> Self {
+        Self::Blob(error)
+    }
+}
+
 impl WorkspaceStore {
     /// Opens one opaque workspace below the supplied application-data directory.
     pub fn open(
@@ -96,7 +111,8 @@ impl WorkspaceStore {
         let connection = Connection::open(directory.join("workspace.sqlite3"))?;
         migrate(&connection)?;
         Ok(Self {
-            connection: Mutex::new(connection),
+            private_directory: directory,
+            connection: Arc::new(Mutex::new(connection)),
         })
     }
 
@@ -338,6 +354,12 @@ impl WorkspaceStore {
             .collect()
     }
 
+    pub(crate) fn open_blob_store(&self) -> Result<WorkspaceBlobStore, WorkspaceStoreError> {
+        Ok(WorkspaceBlobStore::open_durable(
+            self.private_directory.join("blobs"),
+        )?)
+    }
+
     pub(crate) fn set_local_root_binding(
         &self,
         root: &Path,
@@ -376,23 +398,66 @@ impl WorkspaceStore {
     }
 
     pub fn local_root_health(&self) -> Result<Option<RootHealth>, WorkspaceStoreError> {
+        Ok(self.local_root_binding()?.map(|(_, health)| health))
+    }
+
+    pub(crate) fn local_root_binding(
+        &self,
+    ) -> Result<Option<(PathBuf, RootHealth)>, WorkspaceStoreError> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
-        let health = connection
+        let binding = connection
             .query_row(
-                "SELECT health FROM local_root_binding WHERE singleton = 1",
+                "SELECT root_path, health FROM local_root_binding WHERE singleton = 1",
                 [],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()?;
-        health
-            .map(|value| {
-                RootHealth::parse(&value)
-                    .ok_or(WorkspaceStoreError::InvalidIdentifier("local root health"))
+        binding
+            .map(|(path, health)| {
+                let health = RootHealth::parse(&health)
+                    .ok_or(WorkspaceStoreError::InvalidIdentifier("local root health"))?;
+                Ok((PathBuf::from(path), health))
             })
             .transpose()
+    }
+
+    pub(crate) fn local_root_materialization(
+        &self,
+    ) -> Result<Vec<MaterializedRecord>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT node_id, relative_path, revision_id, content_hash
+             FROM local_root_materialization ORDER BY relative_path",
+        )?;
+        let records = statement
+            .query_map([], |row| {
+                let revision_id: Option<String> = row.get(2)?;
+                Ok(MaterializedRecord {
+                    node_id: row.get(0)?,
+                    relative_path: row.get(1)?,
+                    directory: revision_id.is_none(),
+                    revision_id,
+                    content_hash: row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(records)
+    }
+
+    pub(crate) fn clear_local_root_binding(&self) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute("DELETE FROM local_root_materialization", [])?;
+        connection.execute("DELETE FROM local_root_binding", [])?;
+        Ok(())
     }
 
     pub(crate) fn replace_local_root_materialization<'a>(

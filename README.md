@@ -3,11 +3,11 @@
 Resonance is a local-first, peer-to-peer team workspace built on Tauri and
 Iroh. Workspace content uses signed file-tree operations and verified immutable
 blobs; each member may bind the shared logical tree to a separate private local
-root. This repository currently provides the runtime foundation, including the
-private filesystem-workspace authority schema, on which synchronization,
-rendered editing, packages, and verified update delivery will be built. It
-intentionally does **not** yet ship the filesystem watcher, file transport,
-content packages, conversations, repository loading, or agent execution.
+root. The desktop can choose or repair that root, browse the workspace tree,
+create and edit rendered Markdown files, and resolve file conflicts. The runtime
+owns filesystem polling, authorized file-history recovery, and verified private
+blob storage. Content packages, conversations, repository loading, and agent
+execution do not ship yet.
 
 ## Prerequisites
 
@@ -67,9 +67,11 @@ same Apple Development signing setup. `pnpm desktop:dev` remains the ordinary
 single-app launcher and uses native Keychain custody; it does not accept a
 profile argument.
 
-The shell opens with navigation, local-workspace bootstrap status, and no
-content surface. A future bound workspace root contains ordinary shared files
-beginning with `plans`; it contains no Resonance control metadata.
+The shell opens with workspace bootstrap status. After membership is ready, use
+Files to choose a new or empty folder outside Git management. The bound root
+contains ordinary shared files beginning with `plans` and no Resonance control
+metadata. Markdown editing and conflict resolution remain authority-mediated;
+the webview never receives the private root or blob-store location.
 
 ## Validate and build
 

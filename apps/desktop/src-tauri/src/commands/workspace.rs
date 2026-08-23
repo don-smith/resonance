@@ -4,14 +4,21 @@ use resonance_runtime::{
     identity::InstallationIdentity,
     invite::Invite,
     iroh_transport::{IrohSessionAdapterError, IrohTransport, IrohTransportError},
+    local_root_binding::{RootHealth, RootSelection},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary},
+    workspace_file_runtime::{
+        FileConflictView, FileEntryKind, FileTreeEntry, MarkdownFileView, RootBindingStatus,
+        WorkspaceFileRuntime,
+    },
+    workspace_files::projection::ConflictKind,
     workspace_session::{
         FakeDeliveryPort, WorkspaceSession, WorkspaceSessionError, WorkspaceTransition,
     },
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tokio::{sync::Mutex, time};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
@@ -25,6 +32,7 @@ struct ManagedWorkspace {
     app: AppHandle,
     session: Mutex<Option<WorkspaceSession<FakeDeliveryPort>>>,
     transport: Mutex<Option<IrohTransport>>,
+    files: Mutex<Option<WorkspaceFileRuntime>>,
     issue: Mutex<Option<WorkspaceIssue>>,
     local_public_identity: Option<String>,
 }
@@ -45,6 +53,49 @@ pub struct WorkspaceShellView {
     pub local_public_identity: Option<String>,
     pub members: Vec<MemberView>,
     pub peers: Vec<PeerView>,
+    pub files: Option<WorkspaceFilesView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFilesView {
+    pub root: RootView,
+    pub entries: Vec<FileEntryView>,
+    pub conflicts: Vec<ConflictView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RootView {
+    pub state: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileEntryView {
+    pub node_id: String,
+    pub parent_node_id: Option<String>,
+    pub name: String,
+    pub kind: String,
+    pub current_revision_id: Option<String>,
+    pub editable: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictView {
+    pub record_id: String,
+    pub node_id: String,
+    pub kind: String,
+    pub competing_revision_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkdownRevisionView {
+    pub node_id: String,
+    pub revision_id: String,
+    pub markdown: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -93,26 +144,60 @@ pub struct RetryJoinRequest {
     pub display_name: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenMarkdownRequest {
+    pub node_id: String,
+    pub revision_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateMarkdownRequest {
+    pub parent_node_id: String,
+    pub name: String,
+    pub markdown: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReplaceMarkdownRequest {
+    pub node_id: String,
+    pub base_revision_id: String,
+    pub markdown: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResolveConflictRequest {
+    pub record_id: String,
+    pub chosen_revision_id: Option<String>,
+}
+
 impl ManagedWorkspaceState {
     pub fn initialize(
         app: AppHandle,
         identity: Result<InstallationIdentity, resonance_runtime::identity::IdentityError>,
         application_data: &Path,
     ) -> Self {
-        let (session, local_public_identity, issue) = match identity {
+        let (session, files, local_public_identity, issue) = match identity {
             Ok(identity) => match WorkspaceCatalog::open(application_data) {
                 Ok(catalog) => {
                     let mut session =
                         WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
                     let local_public_identity = session.local_public_identity();
                     match session.activate_active_workspace() {
-                        Ok(_) => (Some(session), Some(local_public_identity), None),
-                        Err(_) => (None, None, Some(WorkspaceIssue::Storage)),
+                        Ok(_) => {
+                            let files = session.open_file_runtime().ok();
+                            (Some(session), files, Some(local_public_identity), None)
+                        }
+                        Err(_) => (None, None, None, Some(WorkspaceIssue::Storage)),
                     }
                 }
-                Err(_) => (None, None, Some(WorkspaceIssue::Storage)),
+                Err(_) => (None, None, None, Some(WorkspaceIssue::Storage)),
             },
             Err(error) => (
+                None,
                 None,
                 None,
                 Some(WorkspaceIssue::Identity(error.to_string())),
@@ -123,6 +208,7 @@ impl ManagedWorkspaceState {
                 app,
                 session: Mutex::new(session),
                 transport: Mutex::new(None),
+                files: Mutex::new(files),
                 issue: Mutex::new(issue),
                 local_public_identity,
             }),
@@ -137,6 +223,7 @@ impl ManagedWorkspaceState {
             let mut last_heartbeat = time::Instant::now();
             loop {
                 workspace.poll_transport().await;
+                workspace.poll_files().await;
                 if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
                     workspace.send_heartbeat_and_expire().await;
                     last_heartbeat = time::Instant::now();
@@ -148,6 +235,7 @@ impl ManagedWorkspaceState {
 
 impl ManagedWorkspace {
     async fn view(&self) -> WorkspaceShellView {
+        let files = self.files.lock().await.as_ref().map(workspace_files_view);
         let mut session = self.session.lock().await;
         let issue = self.issue.lock().await.clone();
         let Some(session) = session.as_mut() else {
@@ -161,6 +249,7 @@ impl ManagedWorkspace {
                 local_public_identity: None,
                 members: Vec::new(),
                 peers: Vec::new(),
+                files: None,
             };
         };
         if !session.has_active_workspace() {
@@ -171,6 +260,7 @@ impl ManagedWorkspace {
                 local_public_identity: self.local_public_identity.clone(),
                 members: Vec::new(),
                 peers: Vec::new(),
+                files: None,
             };
         }
         match session.view() {
@@ -192,6 +282,7 @@ impl ManagedWorkspace {
                     .iter()
                     .map(|peer| peer_view(peer, &view.members))
                     .collect(),
+                files,
             },
             Err(_) => WorkspaceShellView {
                 state: "storage-error".to_owned(),
@@ -200,6 +291,7 @@ impl ManagedWorkspace {
                 local_public_identity: self.local_public_identity.clone(),
                 members: Vec::new(),
                 peers: Vec::new(),
+                files: None,
             },
         }
     }
@@ -236,7 +328,70 @@ impl ManagedWorkspace {
         }
     }
 
+    async fn refresh_file_runtime(&self) {
+        let files = {
+            let session = self.session.lock().await;
+            session
+                .as_ref()
+                .and_then(|session| session.open_file_runtime().ok())
+        };
+        *self.files.lock().await = files;
+    }
+
+    async fn poll_files(&self) {
+        let (changed, announcements) = {
+            let mut files = self.files.lock().await;
+            let Some(files) = files.as_mut() else {
+                return;
+            };
+            let root_before = files.root_status();
+            let changed_files = files.poll_root_changes().unwrap_or_default() > 0;
+            let root_changed = root_before != files.root_status();
+            (
+                changed_files || root_changed,
+                files.take_pending_announcements(),
+            )
+        };
+        if !announcements.is_empty() {
+            self.announce_file_changes(announcements).await;
+        }
+        if changed {
+            self.emit_view().await;
+        }
+    }
+
+    async fn announce_file_changes(&self, operation_ids: Vec<String>) {
+        let recovery_service = self
+            .files
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|files| files.recovery_service().ok());
+        let transport = self.transport.lock().await;
+        let mut session = self.session.lock().await;
+        if let Some(session) = session.as_mut() {
+            if session.announce_file_history(operation_ids).is_err() {
+                *self.issue.lock().await = Some(WorkspaceIssue::Storage);
+                return;
+            }
+            if let Some(transport) = transport.as_ref() {
+                if let Some(service) = recovery_service {
+                    transport.configure_file_recovery(service).await;
+                }
+                if let Err(error) = transport.flush_session(session).await {
+                    *self.issue.lock().await = Some(network_delivery_issue(error));
+                }
+            }
+        }
+    }
+
     async fn restart_transport(&self) {
+        let recovery_service = self
+            .files
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|files| files.recovery_service().ok());
         let mut transport = self.transport.lock().await;
         if let Some(mut active) = transport.take() {
             let _ = active.shutdown().await;
@@ -247,6 +402,9 @@ impl ManagedWorkspace {
         };
         match IrohTransport::start_for_session(session).await {
             Ok(active) => {
+                if let Some(service) = recovery_service {
+                    active.configure_file_recovery(service).await;
+                }
                 if let Err(error) = active.flush_session(session).await {
                     *self.issue.lock().await = Some(network_delivery_issue(error));
                 } else {
@@ -289,6 +447,7 @@ impl ManagedWorkspace {
         drop(session_guard);
         drop(transport_guard);
         if should_emit {
+            self.refresh_file_runtime().await;
             self.emit_view().await;
         } else if !has_transport {
             time::sleep(Duration::from_secs(1)).await;
@@ -337,6 +496,158 @@ pub async fn workspace_view(
 }
 
 #[tauri::command]
+pub async fn choose_workspace_root(
+    app: AppHandle,
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<WorkspaceShellView, String> {
+    let Some(root) = choose_confirmed_root(&app)? else {
+        return Ok(state.inner.view().await);
+    };
+    let root = root
+        .into_path()
+        .map_err(|_| "Resonance could not use that folder.".to_owned())?;
+    {
+        let mut files = state.inner.files.lock().await;
+        files
+            .as_mut()
+            .ok_or_else(file_runtime_unavailable)?
+            .bind_root(root, RootSelection::ConfirmedNotGitManaged)
+            .map_err(|_| "Choose a new or empty folder outside Git management.".to_owned())?;
+    }
+    state.inner.emit_view().await;
+    Ok(state.inner.view().await)
+}
+
+#[tauri::command]
+pub async fn replace_workspace_root(
+    app: AppHandle,
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<WorkspaceShellView, String> {
+    let Some(root) = choose_confirmed_root(&app)? else {
+        return Ok(state.inner.view().await);
+    };
+    let root = root
+        .into_path()
+        .map_err(|_| "Resonance could not use that folder.".to_owned())?;
+    {
+        let mut files = state.inner.files.lock().await;
+        files
+            .as_mut()
+            .ok_or_else(file_runtime_unavailable)?
+            .replace_root(root, RootSelection::ConfirmedNotGitManaged)
+            .map_err(|_| "Choose a new or empty folder outside Git management.".to_owned())?;
+    }
+    state.inner.emit_view().await;
+    Ok(state.inner.view().await)
+}
+
+#[tauri::command]
+pub async fn repair_workspace_root(
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<WorkspaceShellView, String> {
+    {
+        let mut files = state.inner.files.lock().await;
+        files
+            .as_mut()
+            .ok_or_else(file_runtime_unavailable)?
+            .repair_root()
+            .map_err(|_| "The bound folder is still unavailable or not writable.".to_owned())?;
+    }
+    state.inner.emit_view().await;
+    Ok(state.inner.view().await)
+}
+
+#[tauri::command]
+pub async fn unbind_workspace_root(
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<WorkspaceShellView, String> {
+    {
+        let mut files = state.inner.files.lock().await;
+        files
+            .as_mut()
+            .ok_or_else(file_runtime_unavailable)?
+            .unbind_root()
+            .map_err(|_| "Resonance could not clear the private root binding.".to_owned())?;
+    }
+    state.inner.emit_view().await;
+    Ok(state.inner.view().await)
+}
+
+#[tauri::command]
+pub async fn open_markdown_file(
+    request: OpenMarkdownRequest,
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<MarkdownRevisionView, String> {
+    let files = state.inner.files.lock().await;
+    files
+        .as_ref()
+        .ok_or_else(file_runtime_unavailable)?
+        .open_markdown_file(&request.node_id, &request.revision_id)
+        .map(markdown_revision_view)
+        .map_err(|_| "That Markdown revision is unavailable.".to_owned())
+}
+
+#[tauri::command]
+pub async fn create_markdown_file(
+    request: CreateMarkdownRequest,
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<MarkdownRevisionView, String> {
+    let (revision, announcements) = {
+        let mut files = state.inner.files.lock().await;
+        let files = files.as_mut().ok_or_else(file_runtime_unavailable)?;
+        let revision = files
+            .create_markdown_file(&request.parent_node_id, &request.name, &request.markdown)
+            .map_err(|_| "Resonance could not create that Markdown file.".to_owned())?;
+        (revision, files.take_pending_announcements())
+    };
+    state.inner.announce_file_changes(announcements).await;
+    state.inner.emit_view().await;
+    Ok(markdown_revision_view(revision))
+}
+
+#[tauri::command]
+pub async fn replace_markdown_file(
+    request: ReplaceMarkdownRequest,
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<MarkdownRevisionView, String> {
+    let (revision, announcements) = {
+        let mut files = state.inner.files.lock().await;
+        let files = files.as_mut().ok_or_else(file_runtime_unavailable)?;
+        let revision = files
+            .replace_markdown_file(
+                &request.node_id,
+                &request.base_revision_id,
+                &request.markdown,
+            )
+            .map_err(|_| {
+                "The file changed before this edit could be saved. Reopen it and retry.".to_owned()
+            })?;
+        (revision, files.take_pending_announcements())
+    };
+    state.inner.announce_file_changes(announcements).await;
+    state.inner.emit_view().await;
+    Ok(markdown_revision_view(revision))
+}
+
+#[tauri::command]
+pub async fn resolve_workspace_conflict(
+    request: ResolveConflictRequest,
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<WorkspaceShellView, String> {
+    let announcements = {
+        let mut files = state.inner.files.lock().await;
+        let files = files.as_mut().ok_or_else(file_runtime_unavailable)?;
+        files
+            .resolve_conflict(&request.record_id, request.chosen_revision_id)
+            .map_err(|_| "That conflict choice is no longer available.".to_owned())?;
+        files.take_pending_announcements()
+    };
+    state.inner.announce_file_changes(announcements).await;
+    state.inner.emit_view().await;
+    Ok(state.inner.view().await)
+}
+
+#[tauri::command]
 pub async fn create_workspace(
     request: CreateWorkspaceRequest,
     state: State<'_, ManagedWorkspaceState>,
@@ -354,6 +665,7 @@ pub async fn create_workspace(
             )
             .map_err(|_| "Resonance could not create this workspace.".to_owned())?;
     }
+    state.inner.refresh_file_runtime().await;
     state.inner.restart_transport().await;
     state.inner.emit_view().await;
     Ok(state.inner.view().await)
@@ -397,6 +709,7 @@ pub async fn join_workspace(
             .join_workspace(&request.invite, request.display_name)
             .map_err(|_| "Resonance could not join this workspace.".to_owned())?;
     }
+    state.inner.refresh_file_runtime().await;
     state.inner.restart_transport().await;
     state.inner.emit_view().await;
     Ok(state.inner.view().await)
@@ -420,7 +733,92 @@ pub async fn retry_workspace_join(
         state.inner.restart_transport().await;
         state.inner.emit_view().await;
     }
+    state.inner.refresh_file_runtime().await;
     Ok(state.inner.view().await)
+}
+
+fn choose_confirmed_root(app: &AppHandle) -> Result<Option<tauri_plugin_dialog::FilePath>, String> {
+    let Some(root) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let confirmed = app
+        .dialog()
+        .message("Use this folder only if it is new or empty and is not managed by Git.")
+        .title("Confirm workspace folder")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Use folder".to_owned(),
+            "Cancel".to_owned(),
+        ))
+        .blocking_show();
+    if !confirmed {
+        return Ok(None);
+    }
+    Ok(Some(root))
+}
+
+fn workspace_files_view(files: &WorkspaceFileRuntime) -> WorkspaceFilesView {
+    WorkspaceFilesView {
+        root: RootView {
+            state: match files.root_status() {
+                RootBindingStatus::Unbound => "unbound",
+                RootBindingStatus::Bound(RootHealth::Healthy) => "healthy",
+                RootBindingStatus::Bound(RootHealth::Unavailable) => "unavailable",
+                RootBindingStatus::Bound(RootHealth::Unwritable) => "unwritable",
+                RootBindingStatus::Bound(RootHealth::Unhealthy) => "unhealthy",
+            }
+            .to_owned(),
+        },
+        entries: files
+            .tree_entries()
+            .into_iter()
+            .map(file_entry_view)
+            .collect(),
+        conflicts: files.conflicts().into_iter().map(conflict_view).collect(),
+    }
+}
+
+fn file_entry_view(entry: FileTreeEntry) -> FileEntryView {
+    FileEntryView {
+        node_id: entry.node_id,
+        parent_node_id: entry.parent_node_id,
+        name: entry.name,
+        kind: match entry.kind {
+            FileEntryKind::Directory => "directory",
+            FileEntryKind::Markdown => "markdown",
+            FileEntryKind::Binary => "binary",
+        }
+        .to_owned(),
+        current_revision_id: entry.current_revision_id,
+        editable: entry.editable,
+    }
+}
+
+fn conflict_view(conflict: FileConflictView) -> ConflictView {
+    ConflictView {
+        record_id: conflict.record_id,
+        node_id: conflict.node_id,
+        kind: match conflict.kind {
+            ConflictKind::MarkdownOverlap => "markdown-overlap",
+            ConflictKind::BinaryCollision => "binary-collision",
+            ConflictKind::DeleteEdit => "delete-edit",
+            ConflictKind::ConcurrentCreate => "concurrent-create",
+            ConflictKind::CompetingMove => "competing-move",
+        }
+        .to_owned(),
+        competing_revision_ids: conflict.competing_revision_ids,
+    }
+}
+
+fn markdown_revision_view(revision: MarkdownFileView) -> MarkdownRevisionView {
+    MarkdownRevisionView {
+        node_id: revision.node_id,
+        revision_id: revision.revision_id,
+        markdown: revision.markdown,
+    }
+}
+
+fn file_runtime_unavailable() -> String {
+    "Workspace files are unavailable until membership is ready.".to_owned()
 }
 
 fn workspace_summary_view(workspace: &WorkspaceSummary) -> WorkspaceView {
@@ -530,8 +928,8 @@ fn unix_seconds() -> i64 {
 mod tests {
     use super::{
         issue_message, network_delivery_issue, network_start_issue, IrohSessionAdapterError,
-        IrohTransportError, MemberView, PeerView, WorkspaceSessionError, WorkspaceShellView,
-        WorkspaceView,
+        IrohTransportError, MemberView, PeerView, ReplaceMarkdownRequest, WorkspaceSessionError,
+        WorkspaceShellView, WorkspaceView,
     };
 
     #[test]
@@ -560,6 +958,18 @@ mod tests {
     }
 
     #[test]
+    fn markdown_replacement_request_rejects_private_or_unknown_fields() {
+        let request = serde_json::json!({
+            "nodeId": "node-id",
+            "baseRevisionId": "revision-id",
+            "markdown": "# Safe",
+            "path": "/private/root/file.md"
+        });
+
+        assert!(serde_json::from_value::<ReplaceMarkdownRequest>(request).is_err());
+    }
+
+    #[test]
     fn public_workspace_event_contains_no_secret_or_transport_fields() {
         let view = WorkspaceShellView {
             state: "ready".to_owned(),
@@ -581,6 +991,20 @@ mod tests {
                 online: true,
                 connection: "direct".to_owned(),
             }],
+            files: Some(super::WorkspaceFilesView {
+                root: super::RootView {
+                    state: "healthy".to_owned(),
+                },
+                entries: vec![super::FileEntryView {
+                    node_id: "node-id".to_owned(),
+                    parent_node_id: None,
+                    name: "plans".to_owned(),
+                    kind: "directory".to_owned(),
+                    current_revision_id: None,
+                    editable: true,
+                }],
+                conflicts: Vec::new(),
+            }),
         };
 
         let payload = serde_json::to_string(&view).expect("view serializes");

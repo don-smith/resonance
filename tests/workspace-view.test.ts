@@ -1,29 +1,89 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isMarkdownRevisionView,
   isWorkspaceShellView,
   peerStatus,
+  type WorkspaceShellView,
 } from "../apps/desktop/src/workspace-view.js";
+import {
+  childEntries,
+  conflictLabel,
+  rootStatusMessage,
+} from "../apps/desktop/src/workspace-files-view.js";
+
+function readyView(): WorkspaceShellView {
+  return {
+    state: "ready",
+    message: null,
+    workspace: null,
+    localPublicIdentity: "public-id",
+    members: [],
+    peers: [
+      {
+        publicIdentity: "peer-id",
+        displayName: "Ada",
+        online: true,
+        connection: "relayed",
+      },
+    ],
+    files: {
+      root: { state: "healthy" },
+      entries: [
+        {
+          nodeId: "file",
+          parentNodeId: "plans",
+          name: "roadmap.md",
+          kind: "markdown",
+          currentRevisionId: "revision",
+          editable: true,
+        },
+        {
+          nodeId: "plans",
+          parentNodeId: null,
+          name: "plans",
+          kind: "directory",
+          currentRevisionId: null,
+          editable: true,
+        },
+      ],
+      conflicts: [],
+    },
+  };
+}
 
 describe("workspace shell view", () => {
-  it("accepts secret-free peer connection updates", () => {
+  it("accepts bounded file, root, and peer state", () => {
+    expect(isWorkspaceShellView(readyView())).toBe(true);
     expect(
-      isWorkspaceShellView({
-        state: "ready",
-        message: null,
-        workspace: null,
-        localPublicIdentity: "public-id",
-        members: [],
-        peers: [
-          {
-            publicIdentity: "peer-id",
-            displayName: "Ada",
-            online: true,
-            connection: "relayed",
-          },
-        ],
+      isMarkdownRevisionView({
+        nodeId: "file",
+        revisionId: "revision",
+        markdown: "# Roadmap\n",
       }),
     ).toBe(true);
+  });
+
+  it("rejects malformed private-root and file state", () => {
+    const view = readyView() as unknown as Record<string, unknown>;
+    view.files = {
+      root: { state: "healthy", path: "/private/root" },
+      entries: [{ nodeId: "missing-fields" }],
+      conflicts: [],
+    };
+    expect(isWorkspaceShellView(view)).toBe(false);
+  });
+
+  it("orders directories before files and describes root health", () => {
+    const files = readyView().files;
+    expect(files).not.toBeNull();
+    expect(
+      childEntries(files!.entries, null).map((entry) => entry.name),
+    ).toEqual(["plans"]);
+    expect(rootStatusMessage("unavailable")).toContain("unavailable");
+    expect(conflictLabel("markdown-overlap")).toBe(
+      "Overlapping Markdown edits",
+    );
   });
 
   it("renders an offline peer without a connection claim", () => {

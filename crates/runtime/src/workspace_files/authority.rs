@@ -112,6 +112,11 @@ enum NodeKind {
 impl WorkspaceFileAuthority {
     #[must_use]
     pub fn new(workspace_id: impl Into<String>) -> Self {
+        Self::with_blob_store(workspace_id, WorkspaceBlobStore::new())
+    }
+
+    #[must_use]
+    pub fn with_blob_store(workspace_id: impl Into<String>, blobs: WorkspaceBlobStore) -> Self {
         Self {
             workspace_id: workspace_id.into(),
             operations: BTreeMap::new(),
@@ -120,7 +125,7 @@ impl WorkspaceFileAuthority {
             children: BTreeMap::new(),
             revisions: BTreeMap::new(),
             conflicts: BTreeMap::new(),
-            blobs: WorkspaceBlobStore::new(),
+            blobs,
         }
     }
 
@@ -197,6 +202,20 @@ impl WorkspaceFileAuthority {
     #[must_use]
     pub fn applied_operation_ids(&self) -> &BTreeSet<String> {
         &self.projected_operations
+    }
+
+    #[must_use]
+    pub fn causal_frontier(&self) -> Vec<String> {
+        let parents = self
+            .operations
+            .values()
+            .flat_map(|operation| operation.operation.causal_parents.iter())
+            .collect::<BTreeSet<_>>();
+        self.projected_operations
+            .iter()
+            .filter(|operation_id| !parents.contains(operation_id))
+            .cloned()
+            .collect()
     }
 
     fn validate_envelope(

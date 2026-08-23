@@ -37,8 +37,8 @@ nav a {
 }
 
 .workspace {
-  max-width: 46rem;
-  padding: clamp(2rem, 8vw, 7rem);
+  width: min(100%, 84rem);
+  padding: clamp(2rem, 5vw, 5rem);
 }
 
 .eyebrow {
@@ -59,10 +59,17 @@ h2 {
   font-size: 1.15rem;
 }
 
+h3 {
+  margin-top: 1.5rem;
+  font-size: 1rem;
+}
+
 .message,
-.workspace li {
+.root-status,
+.workspace li,
+.editor-placeholder {
   color: #cdc8d6;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .message:not(:empty) {
@@ -83,6 +90,7 @@ label {
 }
 
 input,
+select,
 button {
   border: 1px solid #4b4560;
   border-radius: 0.4rem;
@@ -99,21 +107,110 @@ button {
   border-color: #776ceb;
 }
 
-.workspace-actions {
+.workspace-actions,
+.root-actions,
+.section-heading {
   display: flex;
+  align-items: center;
   gap: 0.75rem;
+}
+
+.workspace-actions {
   margin-top: 1.5rem;
 }
 
+.section-heading {
+  justify-content: space-between;
+}
+
+.root-status,
+.section-heading h2 {
+  margin-bottom: 0.4rem;
+}
+
+.document-layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(24rem, 1fr);
+  gap: 1rem;
+  min-height: 36rem;
+}
+
+.file-browser,
+.editor-panel {
+  padding: 1rem;
+  border: 1px solid #3b354d;
+  border-radius: 0.5rem;
+  background: #1d1a28;
+}
+
+.file-tree,
+.file-tree ul,
+.conflicts ul,
 .members,
 .peers {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.35rem;
   padding: 0;
   list-style: none;
 }
 
-.workspace li {
+.file-tree ul {
+  margin: 0.35rem 0 0 1rem;
+}
+
+.file-tree button {
+  padding: 0.25rem 0;
+  border: 0;
+  color: #d9d4ff;
+  background: transparent;
+  text-align: left;
+}
+
+.new-markdown {
+  margin-top: 1.5rem;
+}
+
+.conflicts li {
+  padding: 0.65rem;
+  border: 1px solid #4b4560;
+  border-radius: 0.4rem;
+}
+
+.conflicts li p {
+  margin-top: 0;
+}
+
+.conflicts button {
+  margin: 0.25rem 0.35rem 0 0;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.editor-panel > button {
+  margin-top: 0.75rem;
+}
+
+.toastui-editor-defaultUI {
+  color: #222;
+  border-color: #4b4560;
+}
+
+.people {
+  margin-top: 2rem;
+}
+
+.people summary {
+  cursor: pointer;
+  color: #b9b2ff;
+}
+
+.members,
+.peers {
+  max-width: 32rem;
+}
+
+.members li,
+.peers li {
   padding: 0.6rem 0.75rem;
   border: 1px solid #3b354d;
   border-radius: 0.4rem;
@@ -121,6 +218,12 @@ button {
 
 [hidden] {
   display: none !important;
+}
+
+@media (max-width: 900px) {
+  .document-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 700px) {
@@ -136,5 +239,11 @@ button {
 
   .brand {
     margin: 0;
+  }
+
+  .section-heading,
+  .root-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

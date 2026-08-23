@@ -1,6 +1,11 @@
 //! BLAKE3-addressed immutable content blobs.
 
-use std::{collections::BTreeMap, io};
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ContentHash(pub String);
@@ -20,6 +25,7 @@ impl ContentHash {
 #[derive(Debug, Default)]
 pub struct WorkspaceBlobStore {
     blobs: BTreeMap<ContentHash, Vec<u8>>,
+    directory: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -49,11 +55,42 @@ impl WorkspaceBlobStore {
         Self::default()
     }
 
+    pub(crate) fn open_durable(directory: impl AsRef<Path>) -> Result<Self, BlobError> {
+        let directory = directory.as_ref().to_path_buf();
+        fs::create_dir_all(&directory)?;
+        let mut blobs = BTreeMap::new();
+        for entry in fs::read_dir(&directory)? {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            if !metadata.is_file() {
+                return Err(BlobError::Io("blob storage contains an invalid entry"));
+            }
+            let Some(name) = entry.file_name().to_str().map(ToOwned::to_owned) else {
+                return Err(BlobError::Io("blob storage contains an invalid entry"));
+            };
+            if name.starts_with(".blob-") && name.ends_with(".tmp") {
+                fs::remove_file(entry.path())?;
+                continue;
+            }
+            if !valid_hash(&name) {
+                return Err(BlobError::Io("blob storage contains an invalid entry"));
+            }
+            let bytes = fs::read(entry.path())?;
+            let hash = ContentHash(name);
+            if ContentHash::from_bytes(&bytes) != hash {
+                return Err(BlobError::HashMismatch);
+            }
+            blobs.insert(hash, bytes);
+        }
+        Ok(Self {
+            blobs,
+            directory: Some(directory),
+        })
+    }
+
     pub fn store(&mut self, bytes: &[u8]) -> Result<ContentHash, BlobError> {
         let hash = ContentHash::from_bytes(bytes);
-        self.blobs
-            .entry(hash.clone())
-            .or_insert_with(|| bytes.to_vec());
+        self.store_verified(&hash, bytes)?;
         Ok(hash)
     }
 
@@ -72,9 +109,13 @@ impl WorkspaceBlobStore {
 
     pub fn store_verified(&mut self, hash: &ContentHash, bytes: &[u8]) -> Result<(), BlobError> {
         self.verify(hash, bytes)?;
-        self.blobs
-            .entry(hash.clone())
-            .or_insert_with(|| bytes.to_vec());
+        if self.blobs.contains_key(hash) {
+            return Ok(());
+        }
+        if let Some(directory) = &self.directory {
+            persist_blob(directory, hash, bytes)?;
+        }
+        self.blobs.insert(hash.clone(), bytes.to_vec());
         Ok(())
     }
 
@@ -92,6 +133,44 @@ impl WorkspaceBlobStore {
     pub fn is_empty(&self) -> bool {
         self.blobs.is_empty()
     }
+}
+
+fn persist_blob(directory: &Path, hash: &ContentHash, bytes: &[u8]) -> Result<(), BlobError> {
+    let destination = directory.join(hash.as_str());
+    if destination.exists() {
+        let existing = fs::read(destination)?;
+        return (ContentHash::from_bytes(&existing) == *hash)
+            .then_some(())
+            .ok_or(BlobError::HashMismatch);
+    }
+    let temporary = directory.join(format!(
+        ".blob-{}-{}.tmp",
+        std::process::id(),
+        &hash.as_str()[..12]
+    ));
+    let result = (|| {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        fs::rename(&temporary, &destination)?;
+        fs::File::open(directory)?.sync_all()?;
+        Ok::<(), io::Error>(())
+    })();
+    if let Err(error) = result {
+        let _ = fs::remove_file(temporary);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+fn valid_hash(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 impl From<io::Error> for BlobError {
@@ -124,5 +203,18 @@ mod tests {
         let hash1 = ContentHash::from_bytes(b"same");
         let hash2 = ContentHash::from_bytes(b"same");
         assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn reopens_verified_durable_bytes() {
+        let directory = tempfile::tempdir().expect("blob directory creates");
+        let hash = {
+            let mut store =
+                WorkspaceBlobStore::open_durable(directory.path()).expect("blob store opens");
+            store.store(b"durable").expect("blob stores")
+        };
+        let reopened =
+            WorkspaceBlobStore::open_durable(directory.path()).expect("blob store reopens");
+        assert_eq!(reopened.open(&hash).expect("blob opens"), b"durable");
     }
 }

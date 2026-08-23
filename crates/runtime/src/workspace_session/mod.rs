@@ -18,6 +18,7 @@ use crate::{
     workspace_domain::{
         KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
     },
+    workspace_file_runtime::{WorkspaceFileRuntime, WorkspaceFileRuntimeError},
     workspace_files::{
         authority::WorkspaceFileAuthority, FileOperationBody, FileOperationError,
         SignedFileOperation,
@@ -507,6 +508,23 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             }
         }
         Ok(())
+    }
+
+    pub fn open_file_runtime(&self) -> Result<WorkspaceFileRuntime, WorkspaceFileRuntimeError> {
+        let active = self
+            .active
+            .as_ref()
+            .ok_or(WorkspaceFileRuntimeError::NotFound)?;
+        if active.summary.lifecycle != WorkspaceLifecycle::Ready {
+            return Err(WorkspaceFileRuntimeError::NotFound);
+        }
+        let store = self.catalog.open_workspace(&active.summary.id)?;
+        WorkspaceFileRuntime::open(
+            active.summary.id.as_str(),
+            self.identity.clone(),
+            self.projection(),
+            store,
+        )
     }
 
     pub fn view(&mut self) -> Result<ActiveWorkspaceView, WorkspaceSessionError> {

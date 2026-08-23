@@ -81,6 +81,7 @@ impl fmt::Display for PublicIdentity {
 }
 
 /// Owns the in-memory signer without exposing its private key beyond runtime modules.
+#[derive(Clone)]
 pub struct InstallationIdentity {
     secret_key: SecretKey,
 }

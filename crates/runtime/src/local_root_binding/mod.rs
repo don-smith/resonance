@@ -185,17 +185,17 @@ impl From<WorkspaceStoreError> for RootBindingError {
 }
 
 #[derive(Debug)]
-pub struct LocalRootBinding<'a> {
-    store: &'a WorkspaceStore,
+pub struct LocalRootBinding {
+    store: WorkspaceStore,
     root: PathBuf,
     health: RootHealth,
     materialized: BTreeMap<String, MaterializedRecord>,
     ingestor: FilesystemIngestor,
 }
 
-impl<'a> LocalRootBinding<'a> {
+impl LocalRootBinding {
     pub fn bind(
-        store: &'a WorkspaceStore,
+        store: &WorkspaceStore,
         root: impl AsRef<Path>,
         selection: RootSelection,
         projection: &FileTreeProjection,
@@ -214,12 +214,40 @@ impl<'a> LocalRootBinding<'a> {
         store.set_local_root_binding(&root, RootHealth::Healthy)?;
         store.replace_local_root_materialization(materialized.values())?;
         Ok(Self {
-            store,
+            store: store.clone(),
             root,
             health: RootHealth::Healthy,
             materialized,
             ingestor: FilesystemIngestor::new(snapshot),
         })
+    }
+
+    pub fn reopen(
+        store: &WorkspaceStore,
+        projection: &FileTreeProjection,
+        blobs: &WorkspaceBlobStore,
+    ) -> Result<Option<Self>, RootBindingError> {
+        let Some((root, persisted_health)) = store.local_root_binding()? else {
+            return Ok(None);
+        };
+        let materialized = store
+            .local_root_materialization()?
+            .into_iter()
+            .map(|record| (record.relative_path.clone(), record))
+            .collect();
+        let mut binding = Self {
+            store: store.clone(),
+            root,
+            health: persisted_health,
+            materialized,
+            ingestor: FilesystemIngestor::new(BTreeMap::new()),
+        };
+        if let Err(error) = binding.repair(projection, blobs) {
+            if matches!(error, RootBindingError::Storage(_)) {
+                return Err(error);
+            }
+        }
+        Ok(Some(binding))
     }
 
     #[must_use]
@@ -397,13 +425,27 @@ impl<'a> LocalRootBinding<'a> {
         projection: &FileTreeProjection,
         blobs: &WorkspaceBlobStore,
     ) -> Result<(), RootBindingError> {
-        recovery::remove_interrupted_writes(&self.root)?;
-        self.materialized = projector::project(&self.root, projection, blobs)?;
-        let snapshot = watcher::snapshot(&self.root)?;
-        self.ingestor = FilesystemIngestor::new(snapshot);
-        self.store
-            .replace_local_root_materialization(self.materialized.values())?;
-        self.set_health(RootHealth::Healthy, None)
+        let result = (|| {
+            recovery::remove_interrupted_writes(&self.root)?;
+            self.materialized = projector::project(&self.root, projection, blobs)?;
+            let snapshot = watcher::snapshot(&self.root)?;
+            self.ingestor = FilesystemIngestor::new(snapshot);
+            self.store
+                .replace_local_root_materialization(self.materialized.values())?;
+            Ok::<(), RootBindingError>(())
+        })();
+        match result {
+            Ok(()) => self.set_health(RootHealth::Healthy, None),
+            Err(error) => {
+                let health = match error {
+                    RootBindingError::Unavailable => RootHealth::Unavailable,
+                    RootBindingError::Unwritable => RootHealth::Unwritable,
+                    _ => RootHealth::Unhealthy,
+                };
+                self.set_health(health, Some(error.to_string()))?;
+                Err(error)
+            }
+        }
     }
 
     fn parent_and_name(

@@ -9,6 +9,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.5.0"
+    "@tauri-apps/api": "2.5.0",
+    "@toast-ui/editor": "3.2.2"
   }
 }

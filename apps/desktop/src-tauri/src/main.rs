@@ -19,6 +19,7 @@ fn main() {
         startup::profile_argument_from_environment().expect("invalid Resonance startup argument");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let _runtime_name = resonance_runtime::runtime_name();
@@ -55,6 +56,14 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::packages::bundled_package_ids,
             commands::workspace::workspace_view,
+            commands::workspace::choose_workspace_root,
+            commands::workspace::replace_workspace_root,
+            commands::workspace::repair_workspace_root,
+            commands::workspace::unbind_workspace_root,
+            commands::workspace::open_markdown_file,
+            commands::workspace::create_markdown_file,
+            commands::workspace::replace_markdown_file,
+            commands::workspace::resolve_workspace_conflict,
             commands::workspace::create_workspace,
             commands::workspace::create_workspace_invite,
             commands::workspace::join_workspace,

@@ -16,6 +16,7 @@ pub mod protocol;
 pub mod release;
 pub mod workspace_catalog;
 pub mod workspace_domain;
+pub mod workspace_file_runtime;
 pub mod workspace_file_transport;
 pub mod workspace_files;
 pub mod workspace_session;

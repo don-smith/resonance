@@ -170,6 +170,15 @@ export function isMarkdownRevisionView(
   );
 }
 
+export function workspaceViewChanged(
+  current: WorkspaceShellView | null,
+  incoming: WorkspaceShellView,
+): boolean {
+  return (
+    current === null || JSON.stringify(current) !== JSON.stringify(incoming)
+  );
+}
+
 export function peerStatus(peer: WorkspaceShellView["peers"][number]): string {
   if (!peer.online) {
     return "Offline";

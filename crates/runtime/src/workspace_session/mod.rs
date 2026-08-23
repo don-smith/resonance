@@ -23,7 +23,7 @@ use crate::{
         authority::WorkspaceFileAuthority, FileOperationBody, FileOperationError,
         SignedFileOperation,
     },
-    workspace_store::WorkspaceStoreError,
+    workspace_store::{WorkspaceStore, WorkspaceStoreError},
 };
 
 pub const HEARTBEAT_TTL_SECONDS: i64 = 30;
@@ -147,6 +147,15 @@ struct ActiveWorkspace {
     joining_display_name: Option<String>,
     peers: BTreeMap<String, PeerState>,
     file_history_recovery_needed: bool,
+}
+
+pub(crate) struct FileRecoveryContext {
+    pub workspace_id: String,
+    pub membership: MembershipProjection,
+    pub store: WorkspaceStore,
+    pub bootstrap: Option<String>,
+    pub member_public_identities: Vec<String>,
+    pub local_public_identity: String,
 }
 
 #[derive(Clone)]
@@ -316,6 +325,25 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         Ok(std::mem::take(&mut active.file_history_recovery_needed))
     }
 
+    pub(crate) fn file_recovery_context(
+        &self,
+    ) -> Result<FileRecoveryContext, WorkspaceSessionError> {
+        let active = self.active()?;
+        let membership = self.projection();
+        Ok(FileRecoveryContext {
+            workspace_id: active.summary.id.as_str().to_owned(),
+            store: self.catalog.open_workspace(&active.summary.id)?,
+            bootstrap: active.bootstrap.clone(),
+            member_public_identities: membership
+                .members
+                .iter()
+                .map(|member| member.public_identity.clone())
+                .collect(),
+            local_public_identity: self.identity.public_identity().to_string(),
+            membership,
+        })
+    }
+
     pub(crate) fn mark_file_history_recovery_needed(
         &mut self,
     ) -> Result<(), WorkspaceSessionError> {
@@ -357,6 +385,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                     online: false,
                     connection: PeerConnection::Unknown,
                 });
+            if state.connection == connection {
+                return Ok(());
+            }
             state.connection = connection;
             KnownPeer {
                 public_identity: public_identity.clone(),
@@ -545,6 +576,10 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         std::mem::take(&mut self.transitions)
     }
 
+    pub(crate) fn pending_transition_count(&self) -> usize {
+        self.transitions.len()
+    }
+
     pub(crate) fn transport_identity(&self) -> &InstallationIdentity {
         &self.identity
     }
@@ -595,10 +630,13 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             let active = self.active_mut()?;
             let state = active.peers.entry(sender.clone()).or_insert(PeerState {
                 last_heartbeat: sent_at,
-                online: true,
+                online: false,
                 connection: PeerConnection::Unknown,
             });
             state.last_heartbeat = state.last_heartbeat.max(sent_at);
+            if state.online {
+                return Ok(());
+            }
             state.online = true;
             KnownPeer {
                 public_identity: sender,

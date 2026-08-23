@@ -337,6 +337,42 @@ async fn routes_invite_join_and_membership_recovery_through_the_local_relay() {
     }
 
     assert_eq!(joiner.view().expect("joiner view").members.len(), 2);
+
+    let mut inviter_files = inviter
+        .open_file_runtime()
+        .expect("inviter file runtime opens");
+    let plans = inviter_files
+        .tree_entries()
+        .into_iter()
+        .find(|entry| entry.name == "plans")
+        .expect("inviter plans exists");
+    inviter_files
+        .create_markdown_file(&plans.node_id, "shared.md", "shared bytes\n")
+        .expect("inviter file creates");
+    inviter_transport
+        .configure_file_recovery(
+            inviter_files
+                .recovery_service()
+                .expect("inviter recovery service composes"),
+        )
+        .await;
+
+    assert!(joiner_transport
+        .recover_file_history(&mut joiner)
+        .await
+        .expect("joiner recovers initial file history"));
+    let joiner_files = joiner
+        .open_file_runtime()
+        .expect("joiner file runtime opens after recovery");
+    assert!(joiner_files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "plans"));
+    assert!(joiner_files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "shared.md"));
+
     joiner_transport
         .send_session_heartbeat(&mut joiner)
         .await

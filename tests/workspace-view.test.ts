@@ -4,6 +4,7 @@ import {
   isMarkdownRevisionView,
   isWorkspaceShellView,
   peerStatus,
+  workspaceViewChanged,
   type WorkspaceShellView,
 } from "../apps/desktop/src/workspace-view.js";
 import {
@@ -84,6 +85,15 @@ describe("workspace shell view", () => {
     expect(conflictLabel("markdown-overlap")).toBe(
       "Overlapping Markdown edits",
     );
+  });
+
+  it("does not replace interactive UI for an identical transport view", () => {
+    const current = readyView();
+    const identical = structuredClone(current);
+    expect(workspaceViewChanged(current, identical)).toBe(false);
+
+    identical.files!.entries[0].currentRevisionId = "next-revision";
+    expect(workspaceViewChanged(current, identical)).toBe(true);
   });
 
   it("renders an offline peer without a connection claim", () => {

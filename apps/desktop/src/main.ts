@@ -12,6 +12,7 @@ import {
   type MarkdownRevisionView,
   type RootState,
   type WorkspaceShellView,
+  workspaceViewChanged,
 } from "./workspace-view.js";
 import {
   childEntries,
@@ -440,7 +441,12 @@ function requiredElement<T extends Element>(selector: string): T {
 void Promise.all([
   invoke<WorkspaceShellView>("workspace_view"),
   listen<unknown>("workspace:changed", (event) => {
-    if (isWorkspaceShellView(event.payload)) render(event.payload);
+    if (
+      isWorkspaceShellView(event.payload) &&
+      workspaceViewChanged(currentView, event.payload)
+    ) {
+      render(event.payload);
+    }
   }),
 ])
   .then(([view]) => {

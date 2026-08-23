@@ -428,13 +428,22 @@ impl ManagedWorkspace {
             )
             .await;
             let should_emit = match result {
-                Ok(Ok(true)) => {
+                Ok(Ok(view_changed)) => {
+                    let mut changed = view_changed;
                     if let Err(error) = transport.flush_session(session).await {
                         *self.issue.lock().await = Some(network_delivery_issue(error));
+                        changed = true;
                     }
-                    true
+                    match transport.recover_file_history(session).await {
+                        Ok(recovered) => changed |= recovered,
+                        Err(error) => {
+                            *self.issue.lock().await = Some(network_delivery_issue(error));
+                            changed = true;
+                        }
+                    }
+                    changed
                 }
-                Ok(Ok(false)) | Err(_) => false,
+                Err(_) => false,
                 Ok(Err(error)) => {
                     *self.issue.lock().await = Some(network_delivery_issue(error));
                     true
@@ -448,9 +457,24 @@ impl ManagedWorkspace {
         drop(transport_guard);
         if should_emit {
             self.refresh_file_runtime().await;
+            self.refresh_file_recovery_service().await;
             self.emit_view().await;
         } else if !has_transport {
             time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    async fn refresh_file_recovery_service(&self) {
+        let recovery_service = self
+            .files
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|files| files.recovery_service().ok());
+        if let (Some(transport), Some(service)) =
+            (self.transport.lock().await.as_ref(), recovery_service)
+        {
+            transport.configure_file_recovery(service).await;
         }
     }
 
@@ -885,7 +909,8 @@ fn network_start_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
             | IrohTransportError::Shutdown
             | IrohTransportError::FileStream,
         )
-        | IrohSessionAdapterError::Session(_) => {
+        | IrohSessionAdapterError::Session(_)
+        | IrohSessionAdapterError::FileRecovery(_) => {
             "Peer networking could not start for this workspace."
         }
     };

@@ -125,6 +125,38 @@ impl FileRecoveryTarget {
         }
     }
 
+    pub(crate) fn open_with_store(
+        workspace_id: impl Into<String>,
+        membership: MembershipProjection,
+        store: &WorkspaceStore,
+    ) -> Result<Self, FileRecoveryError> {
+        let workspace_id = workspace_id.into();
+        let operations = store.file_operations()?;
+        let mut authority =
+            WorkspaceFileAuthority::with_blob_store(&workspace_id, store.open_blob_store()?);
+        if let Err(error) = authority.replay(&operations, &membership) {
+            if !matches!(error, AuthorityError::Blob(BlobError::Missing)) {
+                return Err(error.into());
+            }
+        }
+        let durable_operations = operations
+            .into_iter()
+            .map(|operation| {
+                Ok((
+                    operation.operation.operation_id.clone(),
+                    operation.encode()?,
+                ))
+            })
+            .collect::<Result<BTreeMap<_, _>, FileRecoveryError>>()?;
+        Ok(Self {
+            workspace_id,
+            membership,
+            authority,
+            durable_operations,
+            partial_blobs: BTreeMap::new(),
+        })
+    }
+
     pub fn recover_operations(
         &mut self,
         response: FileResponse,
@@ -169,7 +201,11 @@ impl FileRecoveryTarget {
         let mut staged_operations = self.durable_operations.clone();
         let mut accepted = 0;
         for (operation, bytes) in &recovered {
-            staged_authority.apply(operation, &self.membership)?;
+            if let Err(error) = staged_authority.apply(operation, &self.membership) {
+                if !matches!(error, AuthorityError::Blob(BlobError::Missing)) {
+                    return Err(error.into());
+                }
+            }
             if staged_operations
                 .insert(operation.operation.operation_id.clone(), bytes.clone())
                 .is_none()
@@ -184,9 +220,28 @@ impl FileRecoveryTarget {
                 .collect::<Vec<_>>();
             store.record_file_operations(&operations)?;
         }
-        self.authority = staged_authority;
         self.durable_operations = staged_operations;
+        if let Some(rebuilt) = self.rebuild_authority()? {
+            self.authority = rebuilt;
+        }
         Ok(accepted)
+    }
+
+    #[must_use]
+    pub(crate) fn missing_blob_hashes(&self) -> Vec<String> {
+        self.durable_operations
+            .values()
+            .filter_map(|bytes| SignedFileOperation::decode(bytes).ok())
+            .filter_map(|operation| operation_content_hash(&operation).map(ToOwned::to_owned))
+            .filter(|hash| {
+                !self
+                    .authority
+                    .blob_store()
+                    .contains(&ContentHash(hash.clone()))
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 
     #[must_use]
@@ -241,7 +296,27 @@ impl FileRecoveryTarget {
         self.authority
             .blob_store_mut()
             .store_verified(&ContentHash(content_hash), &completed)?;
+        if let Some(rebuilt) = self.rebuild_authority()? {
+            self.authority = rebuilt;
+        }
         Ok(true)
+    }
+
+    fn rebuild_authority(&self) -> Result<Option<WorkspaceFileAuthority>, FileRecoveryError> {
+        let mut authority = WorkspaceFileAuthority::with_blob_store(
+            &self.workspace_id,
+            self.authority.blob_store().clone(),
+        );
+        let operations = self
+            .durable_operations
+            .values()
+            .map(|bytes| SignedFileOperation::decode(bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        match authority.replay(&operations, &self.membership) {
+            Ok(()) => Ok(Some(authority)),
+            Err(AuthorityError::Blob(BlobError::Missing)) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 
     #[must_use]

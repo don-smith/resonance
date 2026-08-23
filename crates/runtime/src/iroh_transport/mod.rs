@@ -3,7 +3,7 @@
 //! This is the only runtime module that imports Iroh or Gossip types. Callers
 //! exchange signed protocol bytes and secret-free peer observations.
 
-use std::fmt;
+use std::{collections::BTreeMap, fmt};
 
 mod file_stream;
 
@@ -20,8 +20,8 @@ use crate::{
     identity::InstallationIdentity,
     workspace_domain::PeerConnection,
     workspace_file_transport::{
-        decode_response, encode_request, FileRecoveryService, FileRequest, FileResponse,
-        FILE_STREAM_ALPN, MAX_RESPONSE_BYTES,
+        decode_response, encode_request, FileRecoveryError, FileRecoveryService,
+        FileRecoveryTarget, FileRequest, FileResponse, FILE_STREAM_ALPN, MAX_RESPONSE_BYTES,
     },
     workspace_session::{FakeDeliveryPort, WorkspaceSession, WorkspaceSessionError},
 };
@@ -87,6 +87,7 @@ impl std::error::Error for IrohTransportError {}
 pub enum IrohSessionAdapterError {
     Transport(IrohTransportError),
     Session(WorkspaceSessionError),
+    FileRecovery(FileRecoveryError),
 }
 
 impl fmt::Display for IrohSessionAdapterError {
@@ -94,6 +95,9 @@ impl fmt::Display for IrohSessionAdapterError {
         match self {
             Self::Transport(error) => write!(formatter, "workspace transport failed: {error}"),
             Self::Session(error) => write!(formatter, "workspace session failed: {error}"),
+            Self::FileRecovery(error) => {
+                write!(formatter, "workspace file recovery failed: {error}")
+            }
         }
     }
 }
@@ -109,6 +113,12 @@ impl From<IrohTransportError> for IrohSessionAdapterError {
 impl From<WorkspaceSessionError> for IrohSessionAdapterError {
     fn from(error: WorkspaceSessionError) -> Self {
         Self::Session(error)
+    }
+}
+
+impl From<FileRecoveryError> for IrohSessionAdapterError {
+    fn from(error: FileRecoveryError) -> Self {
+        Self::FileRecovery(error)
     }
 }
 
@@ -293,11 +303,123 @@ impl IrohTransport {
         encoded_peer: &str,
         request: &FileRequest,
     ) -> Result<FileResponse, IrohTransportError> {
-        let address_bytes = bs58::decode(encoded_peer)
-            .into_vec()
-            .map_err(|_| IrohTransportError::FileStream)?;
-        let address: EndpointAddr =
-            postcard::from_bytes(&address_bytes).map_err(|_| IrohTransportError::FileStream)?;
+        let address = decode_endpoint_addr(encoded_peer)?;
+        self.request_file_recovery_at(address, request).await
+    }
+
+    pub async fn recover_file_history(
+        &self,
+        session: &mut WorkspaceSession<FakeDeliveryPort>,
+    ) -> Result<bool, IrohSessionAdapterError> {
+        if !session.take_file_history_recovery_needed()? {
+            return Ok(false);
+        }
+        let context = session.file_recovery_context()?;
+        let mut addresses = BTreeMap::new();
+        if let Some(bootstrap) = context.bootstrap.as_deref() {
+            if let Ok(address) = decode_endpoint_addr(bootstrap) {
+                addresses.insert(address.id, address);
+            }
+        }
+        for public_identity in &context.member_public_identities {
+            if public_identity == &context.local_public_identity {
+                continue;
+            }
+            let Some(endpoint_id) = decode_endpoint_id(public_identity) else {
+                continue;
+            };
+            if let Some(info) = self.endpoint.remote_info(endpoint_id).await {
+                addresses.insert(
+                    endpoint_id,
+                    EndpointAddr::from_parts(
+                        endpoint_id,
+                        info.into_addrs().map(|address| address.into_addr()),
+                    ),
+                );
+            }
+        }
+        if addresses.is_empty() {
+            session.mark_file_history_recovery_needed()?;
+            return Ok(false);
+        }
+
+        let result = async {
+            let mut target = FileRecoveryTarget::open_with_store(
+                &context.workspace_id,
+                context.membership,
+                &context.store,
+            )?;
+            let mut changed = false;
+            let mut contacted = false;
+            for address in addresses.values() {
+                let Ok(response) = self
+                    .request_file_recovery_at(address.clone(), &target.missing_operations_request())
+                    .await
+                else {
+                    continue;
+                };
+                if !matches!(response, FileResponse::Operations(_)) {
+                    continue;
+                }
+                changed |= target.recover_operations_to_store(response, &context.store)? > 0;
+                contacted = true;
+
+                for content_hash in target.missing_blob_hashes() {
+                    loop {
+                        let Ok(response) = self
+                            .request_file_recovery_at(
+                                address.clone(),
+                                &target.next_blob_request(&content_hash),
+                            )
+                            .await
+                        else {
+                            break;
+                        };
+                        if !matches!(response, FileResponse::BlobChunk { .. }) {
+                            break;
+                        }
+                        let complete = target.recover_blob_chunk(response)?;
+                        changed = true;
+                        if complete {
+                            break;
+                        }
+                    }
+                }
+                if target.missing_blob_hashes().is_empty() {
+                    break;
+                }
+            }
+            Ok::<_, IrohSessionAdapterError>((
+                changed,
+                contacted,
+                target.missing_blob_hashes().is_empty(),
+            ))
+        }
+        .await;
+
+        match result {
+            Ok((changed, true, complete)) => {
+                if !complete {
+                    session.mark_file_history_recovery_needed()?;
+                }
+                Ok(changed && complete)
+            }
+            Ok((_, false, _)) => {
+                session.mark_file_history_recovery_needed()?;
+                Ok(false)
+            }
+            Err(error) => {
+                session.mark_file_history_recovery_needed()?;
+                Err(error)
+            }
+        }
+    }
+
+    async fn request_file_recovery_at(
+        &self,
+        address: EndpointAddr,
+        request: &FileRequest,
+    ) -> Result<FileResponse, IrohTransportError> {
         let connection = self
             .endpoint
             .connect(address, FILE_STREAM_ALPN)
@@ -372,6 +494,7 @@ impl IrohTransport {
         let Some(event) = self.next_event().await? else {
             return Ok(false);
         };
+        let transitions_before = session.pending_transition_count();
         match event {
             TransportEvent::Received(bytes) => session.receive(&bytes)?,
             TransportEvent::NeighborUp {
@@ -395,7 +518,7 @@ impl IrohTransport {
             }
             TransportEvent::Lagged => {}
         }
-        Ok(true)
+        Ok(session.pending_transition_count() > transitions_before)
     }
 
     /// Leaves the topic before stopping Gossip and awaiting Router shutdown.
@@ -424,6 +547,25 @@ impl IrohTransport {
             PeerPath::Unknown
         }
     }
+}
+
+fn decode_endpoint_addr(encoded: &str) -> Result<EndpointAddr, IrohTransportError> {
+    let address_bytes = bs58::decode(encoded)
+        .into_vec()
+        .map_err(|_| IrohTransportError::FileStream)?;
+    postcard::from_bytes(&address_bytes).map_err(|_| IrohTransportError::FileStream)
+}
+
+fn decode_endpoint_id(encoded: &str) -> Option<iroh::EndpointId> {
+    if encoded.len() != 64 {
+        return None;
+    }
+    let mut bytes = [0_u8; 32];
+    for (index, pair) in encoded.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        let pair = std::str::from_utf8(pair).ok()?;
+        bytes[index] = u8::from_str_radix(pair, 16).ok()?;
+    }
+    iroh::EndpointId::from_bytes(&bytes).ok()
 }
 
 fn peer_connection(path: PeerPath) -> PeerConnection {

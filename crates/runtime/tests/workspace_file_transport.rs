@@ -289,6 +289,101 @@ fn resumes_bounded_blob_transfer_and_promotes_only_verified_bytes() {
 }
 
 #[test]
+fn concurrent_markdown_operation_waits_for_its_blob_then_merges() {
+    let owner = identity();
+    let peer = identity();
+    let membership = membership(&owner, &peer);
+    let base = b"one\ntwo\nthree\n";
+    let left = b"ONE\ntwo\nthree\n";
+    let right = b"one\ntwo\nTHREE\n";
+    let create = SignedFileOperation::create_file(
+        &owner,
+        WORKSPACE_ID,
+        None,
+        "notes.md",
+        ContentHash::from_bytes(base).as_str(),
+        "text/markdown",
+        base.len() as u64,
+        Vec::new(),
+    )
+    .expect("create signs");
+    let left_operation = SignedFileOperation::replace_file_revision(
+        &owner,
+        WORKSPACE_ID,
+        create.operation.node_id.clone(),
+        create.operation.operation_id.clone(),
+        ContentHash::from_bytes(left).as_str(),
+        "text/markdown",
+        left.len() as u64,
+        vec![create.operation.operation_id.clone()],
+    )
+    .expect("left edit signs");
+    let right_operation = SignedFileOperation::replace_file_revision(
+        &peer,
+        WORKSPACE_ID,
+        create.operation.node_id.clone(),
+        create.operation.operation_id.clone(),
+        ContentHash::from_bytes(right).as_str(),
+        "text/markdown",
+        right.len() as u64,
+        vec![create.operation.operation_id.clone()],
+    )
+    .expect("right edit signs");
+    let mut target = FileRecoveryTarget::new(WORKSPACE_ID, membership);
+    target
+        .recover_operations(FileResponse::Operations(vec![
+            create.encode().expect("create encodes"),
+            left_operation.encode().expect("left encodes"),
+        ]))
+        .expect("local history recovers");
+    for bytes in [base.as_slice(), left.as_slice()] {
+        target
+            .recover_blob_chunk(FileResponse::BlobChunk {
+                content_hash: ContentHash::from_bytes(bytes).as_str().to_owned(),
+                offset: 0,
+                bytes: bytes.to_vec(),
+                complete: true,
+            })
+            .expect("known blob promotes");
+    }
+
+    assert_eq!(
+        target
+            .recover_operations(FileResponse::Operations(vec![right_operation
+                .encode()
+                .expect("right encodes"),]))
+            .expect("operation remains pending without its blob"),
+        1
+    );
+    target
+        .recover_blob_chunk(FileResponse::BlobChunk {
+            content_hash: ContentHash::from_bytes(right).as_str().to_owned(),
+            offset: 0,
+            bytes: right.to_vec(),
+            complete: true,
+        })
+        .expect("missing blob promotes and rebuilds authority");
+
+    let projection = target.authority().projection();
+    let resonance_runtime::workspace_files::projection::TreeNode::File {
+        current_revision_id,
+        ..
+    } = &projection.root["notes.md"]
+    else {
+        panic!("notes must remain a file");
+    };
+    let merged_hash = &projection.revisions[current_revision_id].content_hash;
+    assert_eq!(
+        target
+            .authority()
+            .blob_store()
+            .open(&ContentHash(merged_hash.clone()))
+            .expect("merged bytes open"),
+        b"ONE\ntwo\nTHREE\n"
+    );
+}
+
+#[test]
 fn malformed_or_unauthorized_recovered_operations_have_no_durable_side_effect() {
     let owner = identity();
     let peer = identity();

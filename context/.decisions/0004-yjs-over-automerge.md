@@ -2,6 +2,8 @@
 
 Status: accepted (2026-08-21, Don Smith).
 
+Superseded for planning workspace content by Decision 0009. This historical decision does not authorize a Yjs document authority, Markdown export path, raw editor, or document sub-topic in the filesystem-first workspace.
+
 ## Context
 
 Planning documents require real-time collaborative editing that converges offline without data loss. Two CRDT libraries are candidates: Automerge (used in Copland) and Yjs. The document editor is TipTap (a ProseMirror-based rich text editor). The transport is Iroh.

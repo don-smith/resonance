@@ -8,7 +8,7 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **Identity.** An Ed25519 keypair held by one team member on one device. The public key is the member's identity. In normal and release builds, the private key never leaves the device's OS keychain. RFC 0008 permits only the dedicated feature-gated debug local-peer launcher to keep an owner-only checkout-local key for a validated profile; it does not expose private bytes. `See: 02-system/01-identity/`
 
-**Workspace.** A set of members who share a workspace token. A workspace has a member list (a causally signed, deterministically projected set of public keys), a set of conversation channels, and a set of planning documents. An installation identity may belong to multiple independently stored workspaces; the first shell presents one active workspace. `See: 02-system/01-identity/`
+**Workspace.** A set of members who share a workspace token. A workspace has a member list (a causally signed, deterministically projected set of public keys), a workspace file tree, and conversation channels. An installation identity may belong to multiple independently stored workspaces; the first shell presents one active workspace. `See: 02-system/01-identity/`
 
 **Workspace token.** A 32-byte random key that identifies a workspace. A domain-separated digest derives its Iroh topic ID for workspace membership gossip. A new token invalidates access for all prior holders (the basis of v1 revocation).
 
@@ -24,7 +24,7 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **Repository data.** Files managed by a Git repository. Resonance reads repository data; it never replaces Git as the sync transport. Repository data includes committed Markdown files, architecture models, and package manifests. `See: RS-R05, RS-A03`
 
-**Planning document.** A Markdown document that lives in the workspace (not in a Git repository). Planning documents are collaboratively edited via CRDT and replicated to all workspace members. `See: 02-system/03-documents/`
+**Workspace file.** An ordinary file or directory in the workspace file tree, never in a Git repository by virtue of workspace synchronization. Its authority is the signed file-operation history and immutable content blobs; each member may bind that tree to a different private local root. A Markdown workspace file can be opened through the rendered editor. `See: 02-system/03-documents/`
 
 **Conversation.** An append-only log of messages organized into named channels. Messages are attributed to a member by cryptographic signature. `See: 02-system/04-conversations/`
 
@@ -52,11 +52,9 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 ## Sync and transport
 
-**P2P transport.** The Iroh-based layer that manages peer connections, hole-punching, relay fallback, blob replication, and gossip. Used for CRDT document sync, conversation replication, and workspace membership. `See: 02-system/02-transport/`
+**P2P transport.** The Iroh-based layer that manages peer connections, hole-punching, relay fallback, blob replication, and gossip. Used for authenticated workspace-file recovery, conversation replication, and workspace membership. `See: 02-system/02-transport/`
 
-**Gossip topic.** An Iroh gossip channel identified by a domain-separated digest of the workspace token. Used for membership delivery/recovery, signed presence, document awareness, and chat channel discovery. It is not the membership authority or a durable history.
-
-**CRDT.** Conflict-free Replicated Data Type. Resonance uses Yjs as the CRDT implementation for planning documents. A CRDT guarantees eventual convergence without coordination. `See: 02-system/03-documents/`
+**Gossip topic.** An Iroh gossip channel identified by a domain-separated digest of the workspace token. Used for membership delivery/recovery, signed presence, workspace-file history notices, and chat channel discovery. It is not the membership authority or durable file history.
 
 **Relay.** A Resonance-operated (or team-operated) QUIC relay that forwards encrypted traffic between peers who cannot connect directly. The relay carries no plaintext content and holds no content authority. `See: RS-T01`
 

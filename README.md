@@ -1,11 +1,13 @@
 # Resonance
 
-Resonance is a local-first, peer-to-peer team workspace built on Tauri, Iroh,
-and Yjs. This repository currently provides the Phase 1 runtime foundation: a
-minimal desktop shell and the boundaries on which local persistence, packages,
-and verified update delivery will be built. It intentionally does **not** ship
-identity, collaboration, content packages, conversations, repository loading,
-or agent execution.
+Resonance is a local-first, peer-to-peer team workspace built on Tauri and
+Iroh. Workspace content uses signed file-tree operations and verified immutable
+blobs; each member may bind the shared logical tree to a separate private local
+root. This repository currently provides the runtime foundation, including the
+private filesystem-workspace authority schema, on which synchronization,
+rendered editing, packages, and verified update delivery will be built. It
+intentionally does **not** yet ship the filesystem watcher, file transport,
+content packages, conversations, repository loading, or agent execution.
 
 ## Prerequisites
 
@@ -66,7 +68,8 @@ single-app launcher and uses native Keychain custody; it does not accept a
 profile argument.
 
 The shell opens with navigation, local-workspace bootstrap status, and no
-content surface.
+content surface. A future bound workspace root contains ordinary shared files
+beginning with `plans`; it contains no Resonance control metadata.
 
 ## Validate and build
 

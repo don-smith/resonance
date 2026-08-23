@@ -10,7 +10,7 @@ Role: owns the technical contracts that all subsystems must satisfy, and coordin
 
 - **RS.SYS-A02 The webview is the UI layer.** All user interface is implemented in the system webview. Rust provides capability (commands, events) but never renders UI directly.
 
-- **RS.SYS-A03 SQLite is the local persistence store.** Structured data (conversation history, workspace member list, registered repositories, telemetry) is persisted in a local SQLite database via `rusqlite`. Binary blobs (Yjs snapshots, message log compactions) are stored as files.
+- **RS.SYS-A03 SQLite is the local persistence store.** Structured data (conversation history, workspace member list, workspace-file history, registered repositories, telemetry) is persisted in a local SQLite database via `rusqlite`. Immutable workspace-file blobs and message-log compactions are stored as private files.
 
 ---
 

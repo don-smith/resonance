@@ -32,7 +32,7 @@ context/
 ├── 02-system/             # Technical subsystems
 │   ├── 01-identity/       # Keypair identity, workspace, invite
 │   ├── 02-transport/      # Iroh P2P layer
-│   ├── 03-documents/      # CRDT document sync (Yjs + TipTap)
+│   ├── 03-documents/      # Workspace file authority and rendered Markdown
 │   ├── 04-conversations/  # Chat channels, append-only log
 │   ├── 05-packages/       # Package model, event bus, contract
 │   ├── 06-repos/          # Git watching, repo registration, repo packages

@@ -14,20 +14,19 @@ Design uncertainties that need resolution before or during implementation. Each 
 
 ---
 
-## OQ-02 — Yjs snapshot storage format
+## OQ-02 — Workspace file authority storage
 
-**Status:** Resolved (2026-08-21, RFC 0006).
+**Status:** Resolved (2026-08-22, RFC 0009).
 
-**Decision:** Store opaque Yjs snapshots as binary files alongside Markdown exports below `.resonance/workspaces/<workspace-id>/documents/`; store structured document metadata in the workspace SQLite database. Write exports through temporary files and replacement so incomplete output is recoverable.
+**Decision:** Keep signed file-operation history, revisions, conflict records, root bindings, watcher state, and recovery journals in private workspace SQLite. Keep immutable BLAKE3-addressed bytes in the private blob store. A local root is a disposable materialization and never holds Resonance control metadata.
 
-**Question:** Should Yjs document snapshots be stored as binary files alongside the Markdown file, or embedded in SQLite?
+**Question:** Should planning content use Yjs snapshots alongside Markdown exports, or a filesystem-first authority?
 
 **Considerations:**
-- Binary alongside the Markdown file: portable, inspectable, easy to back up, pairs naturally with the Markdown export. Requires naming convention (`<doc-id>.yjs`).
-- SQLite: all persistence in one store, queryable, easier to manage transactionally. Requires a migration plan as the schema evolves.
-- Yjs snapshots are binary; SQLite stores them as blobs. No semantic advantage to SQLite for binary-only data.
+- A Yjs snapshot and Markdown export cannot ingest ordinary external files or preserve file-level conflicts without a competing authority.
+- Signed file operations and immutable blobs support byte verification, deterministic recovery, and a private root binding while keeping normal files visible.
 
-**Resolution:** RFC 0006 selected binary snapshots beside Markdown exports. SQLite remains the structured metadata store; no snapshot blobs are stored in it.
+**Resolution:** RFC 0009 selected the filesystem-first authority. The superseded Yjs/export storage shape is removed without importing legacy user data because no user workspaces exist.
 
 ---
 

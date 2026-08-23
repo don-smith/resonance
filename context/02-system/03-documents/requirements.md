@@ -1,41 +1,31 @@
 # Documents — Requirements
 
-Role: owns planning document creation, CRDT sync via Yjs, the rendered Markdown editor (TipTap), raw Markdown mode, local persistence, and the transport adapter (y-iroh).
+Role: owns the workspace file tree, rendered Markdown editing, revision access, and lossless file-conflict review. The signed file-operation history and immutable content blobs are the authority; a local root is a private materialization and input surface.
 
 ---
 
 ## Requirements
 
-### Document model
+### Workspace file authority
 
-- **RS.SYS.DOC-R01 Each document is a Yjs Y.Doc.** The `Y.Doc` is the authoritative in-memory representation. The Markdown file is an export. The Yjs binary snapshot is the sync-layer representation. `refines: RS-R06`
+- **RS.SYS.DOC-R01 Workspace files use signed operation authority.** Directories, files, revisions, moves, tombstones, conflicts, and resolutions are represented by causally ordered, member-signed operations. Immutable BLAKE3-addressed blobs provide file bytes; neither a Yjs snapshot nor a Markdown export is authoritative. `refines: RS-R06`
 
-- **RS.SYS.DOC-R02 Documents are identified by a UUID.** The document ID is stable across renames. Document metadata (title, last-edited-by, last-edited-at) is stored in the workspace SQLite database, not in the document itself.
+- **RS.SYS.DOC-R02 Nodes have stable identities.** Every logical file and directory has a random node ID that remains stable across moves. A revision identifies its node, base revision, content reference, MIME hint, byte length, and authoring operation.
 
-- **RS.SYS.DOC-R03 Documents are persisted locally as Markdown files.** On every significant edit (debounced), the document is serialized to Markdown and written to the workspace data directory. A Yjs binary snapshot is written alongside it. `refines: RS-R06`
+- **RS.SYS.DOC-R03 Roots are private materializations.** Each member binds one newly created or empty local root to a workspace. The runtime projects the shared tree there and ingests stable ordinary-file changes as signed revisions; absolute paths, watcher state, blobs, tokens, keys, and control metadata remain outside the root.
 
-### Editing
+### Editing and conflict review
 
-- **RS.SYS.DOC-R04 Rendered Markdown editing is the primary mode.** TipTap renders documents as rendered Markdown — headers, bold, italic, blockquotes, lists, and links are displayed in their final form while remaining editable in place. Formatting is expressed through TipTap marks and nodes, serialized to Markdown by `tiptap-markdown`. This is not a traditional rich text editor (no font pickers, font sizes, or text colors); it is a WYSIWYG Markdown editing experience. `refines: RS-R06`
+- **RS.SYS.DOC-R04 Rendered Markdown editing is the primary mode.** The editor opens a Markdown file by node ID and revision, renders it safely, and submits an authority-mediated replacement intent. It does not own a hidden editor-specific replication path. `refines: RS-R06`
 
-- **RS.SYS.DOC-R05 Raw Markdown mode is a toggle.** A raw Markdown editor (CodeMirror 6) is available as a toggle. It shares the same `Y.Text` node as the TipTap editor, so both views converge on the same document. The toggle is per-window; two peers can use different modes simultaneously without conflict.
+- **RS.SYS.DOC-R05 Raw Markdown mode and live carets are deferred.** The first filesystem workspace release provides neither raw-mode editing nor collaborative cursor awareness.
 
-- **RS.SYS.DOC-R06 Collaborative cursors are shown.** When two or more peers have the same document open, each peer's cursor and selection is shown in the other's view, attributed by display name and color. Implemented via Yjs awareness protocol.
+- **RS.SYS.DOC-R06 Unsafe concurrent changes remain visible.** The runtime merges only disjoint line-based Markdown changes from a common base. Overlaps, binary same-path changes, delete-versus-edit races, concurrent creates, and competing moves retain all versions or intents as deterministic sibling artifacts or notices until a member submits a resolution.
 
-### Sync
+### Recovery and replication
 
-- **RS.SYS.DOC-R07 Document sync uses a per-document Iroh gossip sub-topic.** The sub-topic key is derived from the document ID. Yjs update messages are sent as gossip payloads. `refines: RS.SYS.TRNS-R04`
+- **RS.SYS.DOC-R07 File history recovery is authenticated and bounded.** Root-topic notices announce file history; authenticated streams recover missing operations and requested blobs after validating syntax, signature, workspace ID, canonical membership, protocol version, and limits. `refines: RS.SYS.TRNS-R04, RS.SYS.TRNS-R07`
 
-- **RS.SYS.DOC-R08 Offline edits converge on reconnection.** Yjs handles merge of concurrent offline edits without data loss. The runtime sends accumulated updates on reconnection. `refines: RS-R06, RS-T04`
+- **RS.SYS.DOC-R08 Offline replicas converge without silent loss.** Receivers persist valid operations idempotently, retain unknown bases and blobs as pending, and deterministically rebuild the projection after recovery. The first release retains operations, revisions, tombstones, conflicts, and blob references indefinitely. `refines: RS-R06, RS-T04`
 
-- **RS.SYS.DOC-R09 New peers receive a document snapshot on join.** When a peer joins a document's gossip topic, it requests the current Yjs state vector from an online peer. The online peer responds with the missing updates (or a full snapshot if the joining peer has no state). `refines: RS.SYS.TRNS-R07`
-
----
-
-## Open Design Questions
-
-- **RS.SYS.DOC-DQ01** Should documents support embedded images? **Position: yes, deferred from v1.** Images are linked Markdown assets (`![alt](path/to/asset)`) stored in a workspace assets directory (e.g., `docs/assets/`) alongside the Markdown files. The assets directory is synced as Iroh blobs in tandem with the document. The v1 UX is expected to be minimal — the editor renders inline images from Markdown links, and users place assets in the directory manually. Drag-and-drop, paste handling, and an asset picker are deferred beyond v1.
-
-- **RS.SYS.DOC-DQ02** Should the document list be flat (all documents in one list) or hierarchical (folders)? Flat is simpler; hierarchical matches how teams think about planning documents. A flat list with tags is a middle path.
-
-- **RS.SYS.DOC-DQ03** Should the editor support diagramming extensions (e.g., Mermaid)? **Position: yes, deferred from v1.** Mermaid diagrams are inline fenced code blocks with a `mermaid` language tag, rendered client-side by a TipTap node extension. The expectation is that a defined set of supported rendered-code-block extensions (Mermaid, mathematical notation, etc.) will be installed and available. The specific extension set and configuration mechanism are deferred beyond v1.
+- **RS.SYS.DOC-R09 Generated and private data stay outside the shared input domain.** `.git`, generated conflict names, symlinks, special files, nonportable paths, and ignored paths are never accepted as ordinary input. Frontend and package contracts expose only bounded secret-free file views, health, and conflict state.

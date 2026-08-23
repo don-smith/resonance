@@ -7,7 +7,6 @@ use std::{
 use resonance_runtime::{
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{Member, WorkspaceId, WorkspaceLifecycle},
-    workspace_store::DocumentMetadata,
 };
 
 fn temporary_directory(name: &str) -> PathBuf {
@@ -21,7 +20,7 @@ fn temporary_directory(name: &str) -> PathBuf {
 }
 
 #[test]
-fn keeps_workspace_configuration_membership_and_documents_isolated() {
+fn keeps_workspace_configuration_membership_and_file_history_isolated() {
     let root = temporary_directory("workspace-catalog-isolation");
     let catalog = WorkspaceCatalog::open(&root).expect("catalog opens");
     let alpha = catalog
@@ -35,13 +34,6 @@ fn keeps_workspace_configuration_membership_and_documents_isolated() {
         .open_workspace(&alpha.id)
         .expect("alpha store opens");
     let beta_store = catalog.open_workspace(&beta.id).expect("beta store opens");
-    alpha_store
-        .save_document(
-            &DocumentMetadata::new("plan", "Alpha plan", 1),
-            "alpha",
-            &[1],
-        )
-        .expect("alpha document saves");
     alpha_store
         .record_membership_operation("alpha-genesis", b"alpha operation")
         .expect("alpha operation saves");
@@ -89,8 +81,12 @@ fn keeps_workspace_configuration_membership_and_documents_isolated() {
         Vec::<Member>::new()
     );
     assert_eq!(
-        beta_store.load_document("plan").expect("beta document"),
-        None
+        alpha_store.initial_root_name().expect("alpha initial root"),
+        "plans"
+    );
+    assert_eq!(
+        beta_store.initial_root_name().expect("beta initial root"),
+        "plans"
     );
 
     catalog

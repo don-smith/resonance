@@ -80,6 +80,20 @@ describe("VRS structure", () => {
     await expect(validateVrsTree(resolve("context"))).resolves.toEqual([]);
   });
 
+  it("defines filesystem-first workspace authority requirements", async () => {
+    const [rootRequirements, documentRequirements, decision] = await Promise.all([
+      readFile(resolve("context/requirements.md"), "utf8"),
+      readFile(resolve("context/02-system/03-documents/requirements.md"), "utf8"),
+      readFile(resolve("context/.decisions/0009-filesystem-first-workspace-authority.md"), "utf8"),
+    ]);
+
+    expect(rootRequirements).toContain("**RS-R06 Planning workspace files preserve offline work.**");
+    expect(documentRequirements).toContain("**RS.SYS.DOC-R01 Workspace files use signed operation authority.**");
+    expect(documentRequirements).toContain("`refines: RS.SYS.TRNS-R04, RS.SYS.TRNS-R07`");
+    expect(documentRequirements).not.toContain("Each document is a Yjs Y.Doc");
+    expect(decision).toContain("Status: accepted");
+  });
+
   it("rejects duplicate and unresolved IDs", async () => {
     const root = await fixtureTree({
       "requirements.md": "- **RS-R01 One.**\n- **RS-R01 Two.**\n- **RS-R02 Three.** `refines: RS-R99`\n",

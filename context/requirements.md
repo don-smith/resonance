@@ -26,7 +26,7 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 - **RS-T03 Package isolation relies on Tauri's CSP, not a sandbox.** Packages authored by team members operate within the team's trusted context. Resonance does not provide isolation against a malicious package authored by someone who already has the team's trust.
 
-- **RS-T04 Collaborative convergence requires connectivity.** Offline edits to planning documents converge on reconnection via CRDT merge. This convergence is correct but may produce unexpected orderings when edits are distant in time or structure. Teams are expected to review merged content when conflicts were possible.
+- **RS-T04 Collaborative convergence requires connectivity.** Offline workspace-file edits converge on reconnection from signed operation history. Resonance merges only proven-disjoint Markdown changes; every unsafe race remains visibly resolvable rather than being silently overwritten. Teams are expected to review merged content and resolve preserved conflicts when needed.
 
 - **RS-T05 Hole-punching requires internet access.** LAN-only operation (no internet) requires a local bootstrap peer. Automatic peer discovery without internet is a future concern.
 
@@ -50,7 +50,7 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 - **RS-R05 Repository content is Git-only.** Resonance never writes to a repository outside of explicit, user-initiated Git operations (e.g., saving a document edit for commit). Resonance does not add a sync layer over repository files. `refines: RS-A03`
 
-- **RS-R06 Planning documents use CRDT sync.** Planning documents are collaboratively edited and converge offline without data loss. The CRDT merge is the authoritative resolution mechanism; human review may follow but is not required for convergence.
+- **RS-R06 Planning workspace files preserve offline work.** Planning content is a signed, causally ordered workspace file tree with immutable verified blobs. Members may edit a private materialized root or the rendered Markdown surface; only safe Markdown changes merge automatically, and every unsafe concurrent change remains losslessly resolvable.
 
 - **RS-R07 Conversations are attributed and append-only.** Every message is signed by the sender's identity keypair. The conversation log is append-only in the core protocol. `refines: RS-A02`
 

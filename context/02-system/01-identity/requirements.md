@@ -18,7 +18,7 @@ Role: owns keypair generation and storage, workspace creation, invite token gene
 
 - **RS.SYS.ID-R01 Keypair generated on first launch.** Normal and release builds generate a keypair if and only if no keypair exists in the OS keychain, before any workspace interaction. Locked, unavailable, malformed, ambiguous, read, and write failures block identity actions; the private key is never persisted outside the keychain or exposed through frontend/package APIs. The only exception is RFC 0008's debug-only `debug-local-profiles` build and dedicated launcher, which persist an owner-only checkout-local key for a validated named local peer and remain unreachable from normal or release builds.
 
-- **RS.SYS.ID-R02 Public key is the stable identity.** The public key is used as the member's ID in all signed artifacts (messages, document updates, member list entries). Display names are advisory and may change; the public key does not.
+- **RS.SYS.ID-R02 Public key is the stable identity.** The public key is used as the member's ID in all signed artifacts (messages, workspace-file operations, member-list entries). Display names are advisory and may change; the public key does not.
 
 ### Workspace
 
@@ -38,7 +38,7 @@ Role: owns keypair generation and storage, workspace creation, invite token gene
 
 ### Access control
 
-- **RS.SYS.ID-R09 Unknown public keys are rejected.** Messages and document updates signed by public keys not in the member list are silently dropped by receiving peers. `refines: RS-R15`
+- **RS.SYS.ID-R09 Unknown public keys are rejected.** Messages and workspace-file operations signed by public keys not in the member list are silently dropped by receiving peers. `refines: RS-R15`
 
 - **RS.SYS.ID-R10 Role is enforced at the package level.** The runtime passes the member's role to packages on load. Packages hide or disable UI for operations above the member's role. The runtime does not enforce role semantics for package-defined operations; enforcement is the package's responsibility. `refines: RS-R03`
 

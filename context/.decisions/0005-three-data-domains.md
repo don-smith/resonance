@@ -15,7 +15,7 @@ Treat all content as a single CRDT or event-sourced store. One sync mechanism co
 Problems:
 - Git repository content is already version-controlled by Git. Adding a second sync layer over it creates two sources of truth, potential conflicts between Git history and CRDT history, and confusion about which layer is authoritative.
 - Conversations are append-only and message-attributed. CRDTs for conversations add unnecessary complexity; the editing model is wrong (you don't merge chat messages).
-- Planning documents benefit from CRDT merge; repository files do not.
+- Workspace files need explicit tree, byte, and conflict semantics; repository files do not.
 - A uniform model forces the lowest-common-denominator sync semantics onto all three domains.
 
 ### Option B — Three distinct domains — chosen
@@ -23,12 +23,12 @@ Problems:
 | Domain | Sync mechanism | Authoritative layer |
 |--------|---------------|---------------------|
 | Repository data | Git (push/pull) | Git history |
-| Planning documents | Yjs CRDT over Iroh | Y.Doc (CRDT state) |
+| Workspace files | Signed file operations and immutable blobs over Iroh | Causally ordered operation history and verified blobs |
 | Conversations | Append-only log over Iroh gossip | Local SQLite replica |
 
 Each domain uses the mechanism most natural to its data shape:
 - Repository content is already modeled as a DAG of commits. Git's model is correct; Resonance reads it, never replaces it.
-- Planning documents are collaboratively authored, may be edited offline, and must converge. CRDTs are the correct model.
+- Workspace files are collaboratively authored, may be edited offline, and must converge. Signed file operations plus immutable blobs preserve a single authority while permitting only proven-safe Markdown merges.
 - Conversations are append-only, attributed, and temporally ordered. An append-only log with gossip replication is simpler and more correct than a CRDT for this workload.
 
 ## Evidence
@@ -40,6 +40,6 @@ Each domain uses the mechanism most natural to its data shape:
 ## Consequences
 
 - Package authors must understand which domain their package operates in and use the corresponding sync primitive.
-- Repo packages never write to the CRDT or conversation layer on behalf of repository content. If a repo package wants to share repository-derived content with non-developers, it does so by creating a planning document, not by replicating repository files.
+- Repo packages never write to the workspace-file or conversation layer on behalf of repository content. If a repo package wants to share repository-derived content with non-developers, it does so by creating a workspace file, not by replicating repository files.
 - The identity layer (see 02-system/01-identity/) applies to planning documents and conversations. Git repository access is governed by Git credentials; the workspace identity layer does not mediate repository access.
-- A single planning document may reference repository content (e.g., link to a commit, embed a file path) without that repository content being pulled into the planning layer.
+- A workspace file may reference repository content (e.g., link to a commit or embed a file path) without that repository content being pulled into the workspace domain.

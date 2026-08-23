@@ -1,6 +1,6 @@
 # Transport — Requirements
 
-Role: owns the Iroh P2P layer: endpoint management, peer connection, hole-punching, relay fallback, gossip topics, and blob replication. Provides the transport substrate for identity gossip, document sync, and conversation replication.
+Role: owns the Iroh P2P layer: endpoint management, peer connection, hole-punching, relay fallback, gossip topics, and blob replication. Provides the transport substrate for identity gossip, authenticated workspace-file recovery, and conversation replication.
 
 ---
 
@@ -24,13 +24,13 @@ Role: owns the Iroh P2P layer: endpoint management, peer connection, hole-punchi
 
 ### Gossip
 
-- **RS.SYS.TRNS-R04 Each workspace uses one root gossip topic.** The root topic ID is a domain-separated digest of the 32-byte workspace token. It carries membership operations/recovery, signed presence, channel discovery, and document update notifications. High-frequency data (document updates, messages) uses per-document or per-channel sub-topics.
+- **RS.SYS.TRNS-R04 Each workspace uses one root gossip topic.** The root topic ID is a domain-separated digest of the 32-byte workspace token. It carries membership operations/recovery, signed presence, channel discovery, and bounded workspace-file history notices or recovery requests. File history and bytes use authenticated streams; high-frequency conversation data uses per-channel sub-topics.
 
 - **RS.SYS.TRNS-R05 Gossip messages are signed.** Every normal gossip message includes the sender's public key and a domain-separated signature. Receivers verify the signature and check the sender against the canonical member list before processing; the named-inviter join request is the narrow onboarding exception. `refines: RS.SYS.ID-R09`
 
 ### Blob replication
 
-- **RS.SYS.TRNS-R06 Blobs are content-addressed.** Static content (Yjs snapshots, conversation history compactions, repo content for non-developer peers) is stored and transferred as content-addressed Iroh blobs. Receiving peers verify the hash before accepting.
+- **RS.SYS.TRNS-R06 Blobs are content-addressed.** Workspace-file revision bytes and other static content are stored and transferred as content-addressed blobs. Receiving peers verify the declared hash before accepting.
 
 - **RS.SYS.TRNS-R07 Blob transfer is on-demand.** Peers request blobs when they need them (e.g., on channel join, on workspace join). The runtime does not proactively push blobs to new peers; it responds to requests.
 

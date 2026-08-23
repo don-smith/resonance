@@ -9,11 +9,12 @@ use std::{path::Path, sync::Mutex};
 use rusqlite::{params, Connection};
 
 use crate::{
+    local_root_binding::{MaterializedRecord, RootHealth},
     workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken},
     workspace_files::{FileOperationError, SignedFileOperation},
 };
 
-const CURRENT_SCHEMA_VERSION: i32 = 7;
+const CURRENT_SCHEMA_VERSION: i32 = 8;
 
 #[derive(Clone)]
 pub(crate) struct PrivateWorkspaceSettings {
@@ -337,6 +338,89 @@ impl WorkspaceStore {
             .collect()
     }
 
+    pub(crate) fn set_local_root_binding(
+        &self,
+        root: &Path,
+        health: RootHealth,
+    ) -> Result<(), WorkspaceStoreError> {
+        let root = root
+            .to_str()
+            .ok_or(WorkspaceStoreError::InvalidIdentifier("local root path"))?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute(
+            "INSERT INTO local_root_binding (singleton, root_path, health, last_error)
+             VALUES (1, ?1, ?2, NULL)
+             ON CONFLICT(singleton) DO UPDATE SET root_path = excluded.root_path, health = excluded.health, last_error = NULL",
+            params![root, health.as_str()],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn update_local_root_health(
+        &self,
+        health: RootHealth,
+        error: Option<&str>,
+    ) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute(
+            "UPDATE local_root_binding SET health = ?1, last_error = ?2 WHERE singleton = 1",
+            params![health.as_str(), error],
+        )?;
+        Ok(())
+    }
+
+    pub fn local_root_health(&self) -> Result<Option<RootHealth>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let health = connection
+            .query_row(
+                "SELECT health FROM local_root_binding WHERE singleton = 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        health
+            .map(|value| {
+                RootHealth::parse(&value)
+                    .ok_or(WorkspaceStoreError::InvalidIdentifier("local root health"))
+            })
+            .transpose()
+    }
+
+    pub(crate) fn replace_local_root_materialization<'a>(
+        &self,
+        records: impl IntoIterator<Item = &'a MaterializedRecord>,
+    ) -> Result<(), WorkspaceStoreError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        transaction.execute("DELETE FROM local_root_materialization", [])?;
+        for record in records {
+            transaction.execute(
+                "INSERT INTO local_root_materialization (node_id, relative_path, revision_id, content_hash)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    record.node_id,
+                    record.relative_path,
+                    record.revision_id,
+                    record.content_hash
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn membership_operation_ids(&self) -> Result<Vec<String>, WorkspaceStoreError> {
         let connection = self
             .connection
@@ -458,6 +542,10 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
             "../../migrations/0007_workspace_initialization.sql"
         ))?;
         version = 7;
+    }
+    if version == 7 {
+        connection.execute_batch(include_str!("../../migrations/0008_local_root_binding.sql"))?;
+        version = 8;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

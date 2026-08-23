@@ -18,6 +18,7 @@ use crate::{
     workspace_domain::{
         KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
     },
+    workspace_files::{FileOperationError, SignedFileOperation},
     workspace_store::WorkspaceStoreError,
 };
 
@@ -65,6 +66,7 @@ pub enum WorkspaceSessionError {
     Catalog(WorkspaceCatalogError),
     Store(WorkspaceStoreError),
     Membership(MembershipError),
+    FileOperation(FileOperationError),
     Invite(InviteError),
     Protocol(ProtocolError),
     NoActiveWorkspace,
@@ -78,6 +80,9 @@ impl fmt::Display for WorkspaceSessionError {
             Self::Catalog(error) => write!(formatter, "workspace catalog failed: {error}"),
             Self::Store(error) => write!(formatter, "workspace storage failed: {error}"),
             Self::Membership(error) => write!(formatter, "membership processing failed: {error}"),
+            Self::FileOperation(error) => {
+                write!(formatter, "workspace file processing failed: {error}")
+            }
             Self::Invite(error) => write!(formatter, "invite processing failed: {error}"),
             Self::Protocol(error) => write!(formatter, "workspace protocol failed: {error}"),
             Self::NoActiveWorkspace => formatter.write_str("there is no active workspace"),
@@ -102,6 +107,11 @@ impl From<WorkspaceStoreError> for WorkspaceSessionError {
 impl From<MembershipError> for WorkspaceSessionError {
     fn from(error: MembershipError) -> Self {
         Self::Membership(error)
+    }
+}
+impl From<FileOperationError> for WorkspaceSessionError {
+    fn from(error: FileOperationError) -> Self {
+        Self::FileOperation(error)
     }
 }
 impl From<InviteError> for WorkspaceSessionError {
@@ -198,17 +208,26 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             token.clone(),
             display_name.into(),
             relay_override,
-            WorkspaceLifecycle::Ready,
+            WorkspaceLifecycle::Initializing,
         )?;
         self.activate(summary)?;
         let workspace_id = self.active()?.summary.id.as_str().to_owned();
         let genesis = SignedMembershipOperation::genesis(
             &self.identity,
-            workspace_id,
+            workspace_id.clone(),
             creator_display_name.into(),
             now()?,
         )?;
         self.persist_operation(genesis.encode()?)?;
+        let initial_directory =
+            SignedFileOperation::create_directory(&self.identity, workspace_id, "plans")?;
+        let id = self.active()?.summary.id.clone();
+        self.catalog
+            .open_workspace(&id)?
+            .record_file_operation(&initial_directory)?;
+        self.catalog
+            .set_workspace_lifecycle(&id, WorkspaceLifecycle::Ready)?;
+        self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
         self.view()
     }
 

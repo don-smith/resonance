@@ -28,6 +28,7 @@ impl WorkspaceId {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceLifecycle {
+    Initializing,
     Ready,
     Joining,
 }
@@ -35,6 +36,7 @@ pub enum WorkspaceLifecycle {
 impl WorkspaceLifecycle {
     pub(crate) const fn as_str(&self) -> &'static str {
         match self {
+            Self::Initializing => "initializing",
             Self::Ready => "ready",
             Self::Joining => "joining",
         }
@@ -42,6 +44,7 @@ impl WorkspaceLifecycle {
 
     pub(crate) fn parse(value: &str) -> Result<Self, WorkspaceDomainError> {
         match value {
+            "initializing" => Ok(Self::Initializing),
             "ready" => Ok(Self::Ready),
             "joining" => Ok(Self::Joining),
             _ => Err(WorkspaceDomainError::InvalidLifecycle),

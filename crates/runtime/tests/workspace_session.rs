@@ -10,6 +10,7 @@ use resonance_runtime::{
     protocol::{Envelope, EnvelopeBody},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{PeerConnection, WorkspaceLifecycle},
+    workspace_files::FileOperationBody,
     workspace_session::{FakeDeliveryPort, WorkspaceSession, WorkspaceTransition},
 };
 
@@ -28,6 +29,32 @@ fn session(directory: &PathBuf) -> WorkspaceSession<FakeDeliveryPort> {
         .expect("identity creates");
     let catalog = WorkspaceCatalog::open(directory).expect("catalog opens");
     WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default())
+}
+
+#[test]
+fn creates_a_signed_plans_directory_before_the_workspace_is_ready() {
+    let directory = temporary_directory("initial-file-operation");
+    let mut workspace = session(&directory);
+    let created = workspace
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+
+    assert_eq!(created.workspace.lifecycle, WorkspaceLifecycle::Ready);
+    let catalog = WorkspaceCatalog::open(&directory).expect("catalog reopens");
+    let store = catalog
+        .open_workspace(&created.workspace.id)
+        .expect("workspace store reopens");
+    let operations = store.file_operations().expect("file operations load");
+    assert_eq!(operations.len(), 1);
+    assert!(operations[0].verify().is_ok());
+    assert_eq!(
+        operations[0].operation.body,
+        FileOperationBody::CreateDirectory {
+            name: "plans".to_owned()
+        }
+    );
+
+    fs::remove_dir_all(directory).expect("directory removes");
 }
 
 #[test]

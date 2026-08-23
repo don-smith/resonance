@@ -176,6 +176,7 @@ impl ManagedWorkspace {
         match session.view() {
             Ok(view) => WorkspaceShellView {
                 state: match view.workspace.lifecycle {
+                    WorkspaceLifecycle::Initializing => "initializing".to_owned(),
                     WorkspaceLifecycle::Ready => "ready".to_owned(),
                     WorkspaceLifecycle::Joining => "joining".to_owned(),
                 },
@@ -427,6 +428,7 @@ fn workspace_summary_view(workspace: &WorkspaceSummary) -> WorkspaceView {
         id: workspace.id.as_str().to_owned(),
         display_name: workspace.display_name.clone(),
         lifecycle: match workspace.lifecycle {
+            WorkspaceLifecycle::Initializing => "initializing".to_owned(),
             WorkspaceLifecycle::Ready => "ready".to_owned(),
             WorkspaceLifecycle::Joining => "joining".to_owned(),
         },

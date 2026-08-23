@@ -63,7 +63,15 @@ fn migrates_a_previous_workspace_schema_to_the_filesystem_authority_marker() {
     let version: i32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version reads");
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
+    let file_history_table_exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_file_operations')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("file history table check succeeds");
+    assert!(file_history_table_exists);
     let documents_table_exists: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'documents')",

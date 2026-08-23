@@ -8,9 +8,12 @@ use std::{path::Path, sync::Mutex};
 
 use rusqlite::{params, Connection};
 
-use crate::workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken};
+use crate::{
+    workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken},
+    workspace_files::{FileOperationError, SignedFileOperation},
+};
 
-const CURRENT_SCHEMA_VERSION: i32 = 5;
+const CURRENT_SCHEMA_VERSION: i32 = 6;
 
 #[derive(Clone)]
 pub(crate) struct PrivateWorkspaceSettings {
@@ -33,6 +36,7 @@ pub enum WorkspaceStoreError {
     WorkspaceConfigurationMissing,
     Io(std::io::Error),
     Database(rusqlite::Error),
+    FileOperation(FileOperationError),
     LockPoisoned,
 }
 
@@ -45,6 +49,9 @@ impl std::fmt::Display for WorkspaceStoreError {
             }
             Self::Io(error) => write!(formatter, "workspace storage I/O failed: {error}"),
             Self::Database(error) => write!(formatter, "workspace database failed: {error}"),
+            Self::FileOperation(error) => {
+                write!(formatter, "workspace file operation failed: {error}")
+            }
             Self::LockPoisoned => formatter.write_str("workspace store lock was poisoned"),
         }
     }
@@ -61,6 +68,12 @@ impl From<std::io::Error> for WorkspaceStoreError {
 impl From<rusqlite::Error> for WorkspaceStoreError {
     fn from(error: rusqlite::Error) -> Self {
         Self::Database(error)
+    }
+}
+
+impl From<FileOperationError> for WorkspaceStoreError {
+    fn from(error: FileOperationError) -> Self {
+        Self::FileOperation(error)
     }
 }
 
@@ -270,6 +283,39 @@ impl WorkspaceStore {
         Ok(operations)
     }
 
+    pub fn record_file_operation(
+        &self,
+        operation: &SignedFileOperation,
+    ) -> Result<(), WorkspaceStoreError> {
+        operation.verify()?;
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute(
+            "INSERT OR IGNORE INTO workspace_file_operations (operation_id, signed_operation) VALUES (?1, ?2)",
+            params![operation.operation.operation_id, operation.encode()?],
+        )?;
+        Ok(())
+    }
+
+    pub fn file_operations(&self) -> Result<Vec<SignedFileOperation>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT signed_operation FROM workspace_file_operations ORDER BY operation_id",
+        )?;
+        let bytes = statement
+            .query_map([], |row| row.get::<_, Vec<u8>>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        bytes
+            .iter()
+            .map(|operation| SignedFileOperation::decode(operation).map_err(Into::into))
+            .collect()
+    }
+
     pub fn membership_operation_ids(&self) -> Result<Vec<String>, WorkspaceStoreError> {
         let connection = self
             .connection
@@ -379,6 +425,12 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
             "../../migrations/0005_filesystem_workspace_authority.sql"
         ))?;
         version = 5;
+    }
+    if version == 5 {
+        connection.execute_batch(include_str!(
+            "../../migrations/0006_workspace_file_history.sql"
+        ))?;
+        version = 6;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

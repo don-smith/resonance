@@ -80,6 +80,7 @@ impl From<PathError> for AuthorityError {
     }
 }
 
+#[derive(Clone)]
 pub struct WorkspaceFileAuthority {
     workspace_id: String,
     operations: BTreeMap<String, SignedFileOperation>,
@@ -182,6 +183,7 @@ impl WorkspaceFileAuthority {
                 }
             }
         }
+        self.add_conflict_artifacts(&mut root);
         FileTreeProjection {
             root,
             revisions: self.revisions.clone(),
@@ -443,7 +445,7 @@ impl WorkspaceFileAuthority {
             }
             let mut competing = vec![incoming_revision_id.clone(), tombstone];
             competing.sort();
-            self.record_conflict(&operation.node_id, ConflictKind::DeleteEdit, &competing);
+            self.record_conflict(&operation.node_id, ConflictKind::DeleteEdit, &competing)?;
             let existing = self
                 .nodes
                 .get(&operation.node_id)
@@ -549,7 +551,7 @@ impl WorkspaceFileAuthority {
             incoming_revision_id.to_owned(),
         ];
         competing.sort();
-        self.record_conflict(node_id, kind, &competing);
+        self.record_conflict(node_id, kind, &competing)?;
         Ok(competing[0].clone())
     }
 
@@ -578,7 +580,7 @@ impl WorkspaceFileAuthority {
             {
                 let mut competing = vec![previous_move.to_owned(), operation.operation_id.clone()];
                 competing.sort();
-                self.record_conflict(node_id, ConflictKind::CompetingMove, &competing);
+                self.record_conflict(node_id, ConflictKind::CompetingMove, &competing)?;
                 return Ok(());
             }
         }
@@ -624,7 +626,7 @@ impl WorkspaceFileAuthority {
                     let mut competing =
                         vec![current_revision.to_owned(), operation.operation_id.clone()];
                     competing.sort();
-                    self.record_conflict(node_id, ConflictKind::DeleteEdit, &competing);
+                    self.record_conflict(node_id, ConflictKind::DeleteEdit, &competing)?;
                     return Ok(());
                 }
             }
@@ -644,25 +646,101 @@ impl WorkspaceFileAuthority {
     ) -> Result<(), AuthorityError> {
         let conflict = self
             .conflicts
-            .get_mut(conflict_record_id)
+            .get(conflict_record_id)
+            .cloned()
             .ok_or(AuthorityError::NotFound)?;
-        if conflict.node_id != node_id {
+        if conflict.node_id != node_id
+            || chosen_revision_id.is_some_and(|revision_id| {
+                !conflict
+                    .competing_revision_ids
+                    .iter()
+                    .any(|candidate| candidate == revision_id)
+            })
+        {
             return Err(AuthorityError::InvalidResolution);
         }
-        if let Some(revision_id) = chosen_revision_id {
-            if !conflict
-                .competing_revision_ids
-                .iter()
-                .any(|candidate| candidate == revision_id)
-            {
-                return Err(AuthorityError::InvalidResolution);
-            }
+
+        if conflict.kind == ConflictKind::ConcurrentCreate {
+            self.resolve_concurrent_create(&conflict, chosen_revision_id)?;
+        } else if let Some(revision_id) = chosen_revision_id {
+            let revision = self
+                .revisions
+                .get(revision_id)
+                .filter(|revision| revision.node_id == node_id)
+                .ok_or(AuthorityError::InvalidResolution)?;
             self.nodes
                 .get_mut(node_id)
                 .ok_or(AuthorityError::NotFound)?
-                .current_revision_id = Some(revision_id.to_owned());
+                .current_revision_id = Some(revision.revision_id.clone());
         }
-        conflict.resolved = true;
+        self.conflicts
+            .get_mut(conflict_record_id)
+            .expect("conflict was checked")
+            .resolved = true;
+        Ok(())
+    }
+
+    fn resolve_concurrent_create(
+        &mut self,
+        conflict: &ConflictRecord,
+        chosen_operation_id: Option<&str>,
+    ) -> Result<(), AuthorityError> {
+        let candidates = self
+            .nodes
+            .iter()
+            .filter(|(_, node)| {
+                conflict
+                    .competing_revision_ids
+                    .iter()
+                    .any(|operation_id| operation_id == &node.created_by)
+            })
+            .map(|(node_id, node)| (node_id.clone(), node.clone()))
+            .collect::<Vec<_>>();
+        let selected = chosen_operation_id
+            .and_then(|operation_id| {
+                candidates
+                    .iter()
+                    .find(|(_, node)| node.created_by == operation_id)
+            })
+            .or_else(|| {
+                candidates
+                    .iter()
+                    .find(|(_, node)| !node.name.contains(".resonance-conflict-"))
+            })
+            .cloned()
+            .ok_or(AuthorityError::InvalidResolution)?;
+        let selected_operation = self
+            .operations
+            .get(&selected.1.created_by)
+            .ok_or(AuthorityError::NotFound)?;
+        let (requested_parent, requested_name) = match &selected_operation.operation.body {
+            FileOperationBody::CreateDirectory {
+                parent_node_id,
+                name,
+            }
+            | FileOperationBody::CreateFile {
+                parent_node_id,
+                name,
+                ..
+            } => (parent_node_id.clone(), name.clone()),
+            _ => return Err(AuthorityError::InvalidResolution),
+        };
+
+        for (candidate_node_id, candidate) in &candidates {
+            self.remove_child(candidate.parent_node_id.as_deref(), &candidate.name);
+            self.nodes
+                .get_mut(candidate_node_id)
+                .expect("candidate node was collected")
+                .tombstoned = candidate_node_id != &selected.0;
+        }
+        let selected_node = self
+            .nodes
+            .get_mut(&selected.0)
+            .expect("selected node was collected");
+        selected_node.parent_node_id = requested_parent.clone();
+        selected_node.name = requested_name.clone();
+        selected_node.tombstoned = false;
+        self.insert_child(requested_parent.as_deref(), &requested_name, &selected.0)?;
         Ok(())
     }
 
@@ -694,14 +772,19 @@ impl WorkspaceFileAuthority {
             &operation.node_id,
             ConflictKind::ConcurrentCreate,
             &competing,
-        );
-        Ok(format!(
-            "{requested_name}.resonance-conflict-{}",
-            &operation.operation_id[..8]
+        )?;
+        Ok(revision_conflict_name(
+            requested_name,
+            &operation.operation_id,
         ))
     }
 
-    fn record_conflict(&mut self, node_id: &str, kind: ConflictKind, competing: &[String]) {
+    fn record_conflict(
+        &mut self,
+        node_id: &str,
+        kind: ConflictKind,
+        competing: &[String],
+    ) -> Result<(), AuthorityError> {
         let mut competing = competing.to_vec();
         competing.sort();
         competing.dedup();
@@ -711,6 +794,30 @@ impl WorkspaceFileAuthority {
             b"resonance.file-conflict.v1\0",
             &[node_id, &kind_name, &joined],
         );
+        if matches!(kind, ConflictKind::DeleteEdit | ConflictKind::CompetingMove) {
+            let notice = match kind {
+                ConflictKind::DeleteEdit => {
+                    "Resonance preserved a deletion that happened concurrently with an edit.\n"
+                }
+                ConflictKind::CompetingMove => {
+                    "Resonance preserved a competing move for this workspace entry.\n"
+                }
+                _ => unreachable!(),
+            };
+            let content_hash = self.blobs.store(notice.as_bytes())?;
+            let revision_id = conflict_notice_revision_id(&record_id);
+            self.revisions
+                .entry(revision_id.clone())
+                .or_insert(FileRevision {
+                    node_id: conflict_artifact_node_id(&record_id, &revision_id),
+                    revision_id,
+                    base_revision_id: None,
+                    content_hash: content_hash.as_str().to_owned(),
+                    mime_type: "text/plain".to_owned(),
+                    byte_length: notice.len() as u64,
+                    signer: [0; 32],
+                });
+        }
         self.conflicts
             .entry(record_id.clone())
             .or_insert(ConflictRecord {
@@ -720,6 +827,99 @@ impl WorkspaceFileAuthority {
                 competing_revision_ids: competing,
                 resolved: false,
             });
+        Ok(())
+    }
+
+    fn add_conflict_artifacts(&self, root: &mut BTreeMap<String, TreeNode>) {
+        for conflict in self
+            .conflicts
+            .values()
+            .filter(|conflict| !conflict.resolved)
+        {
+            let Some(node) = self.nodes.get(&conflict.node_id) else {
+                continue;
+            };
+            match conflict.kind {
+                ConflictKind::MarkdownOverlap | ConflictKind::BinaryCollision => {
+                    for revision_id in &conflict.competing_revision_ids {
+                        if node.current_revision_id.as_deref() == Some(revision_id)
+                            || !self.revisions.contains_key(revision_id)
+                        {
+                            continue;
+                        }
+                        insert_projected_child(
+                            root,
+                            node.parent_node_id.as_deref(),
+                            TreeNode::File {
+                                node_id: conflict_artifact_node_id(
+                                    &conflict.record_id,
+                                    revision_id,
+                                ),
+                                name: revision_conflict_name(&node.name, revision_id),
+                                current_revision_id: revision_id.clone(),
+                            },
+                        );
+                    }
+                }
+                ConflictKind::DeleteEdit => {
+                    let deletion_id = conflict
+                        .competing_revision_ids
+                        .iter()
+                        .find(|candidate| !self.revisions.contains_key(*candidate));
+                    let Some(deletion_id) = deletion_id else {
+                        continue;
+                    };
+                    let revision_id = conflict_notice_revision_id(&conflict.record_id);
+                    insert_projected_child(
+                        root,
+                        node.parent_node_id.as_deref(),
+                        TreeNode::File {
+                            node_id: conflict_artifact_node_id(&conflict.record_id, &revision_id),
+                            name: format!(
+                                "{}.resonance-conflict-{}.deleted",
+                                node.name,
+                                &deletion_id[..8]
+                            ),
+                            current_revision_id: revision_id,
+                        },
+                    );
+                }
+                ConflictKind::CompetingMove => {
+                    let revision_id = conflict_notice_revision_id(&conflict.record_id);
+                    for operation_id in &conflict.competing_revision_ids {
+                        let Some(operation) = self.operations.get(operation_id) else {
+                            continue;
+                        };
+                        let FileOperationBody::MoveNode {
+                            new_parent_node_id,
+                            new_name,
+                        } = &operation.operation.body
+                        else {
+                            continue;
+                        };
+                        if node.parent_node_id == *new_parent_node_id && node.name == *new_name {
+                            continue;
+                        }
+                        insert_projected_child(
+                            root,
+                            new_parent_node_id.as_deref(),
+                            TreeNode::File {
+                                node_id: conflict_artifact_node_id(
+                                    &conflict.record_id,
+                                    operation_id,
+                                ),
+                                name: format!(
+                                    "{new_name}.resonance-conflict-{}.move",
+                                    &operation_id[..8]
+                                ),
+                                current_revision_id: revision_id.clone(),
+                            },
+                        );
+                    }
+                }
+                ConflictKind::ConcurrentCreate => {}
+            }
+        }
     }
 
     fn require_parent_directory(&self, parent_node_id: Option<&str>) -> Result<(), AuthorityError> {
@@ -791,6 +991,63 @@ impl WorkspaceFileAuthority {
             }),
         }
     }
+}
+
+fn insert_projected_child(
+    root: &mut BTreeMap<String, TreeNode>,
+    parent_node_id: Option<&str>,
+    child: TreeNode,
+) {
+    let name = child.name().to_owned();
+    if let Some(parent_node_id) = parent_node_id {
+        if let Some(children) = projected_children_mut(root, parent_node_id) {
+            children.insert(name, child);
+        }
+    } else {
+        root.insert(name, child);
+    }
+}
+
+fn projected_children_mut<'a>(
+    nodes: &'a mut BTreeMap<String, TreeNode>,
+    parent_node_id: &str,
+) -> Option<&'a mut BTreeMap<String, TreeNode>> {
+    for node in nodes.values_mut() {
+        let TreeNode::Directory {
+            node_id, children, ..
+        } = node
+        else {
+            continue;
+        };
+        if node_id == parent_node_id {
+            return Some(children);
+        }
+        if let Some(found) = projected_children_mut(children, parent_node_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn revision_conflict_name(name: &str, operation_id: &str) -> String {
+    let prefix = &operation_id[..8];
+    if let Some((stem, extension)) = name.rsplit_once('.') {
+        if !stem.is_empty() && !extension.is_empty() {
+            return format!("{stem}.resonance-conflict-{prefix}.{extension}");
+        }
+    }
+    format!("{name}.resonance-conflict-{prefix}")
+}
+
+fn conflict_notice_revision_id(record_id: &str) -> String {
+    derived_id(b"resonance.conflict-notice-revision.v1\0", &[record_id])
+}
+
+fn conflict_artifact_node_id(record_id: &str, variant: &str) -> String {
+    derived_id(
+        b"resonance.conflict-artifact-node.v1\0",
+        &[record_id, variant],
+    )
 }
 
 fn validate_name(name: &str) -> Result<(), AuthorityError> {

@@ -184,7 +184,7 @@ impl From<WorkspaceStoreError> for RootBindingError {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct LocalRootBinding {
     store: WorkspaceStore,
     root: PathBuf,
@@ -209,7 +209,7 @@ impl LocalRootBinding {
             return Err(RootBindingError::NotAbsolute);
         }
         prepare_empty_root(&root)?;
-        let materialized = projector::project(&root, projection, blobs)?;
+        let materialized = projector::project(&root, projection, blobs, &BTreeMap::new())?;
         let snapshot = watcher::snapshot(&root)?;
         store.set_local_root_binding(&root, RootHealth::Healthy)?;
         store.replace_local_root_materialization(materialized.values())?;
@@ -259,10 +259,7 @@ impl LocalRootBinding {
         match watcher::snapshot(&self.root) {
             Ok(snapshot) => {
                 self.set_health(RootHealth::Healthy, None)?;
-                let changes = self.ingestor.observe(snapshot, &mut self.materialized);
-                self.store
-                    .replace_local_root_materialization(self.materialized.values())?;
-                Ok(changes)
+                Ok(self.ingestor.observe(snapshot, &mut self.materialized))
             }
             Err(error) => {
                 let health = match error {
@@ -344,9 +341,9 @@ impl LocalRootBinding {
                 LocalChange::ReplaceFile {
                     node_id,
                     base_revision_id,
+                    relative_path,
                     content_hash,
                     bytes,
-                    ..
                 } => {
                     let hash = blobs.store(bytes)?;
                     if hash.as_str() != content_hash {
@@ -358,7 +355,7 @@ impl LocalRootBinding {
                         node_id,
                         base_revision_id,
                         content_hash,
-                        "text/markdown",
+                        mime_type(relative_path),
                         bytes.len() as u64,
                         causal_frontier,
                     )?
@@ -387,8 +384,6 @@ impl LocalRootBinding {
             causal_frontier = vec![operation.operation.operation_id.clone()];
             operations.push(operation);
         }
-        self.store
-            .replace_local_root_materialization(self.materialized.values())?;
         Ok(operations)
     }
 
@@ -407,7 +402,7 @@ impl LocalRootBinding {
             return Err(RootBindingError::NotAbsolute);
         }
         prepare_empty_root(&root)?;
-        let materialized = projector::project(&root, projection, blobs)?;
+        let materialized = projector::project(&root, projection, blobs, &BTreeMap::new())?;
         let snapshot = watcher::snapshot(&root)?;
         self.store
             .set_local_root_binding(&root, RootHealth::Healthy)?;
@@ -427,7 +422,8 @@ impl LocalRootBinding {
     ) -> Result<(), RootBindingError> {
         let result = (|| {
             recovery::remove_interrupted_writes(&self.root)?;
-            self.materialized = projector::project(&self.root, projection, blobs)?;
+            self.materialized =
+                projector::project(&self.root, projection, blobs, &self.materialized)?;
             let snapshot = watcher::snapshot(&self.root)?;
             self.ingestor = FilesystemIngestor::new(snapshot);
             self.store
@@ -478,6 +474,14 @@ impl LocalRootBinding {
         self.store
             .update_local_root_health(health, error.as_deref())?;
         Ok(())
+    }
+}
+
+fn mime_type(relative_path: &str) -> &'static str {
+    if relative_path.ends_with(".md") {
+        "text/markdown"
+    } else {
+        "application/octet-stream"
     }
 }
 

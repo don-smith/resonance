@@ -151,28 +151,41 @@ impl FileRecoveryTarget {
         if operations.len() > MAX_OPERATION_RECORDS {
             return Err(FileRecoveryError::InvalidChunk);
         }
+        let recovered = operations
+            .into_iter()
+            .map(|bytes| {
+                if bytes.len() > MAX_REQUEST_BYTES {
+                    return Err(FileRecoveryError::InvalidChunk);
+                }
+                let operation = SignedFileOperation::decode(&bytes)?;
+                if operation_content_hash(&operation).is_some_and(|hash| !valid_content_hash(hash))
+                {
+                    return Err(FileRecoveryError::InvalidChunk);
+                }
+                Ok((operation, bytes))
+            })
+            .collect::<Result<Vec<_>, FileRecoveryError>>()?;
+        let mut staged_authority = self.authority.clone();
+        let mut staged_operations = self.durable_operations.clone();
         let mut accepted = 0;
-        for bytes in operations {
-            if bytes.len() > MAX_REQUEST_BYTES {
-                return Err(FileRecoveryError::InvalidChunk);
-            }
-            let operation = SignedFileOperation::decode(&bytes)?;
-            if operation_content_hash(&operation).is_some_and(|hash| !valid_content_hash(hash)) {
-                return Err(FileRecoveryError::InvalidChunk);
-            }
-            self.authority.apply(&operation, &self.membership)?;
-            if let Some(store) = store {
-                store.record_file_operation(&operation)?;
-            }
-            let operation_id = operation.operation.operation_id;
-            if self
-                .durable_operations
-                .insert(operation_id, bytes)
+        for (operation, bytes) in &recovered {
+            staged_authority.apply(operation, &self.membership)?;
+            if staged_operations
+                .insert(operation.operation.operation_id.clone(), bytes.clone())
                 .is_none()
             {
                 accepted += 1;
             }
         }
+        if let Some(store) = store {
+            let operations = recovered
+                .iter()
+                .map(|(operation, _)| operation.clone())
+                .collect::<Vec<_>>();
+            store.record_file_operations(&operations)?;
+        }
+        self.authority = staged_authority;
+        self.durable_operations = staged_operations;
         Ok(accepted)
     }
 

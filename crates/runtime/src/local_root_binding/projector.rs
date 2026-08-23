@@ -20,14 +20,16 @@ pub(crate) fn project(
     root: &Path,
     projection: &FileTreeProjection,
     blobs: &WorkspaceBlobStore,
+    previous: &BTreeMap<String, MaterializedRecord>,
 ) -> Result<BTreeMap<String, MaterializedRecord>, RootBindingError> {
     if !root.is_dir() {
         return Err(RootBindingError::Unavailable);
     }
     let mut records = BTreeMap::new();
     for node in projection.root.values() {
-        project_node(root, "", node, projection, blobs, &mut records)?;
+        project_node(root, "", node, projection, blobs, previous, &mut records)?;
     }
+    remove_stale_materialization(root, previous, &records)?;
     Ok(records)
 }
 
@@ -37,6 +39,7 @@ fn project_node(
     node: &TreeNode,
     projection: &FileTreeProjection,
     blobs: &WorkspaceBlobStore,
+    previous: &BTreeMap<String, MaterializedRecord>,
     records: &mut BTreeMap<String, MaterializedRecord>,
 ) -> Result<(), RootBindingError> {
     let relative_path = if parent.is_empty() {
@@ -64,7 +67,15 @@ fn project_node(
                 },
             );
             for child in children.values() {
-                project_node(root, &relative_path, child, projection, blobs, records)?;
+                project_node(
+                    root,
+                    &relative_path,
+                    child,
+                    projection,
+                    blobs,
+                    previous,
+                    records,
+                )?;
             }
         }
         TreeNode::File {
@@ -90,10 +101,19 @@ fn project_node(
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent).map_err(map_projection_io)?;
             }
-            let already_current = fs::read(&destination)
-                .ok()
-                .is_some_and(|existing| ContentHash::from_bytes(&existing) == hash);
+            let existing = fs::read(&destination).ok();
+            let already_current = existing
+                .as_ref()
+                .is_some_and(|existing| ContentHash::from_bytes(existing) == hash);
             if !already_current {
+                if let Some(existing) = existing {
+                    let expected_previous = previous
+                        .get(&relative_path)
+                        .and_then(|record| record.content_hash.as_deref());
+                    if expected_previous != Some(ContentHash::from_bytes(&existing).as_str()) {
+                        return Err(RootBindingError::ProjectionCollision(relative_path));
+                    }
+                }
                 atomic_write(&destination, &bytes, hash.as_str())?;
             }
             records.insert(
@@ -106,6 +126,63 @@ fn project_node(
                     directory: false,
                 },
             );
+        }
+    }
+    Ok(())
+}
+
+fn remove_stale_materialization(
+    root: &Path,
+    previous: &BTreeMap<String, MaterializedRecord>,
+    current: &BTreeMap<String, MaterializedRecord>,
+) -> Result<(), RootBindingError> {
+    let mut stale = previous
+        .values()
+        .filter(|record| !current.contains_key(&record.relative_path))
+        .collect::<Vec<_>>();
+    stale.sort_by_key(|record| std::cmp::Reverse(record.relative_path.matches('/').count()));
+    for record in stale {
+        let path = root.join(
+            record
+                .relative_path
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
+        );
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(map_projection_io(error)),
+        };
+        if metadata.file_type().is_symlink() {
+            return Err(RootBindingError::Symlink);
+        }
+        if record.directory {
+            if !metadata.is_dir() {
+                return Err(RootBindingError::ProjectionCollision(
+                    record.relative_path.clone(),
+                ));
+            }
+            fs::remove_dir(&path).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::DirectoryNotEmpty {
+                    RootBindingError::ProjectionCollision(record.relative_path.clone())
+                } else {
+                    map_projection_io(error)
+                }
+            })?;
+        } else {
+            if !metadata.is_file() {
+                return Err(RootBindingError::ProjectionCollision(
+                    record.relative_path.clone(),
+                ));
+            }
+            if let Some(expected_hash) = &record.content_hash {
+                let bytes = fs::read(&path).map_err(map_projection_io)?;
+                if ContentHash::from_bytes(&bytes).as_str() != expected_hash {
+                    return Err(RootBindingError::ProjectionCollision(
+                        record.relative_path.clone(),
+                    ));
+                }
+            }
+            fs::remove_file(&path).map_err(map_projection_io)?;
         }
     }
     Ok(())

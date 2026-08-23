@@ -4,8 +4,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use resonance_runtime::workspace_store::WorkspaceStore;
-use rusqlite::Connection;
+use resonance_runtime::{
+    identity::{InMemoryKeyCustody, InstallationIdentity},
+    workspace_files::SignedFileOperation,
+    workspace_store::WorkspaceStore,
+};
+use rusqlite::{params, Connection};
 
 fn temporary_directory(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -37,6 +41,52 @@ fn creates_a_clean_filesystem_workspace_marker() {
     assert!(!root
         .join(".resonance/workspaces/primary/documents")
         .exists());
+
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn rolls_back_a_file_operation_batch_when_any_insert_fails() {
+    let root = temporary_directory("workspace-store-operation-batch");
+    let store = WorkspaceStore::open(&root, "primary").expect("workspace opens");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("identity creates");
+    let first =
+        SignedFileOperation::create_directory(&identity, "primary", None, "plans", Vec::new())
+            .expect("first operation signs");
+    let second = SignedFileOperation::create_directory(
+        &identity,
+        "primary",
+        None,
+        "archive",
+        vec![first.operation.operation_id.clone()],
+    )
+    .expect("second operation signs");
+    let database = workspace_database(&root, "primary");
+    let failure = Connection::open(&database).expect("failure connection opens");
+    failure
+        .execute_batch(&format!(
+            "CREATE TRIGGER fail_second_file_operation
+             BEFORE INSERT ON workspace_file_operations
+             WHEN NEW.operation_id = '{}'
+             BEGIN
+               SELECT RAISE(FAIL, 'simulated second insert failure');
+             END;",
+            second.operation.operation_id
+        ))
+        .expect("failure trigger installs");
+
+    assert!(store
+        .record_file_operations(&[first.clone(), second])
+        .is_err());
+    let persisted: i64 = failure
+        .query_row(
+            "SELECT COUNT(*) FROM workspace_file_operations WHERE operation_id = ?1",
+            params![first.operation.operation_id],
+            |row| row.get(0),
+        )
+        .expect("persisted count reads");
+    assert_eq!(persisted, 0);
 
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }

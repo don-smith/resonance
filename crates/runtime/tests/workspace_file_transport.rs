@@ -117,6 +117,54 @@ fn two_peers_recover_reordered_offline_operations_idempotently_and_after_restart
 }
 
 #[test]
+fn failed_recovery_storage_leaves_the_target_unchanged_for_retry() {
+    let owner = identity();
+    let peer = identity();
+    let membership = membership(&owner, &peer);
+    let operation =
+        SignedFileOperation::create_directory(&owner, WORKSPACE_ID, None, "plans", Vec::new())
+            .expect("operation signs");
+    let encoded = operation.encode().expect("operation encodes");
+    let directory = tempfile::tempdir().expect("workspace directory creates");
+    let store = WorkspaceStore::open(directory.path(), WORKSPACE_ID).expect("store opens");
+    let database = directory
+        .path()
+        .join(".resonance/workspaces")
+        .join(WORKSPACE_ID)
+        .join("workspace.sqlite3");
+    let failure = rusqlite::Connection::open(database).expect("failure connection opens");
+    failure
+        .execute_batch(
+            "CREATE TRIGGER fail_file_operation_insert
+             BEFORE INSERT ON workspace_file_operations
+             BEGIN
+               SELECT RAISE(FAIL, 'simulated recovery storage failure');
+             END;",
+        )
+        .expect("failure trigger installs");
+    let mut target = FileRecoveryTarget::new(WORKSPACE_ID, membership);
+
+    assert!(matches!(
+        target
+            .recover_operations_to_store(FileResponse::Operations(vec![encoded.clone()]), &store,),
+        Err(FileRecoveryError::Store(_))
+    ));
+    assert!(target.authority().projection().root.is_empty());
+    assert!(target.durable_operations().is_empty());
+
+    failure
+        .execute_batch("DROP TRIGGER fail_file_operation_insert;")
+        .expect("failure trigger removes");
+    assert_eq!(
+        target
+            .recover_operations_to_store(FileResponse::Operations(vec![encoded]), &store)
+            .expect("operation retries"),
+        1
+    );
+    assert!(target.authority().projection().root.contains_key("plans"));
+}
+
+#[test]
 fn service_authorizes_current_members_and_rejects_wrong_workspace_or_hash() {
     let mut service = FileRecoveryService::new(WORKSPACE_ID);
     service.set_members(["member".to_owned()]);

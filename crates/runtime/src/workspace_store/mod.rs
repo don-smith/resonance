@@ -46,6 +46,7 @@ pub enum WorkspaceStoreError {
     Io(std::io::Error),
     Database(rusqlite::Error),
     FileOperation(FileOperationError),
+    FileOperationConflict,
     Blob(BlobError),
     LockPoisoned,
 }
@@ -61,6 +62,9 @@ impl std::fmt::Display for WorkspaceStoreError {
             Self::Database(error) => write!(formatter, "workspace database failed: {error}"),
             Self::FileOperation(error) => {
                 write!(formatter, "workspace file operation failed: {error}")
+            }
+            Self::FileOperationConflict => {
+                formatter.write_str("workspace file operation ID has conflicting durable bytes")
             }
             Self::Blob(error) => write!(formatter, "workspace blob storage failed: {error}"),
             Self::LockPoisoned => formatter.write_str("workspace store lock was poisoned"),
@@ -325,15 +329,45 @@ impl WorkspaceStore {
         &self,
         operation: &SignedFileOperation,
     ) -> Result<(), WorkspaceStoreError> {
-        operation.verify()?;
-        let connection = self
+        self.record_file_operations(std::slice::from_ref(operation))
+    }
+
+    pub fn record_file_operations(
+        &self,
+        operations: &[SignedFileOperation],
+    ) -> Result<(), WorkspaceStoreError> {
+        let encoded = operations
+            .iter()
+            .map(|operation| {
+                operation.verify()?;
+                Ok((
+                    operation.operation.operation_id.clone(),
+                    operation.encode()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, WorkspaceStoreError>>()?;
+        let mut connection = self
             .connection
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
-        connection.execute(
-            "INSERT OR IGNORE INTO workspace_file_operations (operation_id, signed_operation) VALUES (?1, ?2)",
-            params![operation.operation.operation_id, operation.encode()?],
-        )?;
+        let transaction = connection.transaction()?;
+        for (operation_id, bytes) in encoded {
+            let inserted = transaction.execute(
+                "INSERT OR IGNORE INTO workspace_file_operations (operation_id, signed_operation) VALUES (?1, ?2)",
+                params![operation_id, bytes],
+            )?;
+            if inserted == 0 {
+                let existing = transaction.query_row(
+                    "SELECT signed_operation FROM workspace_file_operations WHERE operation_id = ?1",
+                    [&operation_id],
+                    |row| row.get::<_, Vec<u8>>(0),
+                )?;
+                if existing != bytes {
+                    return Err(WorkspaceStoreError::FileOperationConflict);
+                }
+            }
+        }
+        transaction.commit()?;
         Ok(())
     }
 

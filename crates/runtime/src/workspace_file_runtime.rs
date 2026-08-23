@@ -373,29 +373,46 @@ impl WorkspaceFileRuntime {
     }
 
     pub fn poll_root_changes(&mut self) -> Result<usize, WorkspaceFileRuntimeError> {
-        let Some(root) = self.root.as_mut() else {
+        let Some(mut staged_root) = self.root.clone() else {
             return Ok(0);
         };
-        let changes = root.poll_changes()?;
+        let changes = match staged_root.poll_changes() {
+            Ok(changes) => changes,
+            Err(error) => {
+                self.root = Some(staged_root);
+                return Err(error.into());
+            }
+        };
         if changes.is_empty() {
+            self.root = Some(staged_root);
             return Ok(0);
         }
-        let causal_frontier = self.authority.causal_frontier();
-        let operations = root.author_changes(
+
+        let mut staged_authority = self.authority.clone();
+        let causal_frontier = staged_authority.causal_frontier();
+        let operations = staged_root.author_changes(
             &self.identity,
             &self.workspace_id,
             &changes,
-            self.authority.blob_store_mut(),
+            staged_authority.blob_store_mut(),
             causal_frontier,
         )?;
-        let count = operations.len();
-        for operation in operations {
-            self.authority.apply(&operation, &self.membership)?;
-            self.store.record_file_operation(&operation)?;
-            self.pending_announcements
-                .push(operation.operation.operation_id.clone());
+        for operation in &operations {
+            staged_authority.apply(operation, &self.membership)?;
         }
-        root.repair(&self.authority.projection(), self.authority.blob_store())?;
+        self.store.record_file_operations(&operations)?;
+
+        let count = operations.len();
+        self.pending_announcements.extend(
+            operations
+                .iter()
+                .map(|operation| operation.operation.operation_id.clone()),
+        );
+        self.authority = staged_authority;
+        self.root = Some(staged_root);
+        if let Some(root) = self.root.as_mut() {
+            let _ = root.repair(&self.authority.projection(), self.authority.blob_store());
+        }
         Ok(count)
     }
 
@@ -442,10 +459,13 @@ impl WorkspaceFileRuntime {
         &mut self,
         operation: SignedFileOperation,
     ) -> Result<(), WorkspaceFileRuntimeError> {
-        self.authority.apply(&operation, &self.membership)?;
+        let mut staged_authority = self.authority.clone();
+        staged_authority.apply(&operation, &self.membership)?;
         self.store.record_file_operation(&operation)?;
+
         self.pending_announcements
             .push(operation.operation.operation_id.clone());
+        self.authority = staged_authority;
         if let Some(root) = self.root.as_mut() {
             let _ = root.repair(&self.authority.projection(), self.authority.blob_store());
         }

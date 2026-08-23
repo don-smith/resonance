@@ -6,7 +6,7 @@ use super::{
     LocalChange,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct FilesystemIngestor {
     acknowledged: RootSnapshot,
     last_seen: RootSnapshot,
@@ -92,7 +92,7 @@ impl FilesystemIngestor {
                             base_revision_id: record.revision_id.clone().unwrap_or_default(),
                             relative_path: path.clone(),
                             content_hash: hash.clone(),
-                            bytes: bytes.clone(),
+                            bytes: bytes.to_vec(),
                         });
                         if let Some(current) = materialized.get_mut(&path) {
                             current.content_hash = Some(hash.clone());
@@ -124,7 +124,7 @@ impl FilesystemIngestor {
                     relative_path: path.clone(),
                     content_hash: hash.clone(),
                     mime_type: mime_type(path).to_owned(),
-                    bytes: bytes.clone(),
+                    bytes: bytes.to_vec(),
                 }),
             }
         }

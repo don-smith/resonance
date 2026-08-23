@@ -7,12 +7,31 @@ use resonance_runtime::{
         projection::TreeNode,
         SignedFileOperation,
     },
+    workspace_store::WorkspaceStore,
 };
 
 const WORKSPACE_ID: &str = "workspace-one";
 
 fn identity() -> InstallationIdentity {
     InstallationIdentity::load_or_create(&InMemoryKeyCustody::default()).expect("identity creates")
+}
+
+fn tree_names(node: &TreeNode, names: &mut Vec<String>) {
+    names.push(node.name().to_owned());
+    if let TreeNode::Directory { children, .. } = node {
+        for child in children.values() {
+            tree_names(child, names);
+        }
+    }
+}
+
+fn projection_names(authority: &WorkspaceFileAuthority) -> Vec<String> {
+    let projection = authority.projection();
+    let mut names = Vec::new();
+    for node in projection.root.values() {
+        tree_names(node, &mut names);
+    }
+    names
 }
 
 fn membership(identity: &InstallationIdentity) -> MembershipProjection {
@@ -330,6 +349,9 @@ fn binary_conflict_resolution_retains_immutable_history() {
         conflict.kind,
         resonance_runtime::workspace_files::projection::ConflictKind::BinaryCollision
     );
+    assert!(projection_names(&authority)
+        .iter()
+        .any(|name| name.contains(".resonance-conflict-") && name.ends_with(".bin")));
     let resolution = SignedFileOperation::resolve_conflict(
         &member,
         WORKSPACE_ID,
@@ -353,6 +375,9 @@ fn binary_conflict_resolution_retains_immutable_history() {
     assert!(projection
         .revisions
         .contains_key(&right.operation.operation_id));
+    assert!(!projection_names(&authority)
+        .iter()
+        .any(|name| name.contains(".resonance-conflict-")));
 }
 
 #[test]
@@ -409,6 +434,38 @@ fn invalid_utf8_and_concurrent_create_become_visible_conflicts() {
     };
     assert_eq!(children.len(), 2);
     assert!(children
+        .keys()
+        .any(|name| name.contains(".resonance-conflict-")));
+    let create_conflict = projection
+        .conflicts
+        .iter()
+        .find(|conflict| {
+            conflict.kind
+                == resonance_runtime::workspace_files::projection::ConflictKind::ConcurrentCreate
+        })
+        .expect("create conflict exists")
+        .clone();
+    let resolve_create = SignedFileOperation::resolve_conflict(
+        &member,
+        WORKSPACE_ID,
+        create_conflict.node_id,
+        create_conflict.record_id,
+        Some(first.operation.operation_id.clone()),
+        vec![
+            first.operation.operation_id.clone(),
+            second.operation.operation_id.clone(),
+        ],
+    )
+    .expect("create resolution signs");
+    authority
+        .apply(&resolve_create, &membership)
+        .expect("create resolution applies");
+    let resolved_projection = authority.projection();
+    let TreeNode::Directory { children, .. } = &resolved_projection.root["plans"] else {
+        panic!("plans must be a directory");
+    };
+    assert_eq!(children.len(), 1);
+    assert!(!children
         .keys()
         .any(|name| name.contains(".resonance-conflict-")));
 
@@ -580,6 +637,132 @@ fn delete_edit_and_competing_moves_preserve_conflict_records() {
     assert!(projection.conflicts.iter().any(|conflict| {
         conflict.kind == resonance_runtime::workspace_files::projection::ConflictKind::CompetingMove
     }));
+    let names = projection_names(&authority);
+    assert!(names.iter().any(|name| name.ends_with(".deleted")));
+    assert!(names.iter().any(|name| name.ends_with(".move")));
+}
+
+#[test]
+fn durable_replay_retains_resolved_delete_edit_history() {
+    let application_data = tempfile::tempdir().expect("application data creates");
+    let store = WorkspaceStore::open(application_data.path(), WORKSPACE_ID).expect("store opens");
+    let member = identity();
+    let membership = membership(&member);
+    let mut authority = WorkspaceFileAuthority::new(WORKSPACE_ID);
+    let plans =
+        SignedFileOperation::create_directory(&member, WORKSPACE_ID, None, "plans", Vec::new())
+            .expect("plans signs");
+    authority.apply(&plans, &membership).expect("plans applies");
+    let base = b"base\n";
+    let base_hash = authority.blob_store_mut().store(base).expect("base stores");
+    let file = SignedFileOperation::create_file(
+        &member,
+        WORKSPACE_ID,
+        Some(plans.operation.node_id.clone()),
+        "plan.md",
+        base_hash.as_str(),
+        "text/markdown",
+        base.len() as u64,
+        vec![plans.operation.operation_id.clone()],
+    )
+    .expect("file signs");
+    authority.apply(&file, &membership).expect("file applies");
+    let edited = b"edited\n";
+    let edited_hash = authority
+        .blob_store_mut()
+        .store(edited)
+        .expect("edited bytes store");
+    let edit = SignedFileOperation::replace_file_revision(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        file.operation.operation_id.clone(),
+        edited_hash.as_str(),
+        "text/markdown",
+        edited.len() as u64,
+        vec![file.operation.operation_id.clone()],
+    )
+    .expect("edit signs");
+    let delete = SignedFileOperation::tombstone_node(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        vec![file.operation.operation_id.clone()],
+    )
+    .expect("delete signs");
+    authority
+        .apply(&delete, &membership)
+        .expect("delete applies");
+    authority.apply(&edit, &membership).expect("edit applies");
+    let conflict = authority
+        .projection()
+        .conflicts
+        .into_iter()
+        .find(|conflict| {
+            conflict.kind
+                == resonance_runtime::workspace_files::projection::ConflictKind::DeleteEdit
+        })
+        .expect("delete-edit conflict exists");
+    let resolution = SignedFileOperation::resolve_conflict(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        conflict.record_id.clone(),
+        Some(edit.operation.operation_id.clone()),
+        vec![
+            delete.operation.operation_id.clone(),
+            edit.operation.operation_id.clone(),
+        ],
+    )
+    .expect("resolution signs");
+    authority
+        .apply(&resolution, &membership)
+        .expect("resolution applies");
+    store
+        .record_file_operations(&[
+            plans,
+            file.clone(),
+            delete.clone(),
+            edit.clone(),
+            resolution.clone(),
+        ])
+        .expect("history stores atomically");
+
+    let mut replayed = WorkspaceFileAuthority::new(WORKSPACE_ID);
+    replayed
+        .blob_store_mut()
+        .store(base)
+        .expect("base restores");
+    replayed
+        .blob_store_mut()
+        .store(edited)
+        .expect("edited bytes restore");
+    replayed
+        .replay(
+            &store.file_operations().expect("history reloads"),
+            &membership,
+        )
+        .expect("durable history replays");
+
+    let projection = replayed.projection();
+    let replayed_conflict = projection
+        .conflicts
+        .iter()
+        .find(|candidate| candidate.record_id == conflict.record_id)
+        .expect("conflict record remains");
+    assert!(replayed_conflict.resolved);
+    assert!(projection
+        .revisions
+        .contains_key(&file.operation.operation_id));
+    assert!(projection
+        .revisions
+        .contains_key(&edit.operation.operation_id));
+    assert!(replayed
+        .applied_operation_ids()
+        .contains(&delete.operation.operation_id));
+    assert!(replayed
+        .applied_operation_ids()
+        .contains(&resolution.operation.operation_id));
 }
 
 #[test]

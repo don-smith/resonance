@@ -11,7 +11,7 @@ use resonance_runtime::{
         authority::WorkspaceFileAuthority,
         blobs::WorkspaceBlobStore,
         projection::{FileRevision, FileTreeProjection, TreeNode},
-        SignedFileOperation,
+        FileOperationBody, SignedFileOperation,
     },
     workspace_store::WorkspaceStore,
 };
@@ -29,7 +29,12 @@ fn plans_projection(file: Option<(&str, &[u8])>) -> (FileTreeProjection, Workspa
                 revision_id: "revision-one".to_owned(),
                 base_revision_id: None,
                 content_hash: hash.as_str().to_owned(),
-                mime_type: "text/markdown".to_owned(),
+                mime_type: if name.ends_with(".md") {
+                    "text/markdown"
+                } else {
+                    "application/octet-stream"
+                }
+                .to_owned(),
                 byte_length: bytes.len() as u64,
                 signer: [1; 32],
             },
@@ -384,6 +389,40 @@ fn stable_external_file_becomes_a_member_signed_authority_operation() {
 }
 
 #[test]
+fn external_binary_replacement_remains_binary_authority_input() {
+    let app_data = tempfile::tempdir().expect("app data creates");
+    let root = app_data.path().join("root");
+    let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("identity creates");
+    let (projection, mut blobs) = plans_projection(Some(("asset.bin", &[0, 1, 2])));
+    let mut binding = LocalRootBinding::bind(
+        &store,
+        &root,
+        RootSelection::ConfirmedNotGitManaged,
+        &projection,
+        &blobs,
+    )
+    .expect("root binds");
+
+    fs::write(root.join("plans/asset.bin"), [3_u8, 4, 5]).expect("binary edit writes");
+    assert!(binding
+        .poll_changes()
+        .expect("first binary observation")
+        .is_empty());
+    let changes = binding.poll_changes().expect("second binary observation");
+    let operations = binding
+        .author_changes(&identity, "workspace", &changes, &mut blobs, Vec::new())
+        .expect("binary replacement authors");
+
+    assert!(matches!(
+        &operations[0].operation.body,
+        FileOperationBody::ReplaceFileRevision { mime_type, .. }
+            if mime_type == "application/octet-stream"
+    ));
+}
+
+#[test]
 fn recognizes_a_one_to_one_same_hash_rename_after_two_stable_scans() {
     let app_data = tempfile::tempdir().expect("app data creates");
     let root = app_data.path().join("root");
@@ -448,6 +487,190 @@ fn replaces_an_unavailable_binding_only_with_an_explicit_empty_root() {
 }
 
 #[test]
+fn conflict_artifacts_materialize_and_leave_the_root_after_resolution() {
+    let app_data = tempfile::tempdir().expect("app data creates");
+    let root = app_data.path().join("root");
+    let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("identity creates");
+    let membership = MembershipProjection {
+        canonical_head: Some("head".to_owned()),
+        members: vec![Member::new(
+            identity.public_identity().to_string(),
+            "Ada",
+            "developer",
+            "Ada",
+            0,
+        )],
+        statuses: Default::default(),
+    };
+    let mut authority = WorkspaceFileAuthority::new("workspace");
+    let plans =
+        SignedFileOperation::create_directory(&identity, "workspace", None, "plans", Vec::new())
+            .expect("plans signs");
+    authority.apply(&plans, &membership).expect("plans applies");
+    let base_hash = authority.blob_store_mut().store(&[0]).expect("base stores");
+    let file = SignedFileOperation::create_file(
+        &identity,
+        "workspace",
+        Some(plans.operation.node_id.clone()),
+        "asset.bin",
+        base_hash.as_str(),
+        "application/octet-stream",
+        1,
+        vec![plans.operation.operation_id.clone()],
+    )
+    .expect("file signs");
+    authority.apply(&file, &membership).expect("file applies");
+    let left_hash = authority.blob_store_mut().store(&[1]).expect("left stores");
+    let right_hash = authority
+        .blob_store_mut()
+        .store(&[2])
+        .expect("right stores");
+    let left = SignedFileOperation::replace_file_revision(
+        &identity,
+        "workspace",
+        file.operation.node_id.clone(),
+        file.operation.operation_id.clone(),
+        left_hash.as_str(),
+        "application/octet-stream",
+        1,
+        vec![file.operation.operation_id.clone()],
+    )
+    .expect("left signs");
+    let right = SignedFileOperation::replace_file_revision(
+        &identity,
+        "workspace",
+        file.operation.node_id.clone(),
+        file.operation.operation_id.clone(),
+        right_hash.as_str(),
+        "application/octet-stream",
+        1,
+        vec![file.operation.operation_id.clone()],
+    )
+    .expect("right signs");
+    authority.apply(&left, &membership).expect("left applies");
+    authority.apply(&right, &membership).expect("right applies");
+    let conflict = authority
+        .projection()
+        .conflicts
+        .into_iter()
+        .find(|conflict| !conflict.resolved)
+        .expect("binary conflict exists");
+    let mut binding = LocalRootBinding::bind(
+        &store,
+        &root,
+        RootSelection::ConfirmedNotGitManaged,
+        &authority.projection(),
+        authority.blob_store(),
+    )
+    .expect("conflicted root binds");
+    assert_eq!(
+        fs::read_dir(root.join("plans"))
+            .expect("plans reads")
+            .count(),
+        2
+    );
+    assert!(binding
+        .poll_changes()
+        .expect("generated files scan")
+        .is_empty());
+
+    let resolution = SignedFileOperation::resolve_conflict(
+        &identity,
+        "workspace",
+        conflict.node_id,
+        conflict.record_id,
+        Some(left.operation.operation_id.clone()),
+        vec![
+            left.operation.operation_id.clone(),
+            right.operation.operation_id.clone(),
+        ],
+    )
+    .expect("resolution signs");
+    authority
+        .apply(&resolution, &membership)
+        .expect("resolution applies");
+    binding
+        .repair(&authority.projection(), authority.blob_store())
+        .expect("resolved projection repairs");
+
+    let names = fs::read_dir(root.join("plans"))
+        .expect("resolved plans reads")
+        .map(|entry| entry.expect("entry reads").file_name())
+        .collect::<Vec<_>>();
+    assert_eq!(names.len(), 1);
+    assert_eq!(names[0], "asset.bin");
+}
+
+#[cfg(unix)]
+#[test]
+fn permission_loss_preserves_materialized_bytes_until_repair_succeeds() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let app_data = tempfile::tempdir().expect("app data creates");
+    let root = app_data.path().join("root");
+    let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");
+    let (initial_projection, initial_blobs) = plans_projection(Some(("roadmap.md", b"old\n")));
+    let mut binding = LocalRootBinding::bind(
+        &store,
+        &root,
+        RootSelection::ConfirmedNotGitManaged,
+        &initial_projection,
+        &initial_blobs,
+    )
+    .expect("root binds");
+    let (updated_projection, updated_blobs) = plans_projection(Some(("roadmap.md", b"new\n")));
+    let plans = root.join("plans");
+    fs::set_permissions(&plans, fs::Permissions::from_mode(0o555))
+        .expect("plans becomes read-only");
+
+    let result = binding.repair(&updated_projection, &updated_blobs);
+    let preserved = fs::read(root.join("plans/roadmap.md")).expect("old bytes remain readable");
+    fs::set_permissions(&plans, fs::Permissions::from_mode(0o755))
+        .expect("plans permissions restore");
+
+    assert_eq!(result, Err(RootBindingError::Unwritable));
+    assert_eq!(binding.health(), RootHealth::Unwritable);
+    assert_eq!(preserved, b"old\n");
+    binding
+        .repair(&updated_projection, &updated_blobs)
+        .expect("projection repairs after permissions return");
+    assert_eq!(
+        fs::read(root.join("plans/roadmap.md")).expect("updated bytes read"),
+        b"new\n"
+    );
+}
+
+#[test]
+fn repair_preserves_an_uningested_external_edit() {
+    let app_data = tempfile::tempdir().expect("app data creates");
+    let root = app_data.path().join("root");
+    let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");
+    let (initial_projection, initial_blobs) = plans_projection(Some(("roadmap.md", b"base\n")));
+    let mut binding = LocalRootBinding::bind(
+        &store,
+        &root,
+        RootSelection::ConfirmedNotGitManaged,
+        &initial_projection,
+        &initial_blobs,
+    )
+    .expect("root binds");
+    fs::write(root.join("plans/roadmap.md"), b"local unsynced\n").expect("external edit writes");
+    let (remote_projection, remote_blobs) = plans_projection(Some(("roadmap.md", b"remote\n")));
+
+    assert!(matches!(
+        binding.repair(&remote_projection, &remote_blobs),
+        Err(RootBindingError::ProjectionCollision(path)) if path == "plans/roadmap.md"
+    ));
+    assert_eq!(binding.health(), RootHealth::Unhealthy);
+    assert_eq!(
+        fs::read(root.join("plans/roadmap.md")).expect("local bytes remain"),
+        b"local unsynced\n"
+    );
+}
+
+#[test]
 fn repairs_interrupted_projection_and_reports_an_unavailable_root() {
     let app_data = tempfile::tempdir().expect("app data creates");
     let root = app_data.path().join("root");
@@ -466,7 +689,7 @@ fn repairs_interrupted_projection_and_reports_an_unavailable_root() {
         b"partial",
     )
     .expect("partial file writes");
-    fs::write(root.join("plans/roadmap.md"), b"wrong").expect("wrong bytes write");
+    fs::remove_file(root.join("plans/roadmap.md")).expect("interrupted destination removes");
 
     binding
         .repair(&projection, &blobs)

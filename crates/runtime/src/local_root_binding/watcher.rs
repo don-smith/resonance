@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::Path,
+    sync::Arc,
 };
 
 use crate::workspace_files::{blobs::ContentHash, paths::PortablePath};
@@ -11,7 +12,7 @@ use super::RootBindingError;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SnapshotEntry {
     Directory,
-    File { hash: String, bytes: Vec<u8> },
+    File { hash: String, bytes: Arc<[u8]> },
 }
 
 pub(crate) type RootSnapshot = BTreeMap<String, SnapshotEntry>;
@@ -74,7 +75,7 @@ fn visit(
                 relative,
                 SnapshotEntry::File {
                     hash: ContentHash::from_bytes(&bytes).as_str().to_owned(),
-                    bytes,
+                    bytes: bytes.into(),
                 },
             );
         } else {

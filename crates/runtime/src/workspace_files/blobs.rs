@@ -5,6 +5,7 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -22,9 +23,9 @@ impl ContentHash {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct WorkspaceBlobStore {
-    blobs: BTreeMap<ContentHash, Vec<u8>>,
+    blobs: BTreeMap<ContentHash, Arc<[u8]>>,
     directory: Option<PathBuf>,
 }
 
@@ -80,7 +81,7 @@ impl WorkspaceBlobStore {
             if ContentHash::from_bytes(&bytes) != hash {
                 return Err(BlobError::HashMismatch);
             }
-            blobs.insert(hash, bytes);
+            blobs.insert(hash, bytes.into());
         }
         Ok(Self {
             blobs,
@@ -95,7 +96,10 @@ impl WorkspaceBlobStore {
     }
 
     pub fn open(&self, hash: &ContentHash) -> Result<Vec<u8>, BlobError> {
-        self.blobs.get(hash).cloned().ok_or(BlobError::Missing)
+        self.blobs
+            .get(hash)
+            .map(|bytes| bytes.to_vec())
+            .ok_or(BlobError::Missing)
     }
 
     pub fn verify(&self, hash: &ContentHash, bytes: &[u8]) -> Result<(), BlobError> {
@@ -115,7 +119,7 @@ impl WorkspaceBlobStore {
         if let Some(directory) = &self.directory {
             persist_blob(directory, hash, bytes)?;
         }
-        self.blobs.insert(hash.clone(), bytes.to_vec());
+        self.blobs.insert(hash.clone(), Arc::from(bytes));
         Ok(())
     }
 
@@ -216,5 +220,50 @@ mod tests {
         let reopened =
             WorkspaceBlobStore::open_durable(directory.path()).expect("blob store reopens");
         assert_eq!(reopened.open(&hash).expect("blob opens"), b"durable");
+    }
+
+    #[test]
+    fn rejects_corrupt_durable_bytes_on_reopen() {
+        let directory = tempfile::tempdir().expect("blob directory creates");
+        let hash = {
+            let mut store =
+                WorkspaceBlobStore::open_durable(directory.path()).expect("blob store opens");
+            store.store(b"durable").expect("blob stores")
+        };
+        fs::write(directory.path().join(hash.as_str()), b"corrupt").expect("durable blob corrupts");
+
+        assert!(matches!(
+            WorkspaceBlobStore::open_durable(directory.path()),
+            Err(BlobError::HashMismatch)
+        ));
+    }
+
+    #[test]
+    fn failed_durable_write_does_not_promote_bytes_in_memory() {
+        let parent = tempfile::tempdir().expect("blob parent creates");
+        let directory = parent.path().join("blobs");
+        let mut store = WorkspaceBlobStore::open_durable(&directory).expect("blob store opens");
+        fs::remove_dir(&directory).expect("blob directory removes");
+        fs::write(&directory, b"not a directory").expect("blob path becomes unavailable");
+        let hash = ContentHash::from_bytes(b"uncommitted");
+
+        assert!(matches!(
+            store.store_verified(&hash, b"uncommitted"),
+            Err(BlobError::Io(_))
+        ));
+        assert!(!store.contains(&hash));
+    }
+
+    #[test]
+    fn removes_interrupted_blob_writes_before_loading_durable_bytes() {
+        let directory = tempfile::tempdir().expect("blob directory creates");
+        let interrupted = directory.path().join(".blob-123-abcdef.tmp");
+        fs::write(&interrupted, b"partial").expect("interrupted blob writes");
+
+        let reopened =
+            WorkspaceBlobStore::open_durable(directory.path()).expect("blob store recovers");
+
+        assert!(reopened.is_empty());
+        assert!(!interrupted.exists());
     }
 }

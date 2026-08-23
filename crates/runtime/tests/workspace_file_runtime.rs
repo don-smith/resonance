@@ -2,7 +2,7 @@ use resonance_runtime::{
     identity::{InMemoryKeyCustody, InstallationIdentity},
     local_root_binding::{RootHealth, RootSelection},
     workspace_catalog::WorkspaceCatalog,
-    workspace_file_runtime::{FileEntryKind, RootBindingStatus},
+    workspace_file_runtime::{FileEntryKind, RootBindingStatus, WorkspaceFileRuntimeError},
     workspace_file_transport::{FileRequest, FileResponse},
     workspace_files::blobs::ContentHash,
     workspace_session::{FakeDeliveryPort, WorkspaceSession},
@@ -140,6 +140,128 @@ fn owns_durable_markdown_bytes_and_reopens_the_private_root() {
             .markdown,
         "# Updated\n"
     );
+}
+
+#[test]
+fn failed_operation_storage_does_not_change_the_live_authority() {
+    let application_data = tempfile::tempdir().expect("application data creates");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("installation identity creates");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog opens");
+    let mut session = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    session
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let workspace_id = session
+        .view()
+        .expect("workspace view reads")
+        .workspace
+        .id
+        .as_str()
+        .to_owned();
+    let database = application_data
+        .path()
+        .join(".resonance/workspaces")
+        .join(&workspace_id)
+        .join("workspace.sqlite3");
+    let failure = rusqlite::Connection::open(database).expect("failure connection opens");
+    failure
+        .execute_batch(
+            "CREATE TRIGGER fail_file_operation_insert
+             BEFORE INSERT ON workspace_file_operations
+             BEGIN
+               SELECT RAISE(FAIL, 'simulated file operation storage failure');
+             END;",
+        )
+        .expect("failure trigger installs");
+
+    let mut files = session.open_file_runtime().expect("file runtime opens");
+    let plans = files
+        .tree_entries()
+        .into_iter()
+        .find(|entry| entry.name == "plans")
+        .expect("plans exists");
+    let result = files.create_markdown_file(&plans.node_id, "failed.md", "not committed\n");
+
+    assert!(matches!(result, Err(WorkspaceFileRuntimeError::Store(_))));
+    assert!(!files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "failed.md"));
+    assert!(files.take_pending_announcements().is_empty());
+
+    failure
+        .execute_batch("DROP TRIGGER fail_file_operation_insert;")
+        .expect("failure trigger removes");
+    files
+        .create_markdown_file(&plans.node_id, "failed.md", "committed\n")
+        .expect("same logical create retries after storage recovers");
+}
+
+#[test]
+fn failed_external_change_storage_is_retried_without_losing_local_bytes() {
+    let application_data = tempfile::tempdir().expect("application data creates");
+    let root = application_data.path().join("workspace-root");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("installation identity creates");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog opens");
+    let mut session = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    session
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let workspace_id = session
+        .view()
+        .expect("workspace view reads")
+        .workspace
+        .id
+        .as_str()
+        .to_owned();
+    let mut files = session.open_file_runtime().expect("file runtime opens");
+    files
+        .bind_root(&root, RootSelection::ConfirmedNotGitManaged)
+        .expect("root binds");
+    std::fs::write(root.join("plans/external.md"), b"external bytes\n")
+        .expect("external file writes");
+    assert_eq!(files.poll_root_changes().expect("first observation"), 0);
+
+    let database = application_data
+        .path()
+        .join(".resonance/workspaces")
+        .join(&workspace_id)
+        .join("workspace.sqlite3");
+    let failure = rusqlite::Connection::open(database).expect("failure connection opens");
+    failure
+        .execute_batch(
+            "CREATE TRIGGER fail_file_operation_insert
+             BEFORE INSERT ON workspace_file_operations
+             BEGIN
+               SELECT RAISE(FAIL, 'simulated file operation storage failure');
+             END;",
+        )
+        .expect("failure trigger installs");
+
+    assert!(matches!(
+        files.poll_root_changes(),
+        Err(WorkspaceFileRuntimeError::Store(_))
+    ));
+    assert_eq!(
+        std::fs::read(root.join("plans/external.md")).expect("external bytes remain"),
+        b"external bytes\n"
+    );
+    assert!(!files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "external.md"));
+    assert!(files.take_pending_announcements().is_empty());
+
+    failure
+        .execute_batch("DROP TRIGGER fail_file_operation_insert;")
+        .expect("failure trigger removes");
+    assert_eq!(files.poll_root_changes().expect("change retries"), 1);
+    assert!(files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "external.md"));
 }
 
 #[test]

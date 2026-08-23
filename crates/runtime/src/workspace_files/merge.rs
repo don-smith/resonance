@@ -1,189 +1,175 @@
-//! Deterministic three-way line-based merge for Markdown files.
-//!
-//! Merges only when every change touches disjoint base line ranges. All other
-//! cases — overlapping edits, binary content, or non-UTF-8 — return a conflict.
-
-use std::collections::BTreeSet;
-
-/// A line range in the base document: `[start, end)` inclusive-exclusive.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LineRange {
-    pub start: usize,
-    pub end: usize,
-}
+//! Deterministic line-based three-way merge for UTF-8 Markdown.
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MergeResult {
-    /// The merge succeeded; `content` is the merged text.
     Merged(String),
-    /// Edits overlap or the file is not safely mergeable.
     Conflict { reason: &'static str },
 }
 
-/// Attempts a three-way line-based merge.
-///
-/// `base`, `left`, and `right` must be valid UTF-8. The merger splits them
-/// into lines, computes the edit ranges against `base`, and merges only when
-/// the changed ranges are disjoint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Edit {
+    start: usize,
+    end: usize,
+    replacement: Vec<String>,
+}
+
 pub fn merge_markdown(base: &str, left: &str, right: &str) -> MergeResult {
-    let base_lines = lines(base);
-    let left_lines = lines(left);
-    let right_lines = lines(right);
+    if left == right {
+        return MergeResult::Merged(left.to_owned());
+    }
+    if left == base {
+        return MergeResult::Merged(right.to_owned());
+    }
+    if right == base {
+        return MergeResult::Merged(left.to_owned());
+    }
 
-    let left_edits = changed_ranges(&base_lines, &left_lines);
-    let right_edits = changed_ranges(&base_lines, &right_lines);
-
-    if regions_overlap(&left_edits, &right_edits) {
+    let base_lines = split_lines(base);
+    let left_edits = diff(&base_lines, &split_lines(left));
+    let right_edits = diff(&base_lines, &split_lines(right));
+    if left_edits
+        .iter()
+        .any(|left| right_edits.iter().any(|right| overlaps(left, right)))
+    {
         return MergeResult::Conflict {
             reason: "overlapping Markdown edits",
         };
     }
 
-    let merged = apply_merge(
-        &base_lines,
-        &left_edits,
-        &left_lines,
-        &right_edits,
-        &right_lines,
-    );
-    MergeResult::Merged(merged.join("\n"))
+    let mut edits = left_edits;
+    for edit in right_edits {
+        if !edits.contains(&edit) {
+            edits.push(edit);
+        }
+    }
+    edits.sort_by(|left, right| {
+        left.start
+            .cmp(&right.start)
+            .then(left.end.cmp(&right.end))
+            .then(left.replacement.cmp(&right.replacement))
+    });
+
+    let mut merged = Vec::new();
+    let mut base_index = 0;
+    for edit in edits {
+        merged.extend(base_lines[base_index..edit.start].iter().cloned());
+        merged.extend(edit.replacement);
+        base_index = edit.end;
+    }
+    merged.extend(base_lines[base_index..].iter().cloned());
+    MergeResult::Merged(merged.concat())
 }
 
-fn lines(text: &str) -> Vec<&str> {
+fn split_lines(text: &str) -> Vec<String> {
     if text.is_empty() {
-        return vec![""];
-    }
-    text.split('\n').collect()
-}
-
-/// Returns the line ranges where `revision` differs from `base`.
-/// Ranges are sorted by start.
-fn changed_ranges(base: &[&str], revision: &[&str]) -> Vec<LineRange> {
-    // Find the first differing line
-    let mut prefix = 0;
-    while prefix < base.len() && prefix < revision.len() && base[prefix] == revision[prefix] {
-        prefix += 1;
-    }
-    // Find the last differing line from the end
-    let mut suffix_base = base.len();
-    let mut suffix_rev = revision.len();
-    while suffix_base > prefix
-        && suffix_rev > prefix
-        && base[suffix_base - 1] == revision[suffix_rev - 1]
-    {
-        suffix_base -= 1;
-        suffix_rev -= 1;
-    }
-    if prefix == base.len() && prefix == revision.len() {
         return Vec::new();
     }
-    vec![LineRange {
-        start: prefix,
-        end: suffix_base,
-    }]
+    let mut lines = text
+        .split_inclusive('\n')
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if !text.ends_with('\n') && lines.is_empty() {
+        lines.push(text.to_owned());
+    }
+    lines
 }
 
-fn regions_overlap(left: &[LineRange], right: &[LineRange]) -> bool {
-    let mut all: BTreeSet<usize> = BTreeSet::new();
-    for r in left {
-        for line in r.start..r.end {
-            all.insert(line);
+fn diff(base: &[String], revision: &[String]) -> Vec<Edit> {
+    let mut lcs = vec![vec![0_usize; revision.len() + 1]; base.len() + 1];
+    for base_index in (0..base.len()).rev() {
+        for revision_index in (0..revision.len()).rev() {
+            lcs[base_index][revision_index] = if base[base_index] == revision[revision_index] {
+                lcs[base_index + 1][revision_index + 1] + 1
+            } else {
+                lcs[base_index + 1][revision_index].max(lcs[base_index][revision_index + 1])
+            };
         }
     }
-    for r in right {
-        for line in r.start..r.end {
-            if !all.insert(line) {
-                return true;
+
+    let mut edits = Vec::new();
+    let mut base_index = 0;
+    let mut revision_index = 0;
+    let mut current: Option<Edit> = None;
+    while base_index < base.len() || revision_index < revision.len() {
+        if base_index < base.len()
+            && revision_index < revision.len()
+            && base[base_index] == revision[revision_index]
+        {
+            if let Some(edit) = current.take() {
+                edits.push(edit);
             }
+            base_index += 1;
+            revision_index += 1;
+            continue;
+        }
+
+        let edit = current.get_or_insert_with(|| Edit {
+            start: base_index,
+            end: base_index,
+            replacement: Vec::new(),
+        });
+        let insert = revision_index < revision.len()
+            && (base_index == base.len()
+                || lcs[base_index][revision_index + 1] > lcs[base_index + 1][revision_index]);
+        if insert {
+            edit.replacement.push(revision[revision_index].clone());
+            revision_index += 1;
+        } else if base_index < base.len() {
+            base_index += 1;
+            edit.end = base_index;
         }
     }
-    false
+    if let Some(edit) = current {
+        edits.push(edit);
+    }
+    edits
 }
 
-/// Applies the two edit sets to the base to produce the merged result.
-fn apply_merge(
-    base: &[&str],
-    left_edits: &[LineRange],
-    left_lines: &[&str],
-    right_edits: &[LineRange],
-    right_lines: &[&str],
-) -> Vec<String> {
-    // Sort both edits by start position
-    let mut edits: Vec<(usize, bool, LineRange)> = Vec::new();
-    for range in left_edits {
-        edits.push((range.start, false, *range));
+fn overlaps(left: &Edit, right: &Edit) -> bool {
+    let left_insert = left.start == left.end;
+    let right_insert = right.start == right.end;
+    match (left_insert, right_insert) {
+        (true, true) => left.start == right.start && left.replacement != right.replacement,
+        (true, false) => left.start >= right.start && left.start <= right.end,
+        (false, true) => right.start >= left.start && right.start <= left.end,
+        (false, false) => left.start < right.end && right.start < left.end,
     }
-    for range in right_edits {
-        edits.push((range.start, true, *range));
-    }
-    edits.sort_by_key(|(start, _, _)| *start);
-
-    let mut result: Vec<String> = Vec::new();
-    let mut base_pos = 0;
-
-    for (_start, is_right, range) in &edits {
-        // Copy unchanged base lines up to this edit
-        while base_pos < range.start && base_pos < base.len() {
-            result.push(base[base_pos].to_string());
-            base_pos += 1;
-        }
-        // Compute how many lines the revision contributes
-        let revision = if *is_right { right_lines } else { left_lines };
-        let common_suffix = (base.len() as isize - range.end as isize).max(0) as usize;
-        let rev_end = (revision.len() as isize - common_suffix as isize).max(0) as usize;
-        for line in revision.iter().take(rev_end).skip(range.start) {
-            result.push((*line).to_string());
-        }
-        base_pos = range.end;
-    }
-    // Copy remaining base lines
-    while base_pos < base.len() {
-        result.push(base[base_pos].to_string());
-        base_pos += 1;
-    }
-    result
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{merge_markdown, MergeResult};
 
     #[test]
     fn merges_disjoint_line_changes() {
-        let base = "line 1\nline 2\nline 3\n";
-        let left = "left 1\nline 2\nline 3\n";
-        let right = "line 1\nline 2\nright 3\n";
-        match merge_markdown(base, left, right) {
-            MergeResult::Merged(merged) => {
-                assert!(merged.contains("left 1"));
-                assert!(merged.contains("right 3"));
-            }
-            MergeResult::Conflict { .. } => panic!("expected merge"),
-        }
+        assert_eq!(
+            merge_markdown(
+                "one\ntwo\nthree\nfour\nfive\n",
+                "ONE\ntwo\nthree\nfour\nFIVE\n",
+                "one\ntwo\nTHREE\nfour\nfive\n",
+            ),
+            MergeResult::Merged("ONE\ntwo\nTHREE\nfour\nFIVE\n".to_owned())
+        );
     }
 
     #[test]
-    fn conflicts_when_changes_overlap() {
-        let base = "line 1\nline 2\nline 3\n";
-        let left = "left edit\nline 2\nline 3\n";
-        let right = "right edit\nline 2\nline 3\n";
-        assert!(matches!(
-            merge_markdown(base, left, right),
-            MergeResult::Conflict { .. }
-        ));
+    fn merges_insertions_at_different_positions() {
+        assert_eq!(
+            merge_markdown("a\nc\n", "a\nb\nc\n", "a\nc\nd\n"),
+            MergeResult::Merged("a\nb\nc\nd\n".to_owned())
+        );
     }
 
     #[test]
-    fn merges_additions_on_different_lines() {
-        let base = "a\nc\n";
-        let left = "a\nb\nc\n";
-        let right = "a\nc\nd\n";
-        match merge_markdown(base, left, right) {
-            MergeResult::Merged(merged) => {
-                assert!(merged.contains("b"));
-                assert!(merged.contains("d"));
-            }
-            MergeResult::Conflict { .. } => panic!("expected merge"),
+    fn conflicts_on_overlap_and_competing_same_position_insertions() {
+        for (base, left, right) in [
+            ("one\ntwo\n", "left\ntwo\n", "right\ntwo\n"),
+            ("one\n", "new-left\none\n", "new-right\none\n"),
+        ] {
+            assert!(matches!(
+                merge_markdown(base, left, right),
+                MergeResult::Conflict { .. }
+            ));
         }
     }
 }

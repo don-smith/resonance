@@ -13,7 +13,7 @@ use crate::{
     workspace_files::{FileOperationError, SignedFileOperation},
 };
 
-const CURRENT_SCHEMA_VERSION: i32 = 6;
+const CURRENT_SCHEMA_VERSION: i32 = 7;
 
 #[derive(Clone)]
 pub(crate) struct PrivateWorkspaceSettings {
@@ -23,6 +23,7 @@ pub(crate) struct PrivateWorkspaceSettings {
     pub joining_inviter: Option<[u8; 32]>,
     pub bootstrap: Option<String>,
     pub joining_display_name: Option<String>,
+    pub creation_creator_display_name: Option<String>,
 }
 
 #[derive(Debug)]
@@ -131,7 +132,7 @@ impl WorkspaceStore {
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         connection
             .query_row(
-                "SELECT token, display_name, relay_override, joining_inviter, bootstrap, joining_display_name FROM workspace_configuration WHERE singleton = 1",
+                "SELECT token, display_name, relay_override, joining_inviter, bootstrap, joining_display_name, creation_creator_display_name FROM workspace_configuration WHERE singleton = 1",
                 [],
                 |row| {
                     let token: Vec<u8> = row.get(0)?;
@@ -161,11 +162,31 @@ impl WorkspaceStore {
                         joining_inviter,
                         bootstrap: row.get(4)?,
                         joining_display_name: row.get(5)?,
+                        creation_creator_display_name: row.get(6)?,
                     })
                 },
             )
             .optional()?
             .ok_or(WorkspaceStoreError::WorkspaceConfigurationMissing)
+    }
+
+    pub(crate) fn set_creation_creator_display_name(
+        &self,
+        display_name: &str,
+    ) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let changed = connection.execute(
+            "UPDATE workspace_configuration SET creation_creator_display_name = ?1 WHERE singleton = 1",
+            [display_name],
+        )?;
+        if changed == 0 {
+            Err(WorkspaceStoreError::WorkspaceConfigurationMissing)
+        } else {
+            Ok(())
+        }
     }
 
     pub(crate) fn set_pending_join_admission(
@@ -431,6 +452,12 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
             "../../migrations/0006_workspace_file_history.sql"
         ))?;
         version = 6;
+    }
+    if version == 6 {
+        connection.execute_batch(include_str!(
+            "../../migrations/0007_workspace_initialization.sql"
+        ))?;
+        version = 7;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

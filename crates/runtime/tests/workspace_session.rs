@@ -13,6 +13,7 @@ use resonance_runtime::{
     workspace_files::FileOperationBody,
     workspace_session::{FakeDeliveryPort, WorkspaceSession, WorkspaceTransition},
 };
+use rusqlite::Connection;
 
 fn temporary_directory(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -50,9 +51,185 @@ fn creates_a_signed_plans_directory_before_the_workspace_is_ready() {
     assert_eq!(
         operations[0].operation.body,
         FileOperationBody::CreateDirectory {
+            parent_node_id: None,
             name: "plans".to_owned()
         }
     );
+
+    fs::remove_dir_all(directory).expect("directory removes");
+}
+
+#[test]
+fn restart_completes_initialization_without_duplicate_genesis_or_plans_operation() {
+    let directory = temporary_directory("initialization-recovery");
+    let custody = InMemoryKeyCustody::default();
+    let mut workspace = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity creates"),
+        WorkspaceCatalog::open(&directory).expect("catalog opens"),
+        FakeDeliveryPort::default(),
+    );
+    let created = workspace
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    drop(workspace);
+
+    let workspace_database = directory
+        .join(".resonance/workspaces")
+        .join(created.workspace.id.as_str())
+        .join("workspace.sqlite3");
+    Connection::open(directory.join(".resonance/catalog.sqlite3"))
+        .expect("catalog database opens")
+        .execute(
+            "UPDATE workspace_catalog SET lifecycle = 'initializing' WHERE workspace_id = ?1",
+            [created.workspace.id.as_str()],
+        )
+        .expect("catalog lifecycle rewinds");
+    let workspace_connection =
+        Connection::open(&workspace_database).expect("workspace database opens");
+    workspace_connection
+        .execute(
+            "UPDATE workspace_configuration SET lifecycle = 'initializing' WHERE singleton = 1",
+            [],
+        )
+        .expect("workspace lifecycle rewinds");
+
+    let mut restarted = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity reloads"),
+        WorkspaceCatalog::open(&directory).expect("catalog reopens"),
+        FakeDeliveryPort::default(),
+    );
+    let recovered = restarted
+        .activate_active_workspace()
+        .expect("initialization recovers")
+        .expect("active workspace exists");
+    assert_eq!(recovered.workspace.lifecycle, WorkspaceLifecycle::Ready);
+
+    let catalog = WorkspaceCatalog::open(&directory).expect("catalog inspects");
+    let store = catalog
+        .open_workspace(&created.workspace.id)
+        .expect("store opens");
+    assert_eq!(
+        store
+            .membership_operation_ids()
+            .expect("membership reads")
+            .len(),
+        1
+    );
+    assert_eq!(
+        store.file_operations().expect("file operations read").len(),
+        1
+    );
+
+    fs::remove_dir_all(directory).expect("directory removes");
+}
+
+#[test]
+fn restart_resumes_after_genesis_and_creates_exactly_one_plans_operation() {
+    let directory = temporary_directory("initialization-after-genesis");
+    let custody = InMemoryKeyCustody::default();
+    let mut workspace = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity creates"),
+        WorkspaceCatalog::open(&directory).expect("catalog opens"),
+        FakeDeliveryPort::default(),
+    );
+    let created = workspace
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    drop(workspace);
+
+    let workspace_database = directory
+        .join(".resonance/workspaces")
+        .join(created.workspace.id.as_str())
+        .join("workspace.sqlite3");
+    Connection::open(directory.join(".resonance/catalog.sqlite3"))
+        .expect("catalog database opens")
+        .execute(
+            "UPDATE workspace_catalog SET lifecycle = 'initializing' WHERE workspace_id = ?1",
+            [created.workspace.id.as_str()],
+        )
+        .expect("catalog lifecycle rewinds");
+    let workspace_connection =
+        Connection::open(&workspace_database).expect("workspace database opens");
+    workspace_connection
+        .execute_batch(
+            "UPDATE workspace_configuration SET lifecycle = 'initializing' WHERE singleton = 1;
+             DELETE FROM workspace_file_operations;",
+        )
+        .expect("failure after genesis injects");
+
+    let mut restarted = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity reloads"),
+        WorkspaceCatalog::open(&directory).expect("catalog reopens"),
+        FakeDeliveryPort::default(),
+    );
+    restarted
+        .activate_active_workspace()
+        .expect("initialization resumes")
+        .expect("active workspace exists");
+    let catalog = WorkspaceCatalog::open(&directory).expect("catalog inspects");
+    let store = catalog
+        .open_workspace(&created.workspace.id)
+        .expect("store opens");
+    assert_eq!(
+        store
+            .membership_operation_ids()
+            .expect("membership reads")
+            .len(),
+        1
+    );
+    assert_eq!(
+        store.file_operations().expect("file operations read").len(),
+        1
+    );
+
+    fs::remove_dir_all(directory).expect("directory removes");
+}
+
+#[test]
+fn initialization_without_durable_creator_input_stays_unavailable() {
+    let directory = temporary_directory("initialization-missing-input");
+    let custody = InMemoryKeyCustody::default();
+    let mut workspace = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity creates"),
+        WorkspaceCatalog::open(&directory).expect("catalog opens"),
+        FakeDeliveryPort::default(),
+    );
+    let created = workspace
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    drop(workspace);
+
+    Connection::open(directory.join(".resonance/catalog.sqlite3"))
+        .expect("catalog database opens")
+        .execute(
+            "UPDATE workspace_catalog SET lifecycle = 'initializing' WHERE workspace_id = ?1",
+            [created.workspace.id.as_str()],
+        )
+        .expect("catalog lifecycle rewinds");
+    let workspace_database = directory
+        .join(".resonance/workspaces")
+        .join(created.workspace.id.as_str())
+        .join("workspace.sqlite3");
+    Connection::open(workspace_database)
+        .expect("workspace database opens")
+        .execute_batch(
+            "UPDATE workspace_configuration
+                SET lifecycle = 'initializing', creation_creator_display_name = NULL
+              WHERE singleton = 1;
+             DELETE FROM workspace_file_operations;",
+        )
+        .expect("unrecoverable failure injects");
+
+    let mut restarted = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity reloads"),
+        WorkspaceCatalog::open(&directory).expect("catalog reopens"),
+        FakeDeliveryPort::default(),
+    );
+    assert!(restarted.activate_active_workspace().is_err());
+    assert!(restarted.create_invite("bootstrap").is_err());
+    assert!(!restarted
+        .send_heartbeat()
+        .expect("heartbeat remains blocked"));
 
     fs::remove_dir_all(directory).expect("directory removes");
 }

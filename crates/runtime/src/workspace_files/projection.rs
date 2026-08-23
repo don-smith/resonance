@@ -1,35 +1,37 @@
-//! Deterministic tree projection from signed file operations.
+//! Deterministic logical-tree projection from signed file operations.
 
 use std::collections::BTreeMap;
 
-/// A node in the projected file tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TreeNode {
     Directory {
+        node_id: String,
         name: String,
         children: BTreeMap<String, TreeNode>,
     },
     File {
+        node_id: String,
         name: String,
         current_revision_id: String,
-    },
-    Tombstone {
-        name: String,
     },
 }
 
 impl TreeNode {
     #[must_use]
+    pub fn node_id(&self) -> &str {
+        match self {
+            Self::Directory { node_id, .. } | Self::File { node_id, .. } => node_id,
+        }
+    }
+
+    #[must_use]
     pub fn name(&self) -> &str {
         match self {
-            Self::Directory { name, .. } | Self::File { name, .. } | Self::Tombstone { name } => {
-                name
-            }
+            Self::Directory { name, .. } | Self::File { name, .. } => name,
         }
     }
 }
 
-/// A projected file-tree revision.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileRevision {
     pub node_id: String,
@@ -41,7 +43,6 @@ pub struct FileRevision {
     pub signer: [u8; 32],
 }
 
-/// A conflict record produced when concurrent operations cannot merge safely.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConflictRecord {
     pub record_id: String,
@@ -60,17 +61,9 @@ pub enum ConflictKind {
     CompetingMove,
 }
 
-/// The current projection state.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FileTreeProjection {
     pub root: BTreeMap<String, TreeNode>,
     pub revisions: BTreeMap<String, FileRevision>,
     pub conflicts: Vec<ConflictRecord>,
-}
-
-impl FileTreeProjection {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
 }

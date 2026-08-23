@@ -1,7 +1,4 @@
-//! Signed workspace-file operations and the authority that projects them.
-//!
-//! The authority is transport-independent: callers persist and replay these
-//! authenticated records before projecting them to a local root.
+//! Signed workspace-file operations and deterministic projection.
 
 pub mod authority;
 pub mod blobs;
@@ -33,30 +30,27 @@ pub struct FileOperation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FileOperationBody {
     CreateDirectory {
+        parent_node_id: Option<String>,
         name: String,
     },
     CreateFile {
-        parent_node_id: String,
+        parent_node_id: Option<String>,
         name: String,
         content_hash: String,
         mime_type: String,
         byte_length: u64,
     },
     ReplaceFileRevision {
-        node_id: String,
         base_revision_id: String,
         content_hash: String,
         mime_type: String,
         byte_length: u64,
     },
     MoveNode {
-        node_id: String,
-        new_parent_node_id: String,
+        new_parent_node_id: Option<String>,
         new_name: String,
     },
-    TombstoneNode {
-        node_id: String,
-    },
+    TombstoneNode,
     ResolveConflict {
         conflict_record_id: String,
         chosen_revision_id: Option<String>,
@@ -96,22 +90,144 @@ impl SignedFileOperation {
     pub fn create_directory(
         identity: &InstallationIdentity,
         workspace_id: impl Into<String>,
+        parent_node_id: Option<String>,
         name: impl Into<String>,
+        causal_parents: Vec<String>,
     ) -> Result<Self, FileOperationError> {
-        let operation = FileOperation {
-            version: FILE_OPERATION_VERSION,
-            workspace_id: workspace_id.into(),
-            operation_id: random_id()?,
-            node_id: random_id()?,
-            causal_parents: Vec::new(),
-            signer: *identity.public_identity().as_bytes(),
-            body: FileOperationBody::CreateDirectory { name: name.into() },
-        };
-        let signature = identity.sign(&signing_bytes(&operation)?).to_vec();
-        Ok(Self {
-            operation,
-            signature,
-        })
+        Self::sign(
+            identity,
+            workspace_id,
+            random_id()?,
+            causal_parents,
+            FileOperationBody::CreateDirectory {
+                parent_node_id,
+                name: name.into(),
+            },
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_file(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        parent_node_id: Option<String>,
+        name: impl Into<String>,
+        content_hash: impl Into<String>,
+        mime_type: impl Into<String>,
+        byte_length: u64,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::sign(
+            identity,
+            workspace_id,
+            random_id()?,
+            causal_parents,
+            FileOperationBody::CreateFile {
+                parent_node_id,
+                name: name.into(),
+                content_hash: content_hash.into(),
+                mime_type: mime_type.into(),
+                byte_length,
+            },
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn replace_file_revision(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        node_id: impl Into<String>,
+        base_revision_id: impl Into<String>,
+        content_hash: impl Into<String>,
+        mime_type: impl Into<String>,
+        byte_length: u64,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::sign(
+            identity,
+            workspace_id,
+            node_id.into(),
+            causal_parents,
+            FileOperationBody::ReplaceFileRevision {
+                base_revision_id: base_revision_id.into(),
+                content_hash: content_hash.into(),
+                mime_type: mime_type.into(),
+                byte_length,
+            },
+        )
+    }
+
+    pub fn move_node(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        node_id: impl Into<String>,
+        new_parent_node_id: impl Into<String>,
+        new_name: impl Into<String>,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::move_node_to(
+            identity,
+            workspace_id,
+            node_id,
+            Some(new_parent_node_id.into()),
+            new_name,
+            causal_parents,
+        )
+    }
+
+    pub fn move_node_to(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        node_id: impl Into<String>,
+        new_parent_node_id: Option<String>,
+        new_name: impl Into<String>,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::sign(
+            identity,
+            workspace_id,
+            node_id.into(),
+            causal_parents,
+            FileOperationBody::MoveNode {
+                new_parent_node_id,
+                new_name: new_name.into(),
+            },
+        )
+    }
+
+    pub fn tombstone_node(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        node_id: impl Into<String>,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::sign(
+            identity,
+            workspace_id,
+            node_id.into(),
+            causal_parents,
+            FileOperationBody::TombstoneNode,
+        )
+    }
+
+    pub fn resolve_conflict(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        node_id: impl Into<String>,
+        conflict_record_id: impl Into<String>,
+        chosen_revision_id: Option<String>,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::sign(
+            identity,
+            workspace_id,
+            node_id.into(),
+            causal_parents,
+            FileOperationBody::ResolveConflict {
+                conflict_record_id: conflict_record_id.into(),
+                chosen_revision_id,
+            },
+        )
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, FileOperationError> {
@@ -136,6 +252,29 @@ impl SignedFileOperation {
                 &Signature::from_bytes(&signature),
             )
             .map_err(|_| FileOperationError::InvalidSignature)
+    }
+
+    fn sign(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        node_id: String,
+        causal_parents: Vec<String>,
+        body: FileOperationBody,
+    ) -> Result<Self, FileOperationError> {
+        let operation = FileOperation {
+            version: FILE_OPERATION_VERSION,
+            workspace_id: workspace_id.into(),
+            operation_id: random_id()?,
+            node_id,
+            causal_parents,
+            signer: *identity.public_identity().as_bytes(),
+            body,
+        };
+        let signature = identity.sign(&signing_bytes(&operation)?).to_vec();
+        Ok(Self {
+            operation,
+            signature,
+        })
     }
 }
 

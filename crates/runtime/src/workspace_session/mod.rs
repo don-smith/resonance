@@ -18,7 +18,10 @@ use crate::{
     workspace_domain::{
         KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
     },
-    workspace_files::{FileOperationError, SignedFileOperation},
+    workspace_files::{
+        authority::WorkspaceFileAuthority, FileOperationBody, FileOperationError,
+        SignedFileOperation,
+    },
     workspace_store::WorkspaceStoreError,
 };
 
@@ -72,6 +75,7 @@ pub enum WorkspaceSessionError {
     NoActiveWorkspace,
     InvalidInviteAdmission(&'static str),
     ClockUnavailable,
+    InitializationRecovery(&'static str),
 }
 
 impl fmt::Display for WorkspaceSessionError {
@@ -88,6 +92,7 @@ impl fmt::Display for WorkspaceSessionError {
             Self::NoActiveWorkspace => formatter.write_str("there is no active workspace"),
             Self::InvalidInviteAdmission(reason) => formatter.write_str(reason),
             Self::ClockUnavailable => formatter.write_str("system clock is unavailable"),
+            Self::InitializationRecovery(reason) => formatter.write_str(reason),
         }
     }
 }
@@ -178,7 +183,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let Some(summary) = self.catalog.active_workspace()? else {
             return Ok(None);
         };
+        let initializing = summary.lifecycle == WorkspaceLifecycle::Initializing;
         self.activate(summary)?;
+        if initializing {
+            self.complete_initialization()?;
+        }
         self.view().map(Some)
     }
 
@@ -210,24 +219,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             relay_override,
             WorkspaceLifecycle::Initializing,
         )?;
+        let creator_display_name = creator_display_name.into();
+        let store = self.catalog.open_workspace(&summary.id)?;
+        store.set_creation_creator_display_name(&creator_display_name)?;
         self.activate(summary)?;
-        let workspace_id = self.active()?.summary.id.as_str().to_owned();
-        let genesis = SignedMembershipOperation::genesis(
-            &self.identity,
-            workspace_id.clone(),
-            creator_display_name.into(),
-            now()?,
-        )?;
-        self.persist_operation(genesis.encode()?)?;
-        let initial_directory =
-            SignedFileOperation::create_directory(&self.identity, workspace_id, "plans")?;
-        let id = self.active()?.summary.id.clone();
-        self.catalog
-            .open_workspace(&id)?
-            .record_file_operation(&initial_directory)?;
-        self.catalog
-            .set_workspace_lifecycle(&id, WorkspaceLifecycle::Ready)?;
-        self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
+        self.complete_initialization()?;
         self.view()
     }
 
@@ -236,6 +232,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         bootstrap: impl Into<String>,
     ) -> Result<String, WorkspaceSessionError> {
         let active = self.active()?;
+        if active.summary.lifecycle != WorkspaceLifecycle::Ready {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization must finish before creating an invite",
+            ));
+        }
         let store = self.catalog.open_workspace(&active.summary.id)?;
         let settings = store.private_settings()?;
         Ok(Invite::create(
@@ -285,6 +286,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     }
 
     pub fn request_membership_sync(&mut self) -> Result<(), WorkspaceSessionError> {
+        if self.active()?.summary.lifecycle == WorkspaceLifecycle::Initializing {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization must finish before transport starts",
+            ));
+        }
         let workspace_id = self.active()?.summary.id.as_str().to_owned();
         self.send(EnvelopeBody::MembershipSyncRequest, workspace_id)
     }
@@ -368,6 +374,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     }
 
     pub fn receive(&mut self, bytes: &[u8]) -> Result<(), WorkspaceSessionError> {
+        if self.active()?.summary.lifecycle == WorkspaceLifecycle::Initializing {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization must finish before receiving transport data",
+            ));
+        }
         let envelope = Envelope::decode(bytes)?;
         envelope.verify()?;
         if envelope.workspace_id != self.active()?.summary.id.as_str() {
@@ -488,6 +499,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     pub(crate) fn transport_settings(
         &self,
     ) -> Result<([u8; 32], Option<String>), WorkspaceSessionError> {
+        if self.active()?.summary.lifecycle == WorkspaceLifecycle::Initializing {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization must finish before transport starts",
+            ));
+        }
         let store = self.catalog.open_workspace(&self.active()?.summary.id)?;
         let settings = store.private_settings()?;
         Ok((*settings.token.as_bytes(), settings.relay_override))
@@ -575,6 +591,85 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             joining_display_name: settings.joining_display_name,
             peers: BTreeMap::new(),
         });
+        Ok(())
+    }
+
+    fn complete_initialization(&mut self) -> Result<(), WorkspaceSessionError> {
+        if self.active()?.summary.lifecycle != WorkspaceLifecycle::Initializing {
+            return Ok(());
+        }
+        let id = self.active()?.summary.id.clone();
+        let workspace_id = id.as_str().to_owned();
+        let store = self.catalog.open_workspace(&id)?;
+        let settings = store.private_settings()?;
+        let creator_display_name = settings.creation_creator_display_name.ok_or(
+            WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization has no durable creator display name",
+            ),
+        )?;
+
+        if store.membership_operations()?.is_empty() {
+            let genesis = SignedMembershipOperation::genesis(
+                &self.identity,
+                workspace_id.clone(),
+                creator_display_name,
+                now()?,
+            )?;
+            self.persist_operation(genesis.encode()?)?;
+        }
+        let membership = self.projection();
+        if !membership.contains(&self.identity.public_identity().to_string()) {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization membership genesis is not owned by this installation",
+            ));
+        }
+
+        let mut file_operations = store.file_operations()?;
+        let initial_count = file_operations
+            .iter()
+            .filter(|operation| {
+                matches!(
+                    &operation.operation.body,
+                    FileOperationBody::CreateDirectory {
+                        parent_node_id: None,
+                        name,
+                    } if name == "plans"
+                )
+            })
+            .count();
+        if initial_count == 0 {
+            let initial_directory = SignedFileOperation::create_directory(
+                &self.identity,
+                workspace_id.clone(),
+                None,
+                "plans",
+                Vec::new(),
+            )?;
+            store.record_file_operation(&initial_directory)?;
+            file_operations.push(initial_directory);
+        } else if initial_count != 1 {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization contains duplicate plans operations",
+            ));
+        }
+
+        let mut authority = WorkspaceFileAuthority::new(&workspace_id);
+        authority
+            .replay(&file_operations, &membership)
+            .map_err(|_| {
+                WorkspaceSessionError::InitializationRecovery(
+                    "workspace initialization file history cannot be projected",
+                )
+            })?;
+        if !authority.projection().root.contains_key("plans") {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization did not project plans",
+            ));
+        }
+
+        self.catalog
+            .set_workspace_lifecycle(&id, WorkspaceLifecycle::Ready)?;
+        self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
         Ok(())
     }
 

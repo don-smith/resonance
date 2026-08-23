@@ -145,6 +145,7 @@ struct ActiveWorkspace {
     bootstrap: Option<String>,
     joining_display_name: Option<String>,
     peers: BTreeMap<String, PeerState>,
+    file_history_recovery_needed: bool,
 }
 
 #[derive(Clone)]
@@ -293,6 +294,32 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         }
         let workspace_id = self.active()?.summary.id.as_str().to_owned();
         self.send(EnvelopeBody::MembershipSyncRequest, workspace_id)
+    }
+
+    pub fn announce_file_history(
+        &mut self,
+        operation_ids: Vec<String>,
+    ) -> Result<(), WorkspaceSessionError> {
+        if !self.is_ready()? {
+            return Ok(());
+        }
+        let workspace_id = self.active()?.summary.id.as_str().to_owned();
+        self.send(
+            EnvelopeBody::FileHistoryNotice { operation_ids },
+            workspace_id,
+        )
+    }
+
+    pub fn take_file_history_recovery_needed(&mut self) -> Result<bool, WorkspaceSessionError> {
+        let active = self.active_mut()?;
+        Ok(std::mem::take(&mut active.file_history_recovery_needed))
+    }
+
+    pub(crate) fn mark_file_history_recovery_needed(
+        &mut self,
+    ) -> Result<(), WorkspaceSessionError> {
+        self.active_mut()?.file_history_recovery_needed = true;
+        Ok(())
     }
 
     pub(crate) fn is_ready(&self) -> Result<bool, WorkspaceSessionError> {
@@ -462,6 +489,14 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                     self.persist_operation(operation)?;
                 }
             }
+            EnvelopeBody::FileHistoryNotice { .. } => {
+                if !sender_is_member {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "file-history notice is not from a member",
+                    ));
+                }
+                self.mark_file_history_recovery_needed()?;
+            }
             EnvelopeBody::Heartbeat { sent_at } => {
                 // An inviter can be connected before its genesis/member record
                 // reaches a pending joiner. Its early heartbeat grants no
@@ -577,6 +612,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     }
 
     fn activate(&mut self, summary: WorkspaceSummary) -> Result<(), WorkspaceSessionError> {
+        let recover_file_history = summary.lifecycle == WorkspaceLifecycle::Ready;
         let store = self.catalog.open_workspace(&summary.id)?;
         let settings = store.private_settings()?;
         let mut log = MembershipLog::new();
@@ -590,6 +626,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             bootstrap: settings.bootstrap,
             joining_display_name: settings.joining_display_name,
             peers: BTreeMap::new(),
+            file_history_recovery_needed: recover_file_history,
         });
         Ok(())
     }
@@ -721,6 +758,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
             self.active_mut()?.joining_inviter = None;
             self.active_mut()?.joining_display_name = None;
+            self.active_mut()?.file_history_recovery_needed = true;
         }
         Ok(())
     }

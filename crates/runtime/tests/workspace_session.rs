@@ -288,6 +288,69 @@ fn creates_an_invite_and_completes_a_named_inviter_join() {
 }
 
 #[test]
+fn member_file_history_notices_and_reconnect_state_request_recovery() {
+    let inviter_directory = temporary_directory("file-notice-inviter");
+    let joiner_directory = temporary_directory("file-notice-joiner");
+    let mut inviter = session(&inviter_directory);
+    let workspace = inviter
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let invite = inviter
+        .create_invite("opaque-bootstrap-address")
+        .expect("invite creates");
+    let mut joiner = session(&joiner_directory);
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    let request = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("join request sends");
+    inviter.receive(&request).expect("join request applies");
+    let admission = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("admission sends");
+    joiner.receive(&admission).expect("admission applies");
+    assert!(joiner
+        .take_file_history_recovery_needed()
+        .expect("admission requests initial recovery"));
+
+    inviter
+        .announce_file_history(vec!["a".repeat(32)])
+        .expect("notice signs");
+    let notice = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("notice sends");
+    joiner.receive(&notice).expect("member notice applies");
+    assert!(joiner
+        .take_file_history_recovery_needed()
+        .expect("notice requests recovery"));
+
+    let outsider = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("outsider identity creates");
+    let unauthorized = Envelope::sign(
+        &outsider,
+        workspace.workspace.id.as_str(),
+        EnvelopeBody::FileHistoryNotice {
+            operation_ids: vec!["b".repeat(32)],
+        },
+    )
+    .expect("outsider notice signs")
+    .encode()
+    .expect("outsider notice encodes");
+    assert!(joiner.receive(&unauthorized).is_err());
+    assert!(!joiner
+        .take_file_history_recovery_needed()
+        .expect("unauthorized notice has no effect"));
+
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
 fn ignores_a_joiners_own_gossip_echo() {
     let inviter_directory = temporary_directory("echo-inviter");
     let joiner_directory = temporary_directory("echo-joiner");

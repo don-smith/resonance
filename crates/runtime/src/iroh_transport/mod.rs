@@ -5,6 +5,10 @@
 
 use std::fmt;
 
+mod file_stream;
+
+use file_stream::FileStreamHandler;
+
 use iroh::{
     address_lookup::memory::MemoryLookup, endpoint::presets, protocol::Router, Endpoint,
     EndpointAddr, RelayMode, RelayUrl,
@@ -15,6 +19,10 @@ use n0_future::StreamExt;
 use crate::{
     identity::InstallationIdentity,
     workspace_domain::PeerConnection,
+    workspace_file_transport::{
+        decode_response, encode_request, FileRecoveryService, FileRequest, FileResponse,
+        FILE_STREAM_ALPN, MAX_RESPONSE_BYTES,
+    },
     workspace_session::{FakeDeliveryPort, WorkspaceSession, WorkspaceSessionError},
 };
 
@@ -55,6 +63,7 @@ pub enum IrohTransportError {
     BroadcastClosed,
     Receive,
     Shutdown,
+    FileStream,
 }
 
 impl fmt::Display for IrohTransportError {
@@ -67,6 +76,7 @@ impl fmt::Display for IrohTransportError {
             Self::BroadcastClosed => formatter.write_str("workspace gossip topic closed"),
             Self::Receive => formatter.write_str("workspace gossip subscription failed"),
             Self::Shutdown => formatter.write_str("Iroh endpoint could not stop cleanly"),
+            Self::FileStream => formatter.write_str("workspace file recovery stream failed"),
         }
     }
 }
@@ -110,6 +120,7 @@ pub struct IrohTransport {
     sender: Option<iroh_gossip::api::GossipSender>,
     receiver: Option<iroh_gossip::api::GossipReceiver>,
     relay_selection: RelaySelection,
+    file_stream: FileStreamHandler,
 }
 
 impl IrohTransport {
@@ -176,8 +187,10 @@ impl IrohTransport {
         bootstrap_peers: Vec<iroh::EndpointId>,
     ) -> Result<Self, IrohTransportError> {
         let gossip = Gossip::builder().spawn(endpoint.clone());
+        let file_stream = FileStreamHandler::default();
         let router = Router::builder(endpoint.clone())
             .accept(ALPN, gossip.clone())
+            .accept(FILE_STREAM_ALPN, file_stream.clone())
             .spawn();
         let (sender, receiver) = gossip
             .subscribe(topic_id(workspace_token), bootstrap_peers)
@@ -191,6 +204,7 @@ impl IrohTransport {
             sender: Some(sender),
             receiver: Some(receiver),
             relay_selection,
+            file_stream,
         })
     }
 
@@ -270,6 +284,41 @@ impl IrohTransport {
             })
     }
 
+    pub async fn configure_file_recovery(&self, service: FileRecoveryService) {
+        self.file_stream.replace_service(service).await;
+    }
+
+    pub async fn request_file_recovery(
+        &self,
+        encoded_peer: &str,
+        request: &FileRequest,
+    ) -> Result<FileResponse, IrohTransportError> {
+        let address_bytes = bs58::decode(encoded_peer)
+            .into_vec()
+            .map_err(|_| IrohTransportError::FileStream)?;
+        let address: EndpointAddr =
+            postcard::from_bytes(&address_bytes).map_err(|_| IrohTransportError::FileStream)?;
+        let connection = self
+            .endpoint
+            .connect(address, FILE_STREAM_ALPN)
+            .await
+            .map_err(|_| IrohTransportError::FileStream)?;
+        let (mut send, mut receive) = connection
+            .open_bi()
+            .await
+            .map_err(|_| IrohTransportError::FileStream)?;
+        let bytes = encode_request(request).map_err(|_| IrohTransportError::FileStream)?;
+        send.write_all(&bytes)
+            .await
+            .map_err(|_| IrohTransportError::FileStream)?;
+        send.finish().map_err(|_| IrohTransportError::FileStream)?;
+        let response = receive
+            .read_to_end(MAX_RESPONSE_BYTES)
+            .await
+            .map_err(|_| IrohTransportError::FileStream)?;
+        decode_response(&response).map_err(|_| IrohTransportError::FileStream)
+    }
+
     /// Waits for the next workspace-scoped message or neighbor observation.
     pub async fn next_event(&mut self) -> Result<Option<TransportEvent>, IrohTransportError> {
         let Some(receiver) = self.receiver.as_mut() else {
@@ -332,6 +381,7 @@ impl IrohTransport {
                 session.observe_connection(public_identity, peer_connection(path))?;
                 if session.is_ready()? {
                     session.request_membership_sync()?;
+                    session.mark_file_history_recovery_needed()?;
                 } else {
                     let _ = session.resend_pending_join()?;
                 }
@@ -339,7 +389,10 @@ impl IrohTransport {
             TransportEvent::NeighborDown { public_identity } => {
                 session.observe_connection(public_identity, PeerConnection::Unknown)?;
             }
-            TransportEvent::Lagged if session.is_ready()? => session.request_membership_sync()?,
+            TransportEvent::Lagged if session.is_ready()? => {
+                session.request_membership_sync()?;
+                session.mark_file_history_recovery_needed()?;
+            }
             TransportEvent::Lagged => {}
         }
         Ok(true)

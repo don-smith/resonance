@@ -1,6 +1,9 @@
 use std::time::Duration;
 
 use super::{IrohTransport, TransportEvent};
+use crate::workspace_file_transport::{
+    FileRecoveryService, FileRequest, FileResponse, MAX_BLOB_CHUNK_BYTES,
+};
 use crate::{
     identity::{InMemoryKeyCustody, InstallationIdentity},
     invite::Invite,
@@ -179,6 +182,99 @@ async fn carries_workspace_scoped_bytes_between_independent_identities_over_a_lo
     joiner.shutdown().await.expect("joiner stops cleanly");
     assert!(inviter.is_closed());
     assert!(joiner.is_closed());
+}
+
+#[tokio::test]
+async fn carries_bounded_operation_and_resumable_blob_recovery_over_the_pinned_iroh_stream() {
+    let (relay_map, _relay_url, _server) = iroh::test_utils::run_relay_server()
+        .await
+        .expect("local relay starts");
+    let inviter_identity = identity();
+    let joiner_identity = identity();
+    let mut inviter =
+        IrohTransport::start_with_local_relay(&inviter_identity, [61; 32], relay_map.clone(), None)
+            .await
+            .expect("inviter starts");
+    inviter.endpoint.online().await;
+    let bootstrap = inviter.bootstrap_hint().await.expect("bootstrap encodes");
+    let mut joiner = IrohTransport::start_with_local_relay(
+        &joiner_identity,
+        [61; 32],
+        relay_map,
+        Some(&bootstrap),
+    )
+    .await
+    .expect("joiner starts");
+
+    let mut service = FileRecoveryService::new("workspace");
+    service.set_members([joiner_identity.public_identity().to_string()]);
+    service.insert_operation("operation-a", vec![1, 2, 3]);
+    let blob = (0..=255)
+        .cycle()
+        .take(MAX_BLOB_CHUNK_BYTES + 11)
+        .collect::<Vec<_>>();
+    let hash = service.insert_blob(blob.clone());
+    inviter.configure_file_recovery(service).await;
+
+    assert_eq!(
+        joiner
+            .request_file_recovery(
+                &bootstrap,
+                &FileRequest::MissingOperations {
+                    workspace_id: "workspace".to_owned(),
+                    known_operation_ids: Vec::new(),
+                },
+            )
+            .await
+            .expect("operation recovery succeeds"),
+        FileResponse::Operations(vec![vec![1, 2, 3]])
+    );
+    let first = joiner
+        .request_file_recovery(
+            &bootstrap,
+            &FileRequest::BlobChunk {
+                workspace_id: "workspace".to_owned(),
+                content_hash: hash.clone(),
+                offset: 0,
+                max_bytes: MAX_BLOB_CHUNK_BYTES as u32,
+            },
+        )
+        .await
+        .expect("first chunk succeeds");
+    let FileResponse::BlobChunk {
+        bytes: first_bytes,
+        complete: false,
+        ..
+    } = first
+    else {
+        panic!("bounded first chunk expected");
+    };
+    let second = joiner
+        .request_file_recovery(
+            &bootstrap,
+            &FileRequest::BlobChunk {
+                workspace_id: "workspace".to_owned(),
+                content_hash: hash,
+                offset: first_bytes.len() as u64,
+                max_bytes: MAX_BLOB_CHUNK_BYTES as u32,
+            },
+        )
+        .await
+        .expect("resumed chunk succeeds");
+    let FileResponse::BlobChunk {
+        bytes: second_bytes,
+        complete: true,
+        ..
+    } = second
+    else {
+        panic!("complete resumed chunk expected");
+    };
+    let mut recovered = first_bytes;
+    recovered.extend(second_bytes);
+    assert_eq!(recovered, blob);
+
+    inviter.shutdown().await.expect("inviter stops");
+    joiner.shutdown().await.expect("joiner stops");
 }
 
 #[tokio::test]

@@ -484,7 +484,8 @@ fn network_start_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
             IrohTransportError::Broadcast
             | IrohTransportError::BroadcastClosed
             | IrohTransportError::Receive
-            | IrohTransportError::Shutdown,
+            | IrohTransportError::Shutdown
+            | IrohTransportError::FileStream,
         )
         | IrohSessionAdapterError::Session(_) => {
             "Peer networking could not start for this workspace."

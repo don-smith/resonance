@@ -28,6 +28,9 @@ pub enum EnvelopeBody {
     },
     MembershipSyncRequest,
     MembershipSyncResponse(Vec<Vec<u8>>),
+    FileHistoryNotice {
+        operation_ids: Vec<String>,
+    },
     Heartbeat {
         sent_at: i64,
     },
@@ -41,6 +44,7 @@ pub enum ProtocolError {
     InvalidWorkspace,
     InvalidSignature,
     InvalidJoinRequest,
+    InvalidFileHistoryNotice,
 }
 
 impl fmt::Display for ProtocolError {
@@ -58,6 +62,9 @@ impl fmt::Display for ProtocolError {
                 formatter.write_str("workspace envelope signature is invalid")
             }
             Self::InvalidJoinRequest => formatter.write_str("workspace join request is invalid"),
+            Self::InvalidFileHistoryNotice => {
+                formatter.write_str("workspace file-history notice is invalid")
+            }
         }
     }
 }
@@ -144,10 +151,23 @@ fn validate_unsigned(envelope: &UnsignedEnvelope) -> Result<(), ProtocolError> {
     {
         return Err(ProtocolError::InvalidWorkspace);
     }
-    if let EnvelopeBody::JoinRequest { display_name, .. } = &envelope.body {
-        if display_name.trim().is_empty() || display_name.len() > 256 {
-            return Err(ProtocolError::InvalidJoinRequest);
+    match &envelope.body {
+        EnvelopeBody::JoinRequest { display_name, .. }
+            if display_name.trim().is_empty() || display_name.len() > 256 =>
+        {
+            Err(ProtocolError::InvalidJoinRequest)
         }
+        EnvelopeBody::FileHistoryNotice { operation_ids }
+            if operation_ids.len() > crate::workspace_file_transport::MAX_OPERATION_RECORDS
+                || operation_ids.iter().any(|id| {
+                    id.len() != 32
+                        || !id
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                }) =>
+        {
+            Err(ProtocolError::InvalidFileHistoryNotice)
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }

@@ -31,9 +31,6 @@ importers:
       "@tauri-apps/api":
         specifier: 2.5.0
         version: 2.5.0
-      "@toast-ui/editor":
-        specifier: 3.2.2
-        version: 3.2.2
 
   packages/contracts:
     dependencies:
@@ -41,7 +38,18 @@ importers:
         specifier: 8.17.1
         version: 8.17.1
 
+  packages/reference-package: {}
+
   packages/sdk: {}
+
+  packages/workspace-files:
+    dependencies:
+      "@resonance/package-sdk":
+        specifier: workspace:*
+        version: link:../sdk
+      "@toast-ui/editor":
+        specifier: 3.2.2
+        version: 3.2.2
 
 packages:
   "@esbuild/aix-ppc64@0.25.12":

@@ -1,0 +1,272 @@
+[data-package-id="resonance.workspace-files"] {
+  color: var(--resonance-color-foreground);
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-heading,
+[data-package-id="resonance.workspace-files"] .workspace-files-root-actions,
+[data-package-id="resonance.workspace-files"] .workspace-files-review-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-heading {
+  justify-content: space-between;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-root-status,
+[data-package-id="resonance.workspace-files"] .workspace-files-heading h2 {
+  margin-bottom: 0.4rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-root-status,
+[data-package-id="resonance.workspace-files"] .workspace-files-message,
+[data-package-id="resonance.workspace-files"] li,
+[data-package-id="resonance.workspace-files"] .workspace-files-placeholder {
+  color: var(--resonance-color-muted);
+  line-height: 1.5;
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-message:not(:empty) {
+  color: #ffd18a;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-layout {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(24rem, 1fr);
+  gap: var(--resonance-spacing);
+  min-height: 36rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-browser,
+[data-package-id="resonance.workspace-files"] .workspace-files-editor-panel {
+  padding: var(--resonance-spacing);
+  border: 1px solid var(--resonance-color-border);
+  border-radius: 0.5rem;
+  background: var(--resonance-color-panel);
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-tree,
+[data-package-id="resonance.workspace-files"] .workspace-files-tree ul,
+[data-package-id="resonance.workspace-files"] .workspace-files-conflicts ul,
+[data-package-id="resonance.workspace-files"] .workspace-files-preview ul {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0;
+  list-style: none;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-tree ul {
+  margin: 0.35rem 0 0 1rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-tree button {
+  padding: 0.25rem 0;
+  border: 0;
+  color: #d9d4ff;
+  background: transparent;
+  text-align: left;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-new-markdown {
+  margin-top: 1.5rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-conflicts li {
+  padding: 0.65rem;
+  border: 1px solid var(--resonance-color-border);
+  border-radius: 0.4rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-conflicts li p {
+  margin-top: 0;
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-conflicts
+  button {
+  margin: 0.25rem 0.35rem 0 0;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-editor-panel
+  > button {
+  margin-top: 0.75rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-editor-notice {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #8b6b38;
+  border-radius: 0.4rem;
+  background: #2d261f;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-editor-notice p {
+  margin: 0;
+  color: #ffd18a;
+  line-height: 1.5;
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-editor-notice
+  button,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-review-actions
+  button {
+  margin-top: 0.65rem;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-review-actions {
+  flex-wrap: wrap;
+}
+
+[data-package-id="resonance.workspace-files"] .workspace-files-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 32rem;
+  object-fit: contain;
+}
+
+[data-package-id="resonance.workspace-files"] .toastui-editor-defaultUI {
+  color: #222;
+  border-color: var(--resonance-color-border);
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark {
+  --markdown-review-background: #1d1a28;
+  --markdown-review-foreground: #f4f3ff;
+  --markdown-review-muted: #cdc8d6;
+  color: var(--markdown-review-foreground);
+  background: var(--markdown-review-background);
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  p,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  h1,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  h2,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  h3,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  h4,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  h5,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  h6,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  table,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  ul,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  menu,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  ol,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  dir {
+  color: var(--markdown-review-foreground);
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  blockquote,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  blockquote
+  p,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  blockquote
+  ul,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  blockquote
+  ol,
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  del {
+  color: var(--markdown-review-muted);
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  a {
+  color: var(--resonance-color-accent);
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  pre {
+  color: var(--markdown-review-foreground);
+  background: #242034;
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  code {
+  color: #ffd18a;
+  background: #2d261f;
+}
+
+[data-package-id="resonance.workspace-files"]
+  .workspace-files-markdown-editor.toastui-editor-dark
+  .toastui-editor-contents
+  pre
+  code {
+  color: inherit;
+  background: transparent;
+}
+
+@media (max-width: 900px) {
+  [data-package-id="resonance.workspace-files"] .workspace-files-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  [data-package-id="resonance.workspace-files"] .workspace-files-heading,
+  [data-package-id="resonance.workspace-files"] .workspace-files-root-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

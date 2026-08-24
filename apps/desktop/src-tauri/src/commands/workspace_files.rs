@@ -12,7 +12,7 @@ use serde_json::Value;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
-use super::workspace::{ManagedWorkspace, ManagedWorkspaceState, WorkspaceShellView};
+use super::workspace::{ManagedWorkspace, ManagedWorkspaceState};
 
 const MAX_IDENTIFIER_BYTES: usize = 128;
 const MAX_NAME_BYTES: usize = 255;
@@ -477,7 +477,6 @@ async fn dispatch(
                     .map_err(root_error)?;
                 drop(files);
                 state.inner.emit_files_changed();
-                state.inner.emit_view().await;
             }
             Ok(WorkspaceFilesResponse::SelectRoot {
                 snapshot: snapshot(&state.inner).await?,
@@ -493,7 +492,6 @@ async fn dispatch(
                     .map_err(root_error)?;
                 drop(files);
                 state.inner.emit_files_changed();
-                state.inner.emit_view().await;
             }
             Ok(WorkspaceFilesResponse::ReplaceRoot {
                 snapshot: snapshot(&state.inner).await?,
@@ -508,7 +506,6 @@ async fn dispatch(
                 .map_err(root_error)?;
             drop(files);
             state.inner.emit_files_changed();
-            state.inner.emit_view().await;
             Ok(WorkspaceFilesResponse::RepairRoot {
                 snapshot: snapshot(&state.inner).await?,
             })
@@ -522,7 +519,6 @@ async fn dispatch(
                 .map_err(root_error)?;
             drop(files);
             state.inner.emit_files_changed();
-            state.inner.emit_view().await;
             Ok(WorkspaceFilesResponse::UnbindRoot {
                 snapshot: snapshot(&state.inner).await?,
             })
@@ -568,7 +564,6 @@ async fn dispatch(
             };
             state.inner.announce_file_changes(announcements).await;
             state.inner.emit_files_changed();
-            state.inner.emit_view().await;
             Ok(WorkspaceFilesResponse::CreateMarkdown {
                 revision: markdown_revision_view(revision),
             })
@@ -588,7 +583,6 @@ async fn dispatch(
             };
             state.inner.announce_file_changes(announcements).await;
             state.inner.emit_files_changed();
-            state.inner.emit_view().await;
             Ok(WorkspaceFilesResponse::ReplaceMarkdown {
                 revision: markdown_revision_view(revision),
             })
@@ -609,7 +603,6 @@ async fn dispatch(
             };
             state.inner.announce_file_changes(announcements).await;
             state.inner.emit_files_changed();
-            state.inner.emit_view().await;
             Ok(WorkspaceFilesResponse::ResolveConflict {
                 snapshot: snapshot(&state.inner).await?,
             })
@@ -807,206 +800,6 @@ fn valid_identifiers(values: &[String]) -> bool {
     values.len() <= MAX_CONFLICT_ITEMS && values.iter().all(|value| valid_identifier(value))
 }
 
-// Legacy shell commands stay available until the package extraction removes their callers.
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct OpenMarkdownRequest {
-    pub node_id: String,
-    pub revision_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct OpenFilePreviewRequest {
-    pub node_id: String,
-    pub revision_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CreateMarkdownRequest {
-    pub parent_node_id: String,
-    pub name: String,
-    pub markdown: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReplaceMarkdownRequest {
-    pub node_id: String,
-    pub base_revision_id: String,
-    pub markdown: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ResolveConflictRequest {
-    pub record_id: String,
-    pub chosen_revision_id: Option<String>,
-}
-
-#[tauri::command]
-pub async fn choose_workspace_root(
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    dispatch(WorkspaceFilesRequest::SelectRoot, &app, &state)
-        .await
-        .map_err(legacy_error)?;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn replace_workspace_root(
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    dispatch(WorkspaceFilesRequest::ReplaceRoot, &app, &state)
-        .await
-        .map_err(legacy_error)?;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn repair_workspace_root(
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    dispatch(WorkspaceFilesRequest::RepairRoot, &app, &state)
-        .await
-        .map_err(legacy_error)?;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn unbind_workspace_root(
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    dispatch(WorkspaceFilesRequest::UnbindRoot, &app, &state)
-        .await
-        .map_err(legacy_error)?;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn open_markdown_file(
-    request: OpenMarkdownRequest,
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<MarkdownRevisionView, String> {
-    match dispatch(
-        WorkspaceFilesRequest::OpenMarkdown {
-            node_id: request.node_id,
-            revision_id: request.revision_id,
-        },
-        &app,
-        &state,
-    )
-    .await
-    .map_err(legacy_error)?
-    {
-        WorkspaceFilesResponse::OpenMarkdown { revision } => Ok(revision),
-        _ => Err("That Markdown revision is unavailable.".to_owned()),
-    }
-}
-
-#[tauri::command]
-pub async fn open_file_preview(
-    request: OpenFilePreviewRequest,
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<FilePreviewView, String> {
-    match dispatch(
-        WorkspaceFilesRequest::OpenPreview {
-            node_id: request.node_id,
-            revision_id: request.revision_id,
-        },
-        &app,
-        &state,
-    )
-    .await
-    .map_err(legacy_error)?
-    {
-        WorkspaceFilesResponse::OpenPreview { preview } => Ok(preview),
-        _ => Err("That file preview is unavailable.".to_owned()),
-    }
-}
-
-#[tauri::command]
-pub async fn create_markdown_file(
-    request: CreateMarkdownRequest,
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<MarkdownRevisionView, String> {
-    match dispatch(
-        WorkspaceFilesRequest::CreateMarkdown {
-            parent_node_id: request.parent_node_id,
-            name: request.name,
-            markdown: request.markdown,
-        },
-        &app,
-        &state,
-    )
-    .await
-    .map_err(legacy_error)?
-    {
-        WorkspaceFilesResponse::CreateMarkdown { revision } => Ok(revision),
-        _ => Err("Resonance could not create that Markdown file.".to_owned()),
-    }
-}
-
-#[tauri::command]
-pub async fn replace_markdown_file(
-    request: ReplaceMarkdownRequest,
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<MarkdownRevisionView, String> {
-    match dispatch(
-        WorkspaceFilesRequest::ReplaceMarkdown {
-            node_id: request.node_id,
-            base_revision_id: request.base_revision_id,
-            markdown: request.markdown,
-        },
-        &app,
-        &state,
-    )
-    .await
-    .map_err(legacy_error)?
-    {
-        WorkspaceFilesResponse::ReplaceMarkdown { revision } => Ok(revision),
-        _ => Err("Resonance could not save this Markdown revision.".to_owned()),
-    }
-}
-
-#[tauri::command]
-pub async fn resolve_workspace_conflict(
-    request: ResolveConflictRequest,
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    dispatch(
-        WorkspaceFilesRequest::ResolveConflict {
-            record_id: request.record_id,
-            chosen_candidate_id: request.chosen_revision_id,
-        },
-        &app,
-        &state,
-    )
-    .await
-    .map_err(legacy_error)?;
-    Ok(state.inner.view().await)
-}
-
-fn legacy_error(error: WorkspaceFilesError) -> String {
-    match error.code {
-        WorkspaceFilesErrorCode::StaleRevision | WorkspaceFilesErrorCode::MissingRevision =>
-            "The file changed before this edit could be saved. Your draft remains open. Review the latest revision before replacing it."
-                .to_owned(),
-        _ => error.message,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1090,22 +883,5 @@ mod tests {
                 assert!(!serialized.contains(forbidden));
             }
         }
-    }
-
-    #[test]
-    fn legacy_request_rejects_private_fields_and_preserves_stale_draft_message() {
-        let request = serde_json::json!({
-            "nodeId": "node-id",
-            "baseRevisionId": "revision-id",
-            "markdown": "# Safe",
-            "path": "/private/root/file.md"
-        });
-        assert!(serde_json::from_value::<ReplaceMarkdownRequest>(request).is_err());
-        assert_eq!(
-            legacy_error(WorkspaceFilesError::new(
-                WorkspaceFilesErrorCode::StaleRevision
-            )),
-            "The file changed before this edit could be saved. Your draft remains open. Review the latest revision before replacing it."
-        );
     }
 }

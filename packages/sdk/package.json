@@ -2,5 +2,8 @@
   "name": "@resonance/package-sdk",
   "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
 }

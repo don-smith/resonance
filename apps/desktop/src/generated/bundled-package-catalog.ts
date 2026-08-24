@@ -29,4 +29,27 @@ export const bundledPackageCatalog = [
     },
     load: () => import("../../../../packages/reference-package/src/index"),
   },
+  {
+    manifest: {
+      manifestVersion: 2,
+      source: "bundled",
+      id: "resonance.workspace-files",
+      name: "Workspace files",
+      description: "Browse, edit, preview, and reconcile workspace files.",
+      nav: {
+        label: "Workspace files",
+        icon: "files",
+      },
+      content: {
+        entry: "src/index.ts",
+      },
+      events: {
+        emits: [],
+        consumes: [],
+      },
+      minRole: "viewer",
+      capabilities: ["workspace-files:v1"],
+    },
+    load: () => import("../../../../packages/workspace-files/src/index"),
+  },
 ] as const;

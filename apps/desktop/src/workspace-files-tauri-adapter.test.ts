@@ -109,12 +109,28 @@ describe("workspace-files Tauri adapter", () => {
 
     const first = adapter.snapshot();
     const second = adapter.snapshot();
+    await vi.waitFor(() => expect(resolvers).toHaveLength(2));
     resolvers[1]?.(response("healthy"));
     await expect(second).resolves.toEqual(snapshot("healthy"));
     resolvers[0]?.(response("unavailable"));
     await expect(first).resolves.toEqual(snapshot("healthy"));
     expect(listener).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledWith(snapshot("healthy"));
+  });
+
+  it("turns listener startup failure into an unavailable capability", async () => {
+    const fake = transport();
+    fake.value.listen = vi.fn(async () => {
+      throw new Error("private listener detail");
+    });
+    const adapter = new WorkspaceFilesTauriAdapter(fake.value);
+
+    await expect(adapter.ready()).rejects.toEqual(
+      workspaceFilesError("unavailable-capability"),
+    );
+    await expect(adapter.snapshot()).rejects.toEqual(
+      workspaceFilesError("unavailable-capability"),
+    );
   });
 
   it("rejects unchecked responses and cleans up once", async () => {

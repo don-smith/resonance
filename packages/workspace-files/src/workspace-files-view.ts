@@ -5,7 +5,7 @@ import type {
   MarkdownRevisionView,
   RootState,
   WorkspaceFilesView,
-} from "./workspace-view.js";
+} from "./workspace-files-types.js";
 
 export type MarkdownEditorSession = {
   loadedRevision: MarkdownRevisionView;
@@ -22,7 +22,7 @@ export type MarkdownRevisionAwareness =
   | { state: "conflicted"; conflictKind: ConflictView["kind"] };
 
 export function childEntries(
-  entries: FileEntryView[],
+  entries: readonly FileEntryView[],
   parentNodeId: string | null,
 ): FileEntryView[] {
   return entries

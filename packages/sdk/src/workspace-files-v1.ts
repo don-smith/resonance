@@ -1,3 +1,15 @@
+export type {
+  WorkspaceFilesConflict,
+  WorkspaceFilesConflictChoice,
+  WorkspaceFilesEntry,
+  WorkspaceFilesError,
+  WorkspaceFilesMarkdownRevision,
+  WorkspaceFilesPreview,
+  WorkspaceFilesRootState,
+  WorkspaceFilesSnapshot,
+  WorkspaceFilesV1Operation,
+} from "../../contracts/src/workspace-files-v1.js";
+
 import {
   workspaceFilesErrorMessages,
   type WorkspaceFilesError,

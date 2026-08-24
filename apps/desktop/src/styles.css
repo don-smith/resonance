@@ -30,7 +30,7 @@ body {
 .navigation {
   padding: 1.5rem;
   background: #242034;
-  border-right: 1px solid #3b354d;
+  border-right: 1px solid var(--resonance-color-border);
 }
 
 .brand {
@@ -58,17 +58,13 @@ body {
   background: #302a43;
 }
 
-.package-mounts {
-  margin-top: 2rem;
-}
-
 .workspace {
   width: min(100%, 84rem);
   padding: clamp(2rem, 5vw, 5rem);
 }
 
 .eyebrow {
-  color: #b9b2ff;
+  color: var(--resonance-color-accent);
   font-size: 0.875rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -91,10 +87,8 @@ h3 {
 }
 
 .message,
-.root-status,
-.workspace li,
-.editor-placeholder {
-  color: #cdc8d6;
+.workspace li {
+  color: var(--resonance-color-muted);
   line-height: 1.5;
 }
 
@@ -112,7 +106,7 @@ form {
 label {
   display: grid;
   gap: 0.35rem;
-  color: #cdc8d6;
+  color: var(--resonance-color-muted);
 }
 
 input,
@@ -133,179 +127,15 @@ button {
   border-color: #776ceb;
 }
 
-.workspace-actions,
-.root-actions,
-.section-heading {
+.workspace-actions {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-}
-
-.workspace-actions {
   margin-top: 1.5rem;
 }
 
-.section-heading {
-  justify-content: space-between;
-}
-
-.root-status,
-.section-heading h2 {
-  margin-bottom: 0.4rem;
-}
-
-.document-layout {
-  display: grid;
-  grid-template-columns: minmax(14rem, 18rem) minmax(24rem, 1fr);
-  gap: 1rem;
-  min-height: 36rem;
-}
-
-.file-browser,
-.editor-panel {
-  padding: 1rem;
-  border: 1px solid #3b354d;
-  border-radius: 0.5rem;
-  background: #1d1a28;
-}
-
-.file-tree,
-.file-tree ul,
-.conflicts ul,
-.members,
-.peers {
-  display: grid;
-  gap: 0.35rem;
-  padding: 0;
-  list-style: none;
-}
-
-.file-tree ul {
-  margin: 0.35rem 0 0 1rem;
-}
-
-.file-tree button {
-  padding: 0.25rem 0;
-  border: 0;
-  color: #d9d4ff;
-  background: transparent;
-  text-align: left;
-}
-
-.new-markdown {
-  margin-top: 1.5rem;
-}
-
-.conflicts li {
-  padding: 0.65rem;
-  border: 1px solid #4b4560;
-  border-radius: 0.4rem;
-}
-
-.conflicts li p {
-  margin-top: 0;
-}
-
-.conflicts button {
-  margin: 0.25rem 0.35rem 0 0;
-  padding: 0.4rem 0.55rem;
-  font-size: 0.8rem;
-}
-
-.editor-panel > button {
-  margin-top: 0.75rem;
-}
-
-.editor-notice {
-  margin-bottom: 0.75rem;
-  padding: 0.75rem;
-  border: 1px solid #8b6b38;
-  border-radius: 0.4rem;
-  background: #2d261f;
-}
-
-.editor-notice p {
-  margin: 0;
-  color: #ffd18a;
-  line-height: 1.5;
-}
-
-.editor-notice button,
-.markdown-review-actions button {
-  margin-top: 0.65rem;
-}
-
-.markdown-review-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-}
-
-.file-preview img {
-  display: block;
-  max-width: 100%;
-  max-height: 32rem;
-  object-fit: contain;
-}
-
-.toastui-editor-defaultUI {
-  color: #222;
-  border-color: #4b4560;
-}
-
-#markdown-editor.toastui-editor-dark {
-  --markdown-review-background: #1d1a28;
-  --markdown-review-foreground: #f4f3ff;
-  --markdown-review-muted: #cdc8d6;
-  color: var(--markdown-review-foreground);
-  background: var(--markdown-review-background);
-}
-
-#markdown-editor.toastui-editor-dark .toastui-editor-contents,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents p,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents h1,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents h2,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents h3,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents h4,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents h5,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents h6,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents table,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents ul,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents menu,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents ol,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents dir {
-  color: var(--markdown-review-foreground);
-}
-
-#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote p,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote ul,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote ol,
-#markdown-editor.toastui-editor-dark .toastui-editor-contents del {
-  color: var(--markdown-review-muted);
-}
-
-#markdown-editor.toastui-editor-dark .toastui-editor-contents a {
-  color: #b9b2ff;
-}
-
-#markdown-editor.toastui-editor-dark .toastui-editor-contents a:hover {
-  color: #d9d4ff;
-}
-
-#markdown-editor.toastui-editor-dark .toastui-editor-contents pre {
-  color: var(--markdown-review-foreground);
-  background: #242034;
-}
-
-#markdown-editor.toastui-editor-dark .toastui-editor-contents code {
-  color: #ffd18a;
-  background: #2d261f;
-}
-
-#markdown-editor.toastui-editor-dark .toastui-editor-contents pre code {
-  color: inherit;
-  background: transparent;
+.package-mounts {
+  margin-top: 2rem;
 }
 
 .people {
@@ -314,29 +144,27 @@ button {
 
 .people summary {
   cursor: pointer;
-  color: #b9b2ff;
+  color: var(--resonance-color-accent);
 }
 
 .members,
 .peers {
+  display: grid;
+  gap: 0.35rem;
   max-width: 32rem;
+  padding: 0;
+  list-style: none;
 }
 
 .members li,
 .peers li {
   padding: 0.6rem 0.75rem;
-  border: 1px solid #3b354d;
+  border: 1px solid var(--resonance-color-border);
   border-radius: 0.4rem;
 }
 
 [hidden] {
   display: none !important;
-}
-
-@media (max-width: 900px) {
-  .document-layout {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 700px) {
@@ -347,16 +175,10 @@ button {
   .navigation {
     padding: 1rem 1.5rem;
     border-right: 0;
-    border-bottom: 1px solid #3b354d;
+    border-bottom: 1px solid var(--resonance-color-border);
   }
 
   .brand {
     margin: 0;
-  }
-
-  .section-heading,
-  .root-actions {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }

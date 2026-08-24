@@ -39,6 +39,7 @@ export class WorkspaceFilesTauriAdapter implements WorkspaceFilesV1 {
   readonly #listeners = new Set<WorkspaceFilesSnapshotListener>();
   readonly #listenerReady: Promise<void>;
   #unlisten: (() => void) | null = null;
+  #startupError: WorkspaceFilesError | null = null;
   #disposed = false;
   #issuedSequence = 0;
   #appliedSequence = 0;
@@ -58,11 +59,15 @@ export class WorkspaceFilesTauriAdapter implements WorkspaceFilesV1 {
         } else {
           this.#unlisten = unlisten;
         }
+      })
+      .catch(() => {
+        this.#startupError = workspaceFilesError("unavailable-capability");
       });
   }
 
-  public ready(): Promise<void> {
-    return this.#listenerReady;
+  public async ready(): Promise<void> {
+    await this.#listenerReady;
+    if (this.#startupError) throw this.#startupError;
   }
 
   public subscribe(listener: WorkspaceFilesSnapshotListener): () => void {
@@ -199,7 +204,10 @@ export class WorkspaceFilesTauriAdapter implements WorkspaceFilesV1 {
   async #dispatch(
     request: WorkspaceFilesRequest,
   ): Promise<WorkspaceFilesResponse> {
-    if (this.#disposed) throw workspaceFilesError("unavailable-capability");
+    await this.#listenerReady;
+    if (this.#disposed || this.#startupError) {
+      throw workspaceFilesError("unavailable-capability");
+    }
     if (validateWorkspaceFilesRequest(request).diagnostics.length > 0) {
       throw workspaceFilesError("invalid-request");
     }

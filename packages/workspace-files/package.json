@@ -1,0 +1,10 @@
+{
+  "name": "@resonance/workspace-files",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@resonance/package-sdk": "workspace:*",
+    "@toast-ui/editor": "3.2.2"
+  }
+}

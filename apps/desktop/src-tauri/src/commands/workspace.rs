@@ -14,7 +14,6 @@ use resonance_runtime::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use super::workspace_files::{workspace_files_view, WorkspaceFilesView};
 use tokio::{sync::Mutex, time};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
@@ -49,7 +48,6 @@ pub struct WorkspaceShellView {
     pub local_public_identity: Option<String>,
     pub members: Vec<MemberView>,
     pub peers: Vec<PeerView>,
-    pub files: Option<WorkspaceFilesView>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -159,7 +157,6 @@ impl ManagedWorkspaceState {
 
 impl ManagedWorkspace {
     pub(super) async fn view(&self) -> WorkspaceShellView {
-        let files = self.files.lock().await.as_ref().map(workspace_files_view);
         let mut session = self.session.lock().await;
         let issue = self.issue.lock().await.clone();
         let Some(session) = session.as_mut() else {
@@ -173,7 +170,6 @@ impl ManagedWorkspace {
                 local_public_identity: None,
                 members: Vec::new(),
                 peers: Vec::new(),
-                files: None,
             };
         };
         if !session.has_active_workspace() {
@@ -184,7 +180,6 @@ impl ManagedWorkspace {
                 local_public_identity: self.local_public_identity.clone(),
                 members: Vec::new(),
                 peers: Vec::new(),
-                files: None,
             };
         }
         match session.view() {
@@ -206,7 +201,6 @@ impl ManagedWorkspace {
                     .iter()
                     .map(|peer| peer_view(peer, &view.members))
                     .collect(),
-                files,
             },
             Err(_) => WorkspaceShellView {
                 state: "storage-error".to_owned(),
@@ -215,7 +209,6 @@ impl ManagedWorkspace {
                 local_public_identity: self.local_public_identity.clone(),
                 members: Vec::new(),
                 peers: Vec::new(),
-                files: None,
             },
         }
     }
@@ -285,7 +278,6 @@ impl ManagedWorkspace {
         }
         if changed {
             self.emit_files_changed();
-            self.emit_view().await;
         }
     }
 
@@ -650,9 +642,6 @@ mod tests {
         IrohTransportError, MemberView, PeerView, WorkspaceSessionError, WorkspaceShellView,
         WorkspaceView,
     };
-    use crate::commands::workspace_files::{
-        FileEntryView, FileEntryViewKind, RootState, RootView, WorkspaceFilesView,
-    };
 
     #[test]
     fn maps_transport_start_errors_to_safe_actionable_messages() {
@@ -701,23 +690,10 @@ mod tests {
                 online: true,
                 connection: "direct".to_owned(),
             }],
-            files: Some(WorkspaceFilesView {
-                root: RootView {
-                    state: RootState::Healthy,
-                },
-                entries: vec![FileEntryView {
-                    node_id: "node-id".to_owned(),
-                    parent_node_id: None,
-                    name: "plans".to_owned(),
-                    kind: FileEntryViewKind::Directory,
-                    current_revision_id: None,
-                    editable: true,
-                }],
-                conflicts: Vec::new(),
-            }),
         };
 
         let payload = serde_json::to_string(&view).expect("view serializes");
+        assert!(!payload.contains("\"files\""));
         for forbidden in ["secret", "token", "private", "bootstrap", "path", "iroh"] {
             assert!(!payload.to_ascii_lowercase().contains(forbidden));
         }

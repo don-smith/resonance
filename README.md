@@ -73,6 +73,14 @@ contains ordinary shared files beginning with `plans` and no Resonance control
 metadata. Markdown editing and conflict resolution remain authority-mediated;
 the webview never receives the private root or blob-store location.
 
+## User documentation
+
+Start with the [HTML user documentation](./docs/html/index.html) or its
+[equivalent Markdown index](./docs/index.md). The
+[workspace files guide](./docs/workspace-files.md) covers root selection,
+rendered and external editing, offline synchronization, conflict resolution,
+recovery, and current limits.
+
 ## Validate and build
 
 ```sh
@@ -92,8 +100,8 @@ vocabulary live in [`packages/contracts/`](./packages/contracts/). Start with
 the [package authoring guide](./docs/package-authoring.md) and the worked
 [`reference package`](./packages/reference-package/). Only bundled, reviewed
 team packages are supported in this foundation; no package content view or
-agent execution ships yet. Development workspace storage, migration, and recovery
-behavior are documented in [local data](./docs/local-data.md).
+agent execution ships yet. Development workspace storage, migration, and
+recovery behavior are documented in [local data](./docs/local-data.md).
 
 ## Fork release delivery
 

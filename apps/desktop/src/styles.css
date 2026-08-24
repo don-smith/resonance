@@ -227,6 +227,61 @@ button {
   border-color: #4b4560;
 }
 
+#markdown-editor.toastui-editor-dark {
+  --markdown-review-background: #1d1a28;
+  --markdown-review-foreground: #f4f3ff;
+  --markdown-review-muted: #cdc8d6;
+  color: var(--markdown-review-foreground);
+  background: var(--markdown-review-background);
+}
+
+#markdown-editor.toastui-editor-dark .toastui-editor-contents,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents p,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents h1,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents h2,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents h3,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents h4,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents h5,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents h6,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents table,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents ul,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents menu,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents ol,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents dir {
+  color: var(--markdown-review-foreground);
+}
+
+#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote p,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote ul,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents blockquote ol,
+#markdown-editor.toastui-editor-dark .toastui-editor-contents del {
+  color: var(--markdown-review-muted);
+}
+
+#markdown-editor.toastui-editor-dark .toastui-editor-contents a {
+  color: #b9b2ff;
+}
+
+#markdown-editor.toastui-editor-dark .toastui-editor-contents a:hover {
+  color: #d9d4ff;
+}
+
+#markdown-editor.toastui-editor-dark .toastui-editor-contents pre {
+  color: var(--markdown-review-foreground);
+  background: #242034;
+}
+
+#markdown-editor.toastui-editor-dark .toastui-editor-contents code {
+  color: #ffd18a;
+  background: #2d261f;
+}
+
+#markdown-editor.toastui-editor-dark .toastui-editor-contents pre code {
+  color: inherit;
+  background: transparent;
+}
+
 .people {
   margin-top: 2rem;
 }

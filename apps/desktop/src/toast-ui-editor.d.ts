@@ -14,11 +14,15 @@ declare module "@toast-ui/editor" {
   type ViewerOptions = Pick<
     EditorOptions,
     "el" | "initialValue" | "usageStatistics"
-  > & { viewer: true };
+  > & { viewer: true; theme?: string };
+
+  export class Viewer {
+    destroy(): void;
+  }
 
   export default class Editor {
     constructor(options: EditorOptions);
-    static factory(options: ViewerOptions): Editor;
+    static factory(options: ViewerOptions): Viewer;
     destroy(): void;
     getMarkdown(): string;
   }

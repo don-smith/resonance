@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import Editor from "@toast-ui/editor";
 
 import "@toast-ui/editor/dist/toastui-editor.css";
+import "@toast-ui/editor/dist/theme/toastui-editor-dark.css";
 import "./styles.css";
 import {
   isFilePreviewView,
@@ -18,7 +19,6 @@ import {
   workspaceViewChanged,
 } from "./workspace-view.js";
 import {
-  captureMarkdownDraft,
   childEntries,
   conflictFallbackLabel,
   conflictFallbackSelection,
@@ -34,6 +34,12 @@ import {
   treeConflictPreviewLabel,
   type MarkdownEditorSession,
 } from "./workspace-files-view.js";
+import {
+  captureMountedMarkdownDraft,
+  editableMarkdownMount,
+  viewerMarkdownMount,
+  type MountedMarkdown,
+} from "./markdown-editor-mount.js";
 import { createTemporaryMessage } from "./temporary-message.js";
 
 const app = document.querySelector<HTMLDivElement>("#app");
@@ -42,7 +48,7 @@ const shell = app;
 let actionMessage: string | null = null;
 let currentView: WorkspaceShellView | null = null;
 let markdownSession: MarkdownEditorSession | null = null;
-let markdownEditor: Editor | null = null;
+let mountedMarkdown: MountedMarkdown | null = null;
 let previewedEntry: FileEntryView | null = null;
 let filePreview: FilePreviewView | null = null;
 let filePreviewUrl: string | null = null;
@@ -58,8 +64,8 @@ function field(label: string, name: string, type = "text"): string {
 function render(view: WorkspaceShellView): void {
   captureOpenMarkdownDraft();
   currentView = view;
-  markdownEditor?.destroy();
-  markdownEditor = null;
+  mountedMarkdown?.instance.destroy();
+  mountedMarkdown = null;
   if (filePreviewUrl) URL.revokeObjectURL(filePreviewUrl);
   filePreviewUrl = null;
   const onboarding = view.state === "onboarding";
@@ -362,17 +368,9 @@ function mountFilePreview(
 }
 
 function captureOpenMarkdownDraft(): void {
-  if (
-    !markdownSession ||
-    !markdownEditor ||
-    markdownSession.mode !== "draft" ||
-    markdownSession.readOnly
-  ) {
-    return;
-  }
-  markdownSession = captureMarkdownDraft(
+  markdownSession = captureMountedMarkdownDraft(
     markdownSession,
-    markdownEditor.getMarkdown(),
+    mountedMarkdown,
   );
 }
 
@@ -400,38 +398,46 @@ function mountMarkdownSession(
     requiredElement<HTMLButtonElement>(
       '[data-action="load-reviewed"]',
     ).addEventListener("click", loadReviewedRevision);
-    markdownEditor = Editor.factory({
-      el: host,
-      viewer: true,
-      initialValue: reviewed.markdown,
-      usageStatistics: false,
-    });
+    mountedMarkdown = viewerMarkdownMount(
+      Editor.factory({
+        el: host,
+        viewer: true,
+        theme: "dark",
+        initialValue: reviewed.markdown,
+        usageStatistics: false,
+      }),
+    );
     return;
   }
 
   save.hidden = session.readOnly;
   if (session.readOnly) {
-    markdownEditor = Editor.factory({
-      el: host,
-      viewer: true,
-      initialValue: session.draft,
-      usageStatistics: false,
-    });
+    mountedMarkdown = viewerMarkdownMount(
+      Editor.factory({
+        el: host,
+        viewer: true,
+        theme: "dark",
+        initialValue: session.draft,
+        usageStatistics: false,
+      }),
+    );
     return;
   }
-  markdownEditor = new Editor({
-    el: host,
-    height: "32rem",
-    initialEditType: "wysiwyg",
-    initialValue: session.draft,
-    hideModeSwitch: true,
-    usageStatistics: false,
-    toolbarItems: [
-      ["heading", "bold", "italic", "strike"],
-      ["ul", "ol", "task"],
-      ["link", "quote", "code", "codeblock"],
-    ],
-  });
+  mountedMarkdown = editableMarkdownMount(
+    new Editor({
+      el: host,
+      height: "32rem",
+      initialEditType: "wysiwyg",
+      initialValue: session.draft,
+      hideModeSwitch: true,
+      usageStatistics: false,
+      toolbarItems: [
+        ["heading", "bold", "italic", "strike"],
+        ["ul", "ol", "task"],
+        ["link", "quote", "code", "codeblock"],
+      ],
+    }),
+  );
 }
 
 function renderMarkdownNotice(

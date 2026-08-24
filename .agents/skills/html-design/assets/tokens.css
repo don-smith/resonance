@@ -1,0 +1,38 @@
+:root {
+  --ds-surface-gradient: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--ds-selection) 58%, var(--ds-surface)),
+    var(--ds-surface) 72%
+  );
+  --ds-ambient-gradient:
+    radial-gradient(
+      circle at 84% 6%,
+      color-mix(in srgb, var(--ds-diagram-gold-soft) 72%, transparent) 0,
+      transparent 27rem
+    ),
+    radial-gradient(
+      circle at 12% 34%,
+      color-mix(in srgb, var(--ds-diagram-moss-soft) 64%, transparent) 0,
+      transparent 31rem
+    );
+
+  --ds-font-serif: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, Georgia, serif;
+  --ds-font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ds-font-mono: SFMono-Regular, Cascadia Code, Liberation Mono, Consolas, monospace;
+
+  --ds-space-1: 0.5rem;
+  --ds-space-2: 0.75rem;
+  --ds-space-3: 1rem;
+  --ds-space-4: 1.125rem;
+  --ds-space-5: 1.375rem;
+  --ds-space-6: 2rem;
+  --ds-space-7: 3rem;
+  --ds-space-8: 4.5rem;
+  --ds-radius-small: 0.6875rem;
+  --ds-radius-large: 1.125rem;
+  --ds-radius-pill: 999px;
+  --ds-content-wide: 76rem;
+  --ds-content-reading: 46rem;
+  --ds-chrome-height: 3.75rem;
+  --ds-rail-width: 15rem;
+}

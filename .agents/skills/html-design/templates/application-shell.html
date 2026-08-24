@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Application shell template</title>
+    <script src="../../../dist/theme.js"></script>
+    <link rel="stylesheet" href="../../../dist/palette.css" />
+    <link rel="stylesheet" href="../../../dist/design-system.css" />
+  </head>
+  <body class="ds-application-shell">
+    <a class="ds-skip-link" href="#main">Skip to workspace</a>
+    <header class="ds-application-shell__header">
+      <strong>Research operations</strong>
+      <span class="ds-experimental-badge">Experimental profile</span>
+    </header>
+    <div class="ds-application-shell__body">
+      <nav class="ds-application-shell__nav" aria-label="Application">
+        <ul>
+          <li><a href="#queue" aria-current="page">Intake queue</a></li>
+          <li><a href="#template-boundary">Unsupported workflows</a></li>
+        </ul>
+      </nav>
+      <main class="ds-application-shell__main" id="main">
+        <header class="ds-application-shell__titlebar">
+          <div>
+            <p class="ds-kicker">Bounded workflow</p>
+            <h1>Research intake</h1>
+          </div>
+          <button class="ds-action ds-action--secondary" type="button">Refresh</button>
+        </header>
+        <section class="ds-application-shell__workspace" id="queue" aria-label="Research requests">
+          <div class="ds-application-shell__master">
+            <form class="ds-filter-bar" role="search">
+              <div class="ds-form-field">
+                <label for="template-search">Search requests</label
+                ><input id="template-search" type="search" />
+              </div>
+              <div class="ds-form-field">
+                <label for="template-status">Status</label
+                ><select id="template-status">
+                  <option>All</option>
+                  <option>New</option>
+                </select>
+              </div>
+            </form>
+            <ul class="ds-request-list">
+              <li>
+                <button type="button" aria-current="true">
+                  <strong>Sample request</strong
+                  ><span class="ds-request-list__meta">New · due Friday</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+          <article class="ds-application-shell__detail" aria-labelledby="template-detail-title">
+            <span class="ds-experimental-badge">Experimental patterns</span>
+            <h2 id="template-detail-title">Sample request</h2>
+            <p>Replace this content with the bounded task and its actual states.</p>
+            <form class="ds-claim-panel">
+              <div class="ds-claim-row">
+                <div class="ds-form-field">
+                  <label for="template-analyst">Analyst name</label
+                  ><input
+                    id="template-analyst"
+                    type="text"
+                    aria-describedby="template-analyst-error"
+                  />
+                  <p class="ds-form-field__error" id="template-analyst-error"></p>
+                </div>
+                <button class="ds-action ds-action--primary" type="submit">Claim request</button>
+              </div>
+            </form>
+          </article>
+        </section>
+        <section
+          class="ds-verdict ds-verdict--warning"
+          id="template-boundary"
+          aria-labelledby="template-boundary-title"
+        >
+          <p class="ds-label">Experimental boundary</p>
+          <h2 id="template-boundary-title">
+            Name workflows this small application does not support.
+          </h2>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

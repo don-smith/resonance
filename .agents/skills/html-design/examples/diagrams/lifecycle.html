@@ -1,0 +1,100 @@
+<figure class="ds-diagram-frame" aria-labelledby="lifecycle-frame-title">
+  <figcaption class="ds-diagram-frame__header">
+    <div>
+      <p class="ds-label">State model</p>
+      <h3 id="lifecycle-frame-title">Lifecycle</h3>
+    </div>
+    <p>State transitions, branches, and terminal outcomes.</p>
+  </figcaption>
+  <div class="ds-diagram-canvas ds-scroll-x" tabindex="0" aria-label="Scrollable lifecycle diagram">
+    <svg
+      viewBox="0 0 820 390"
+      role="img"
+      aria-labelledby="lifecycle-recipe-title lifecycle-recipe-desc"
+    >
+      <title id="lifecycle-recipe-title">Access request lifecycle</title>
+      <desc id="lifecycle-recipe-desc">
+        Received moves to policy check. Public material is released. Restricted material moves to
+        review, then released or denied. Released links expire. Denied does not return to released.
+      </desc>
+      <defs>
+        <marker
+          id="lifecycle-recipe-arrow"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto"
+        >
+          <path class="ds-diagram-marker" d="M0 0 10 5 0 10z"></path>
+        </marker>
+      </defs>
+      <rect class="ds-diagram-node" x="25" y="65" width="145" height="70" rx="12"></rect>
+      <text class="ds-diagram-node-title" x="50" y="105">Received</text>
+      <rect class="ds-diagram-node" x="215" y="65" width="145" height="70" rx="12"></rect>
+      <text class="ds-diagram-node-title" x="240" y="105">Policy check</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--primary"
+        x="620"
+        y="65"
+        width="145"
+        height="70"
+        rx="12"
+      ></rect>
+      <text class="ds-diagram-node-title" x="645" y="105">Released</text>
+      <rect class="ds-diagram-node" x="410" y="210" width="145" height="70" rx="12"></rect>
+      <text class="ds-diagram-node-title" x="435" y="250">Human review</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--exception"
+        x="620"
+        y="210"
+        width="145"
+        height="70"
+        rx="12"
+      ></rect>
+      <text class="ds-diagram-node-title" x="645" y="250">Denied</text>
+      <rect class="ds-diagram-node" x="620" y="315" width="145" height="55" rx="12"></rect>
+      <text class="ds-diagram-node-title" x="645" y="349">Expired</text>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#lifecycle-recipe-arrow)"
+        d="M170 100 H215"
+      ></path>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#lifecycle-recipe-arrow)"
+        d="M360 100 H620"
+      ></path>
+      <text class="ds-diagram-edge-label" x="430" y="86">public</text>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#lifecycle-recipe-arrow)"
+        d="M287 135 C300 205 350 245 410 245"
+      ></path>
+      <text class="ds-diagram-edge-label" x="305" y="190">restricted</text>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#lifecycle-recipe-arrow)"
+        d="M555 230 C585 200 600 145 650 135"
+      ></path>
+      <path
+        class="ds-diagram-edge ds-diagram-edge--exception"
+        marker-end="url(#lifecycle-recipe-arrow)"
+        d="M555 245 H620"
+      ></path>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#lifecycle-recipe-arrow)"
+        d="M692 135 V315"
+      ></path>
+    </svg>
+  </div>
+  <ul class="ds-diagram-legend" aria-label="Lifecycle legend">
+    <li><span class="ds-diagram-line-key" aria-hidden="true"></span>Allowed transition</li>
+    <li>
+      <span class="ds-diagram-line-key ds-diagram-line-key--exception" aria-hidden="true"></span
+      >Exception outcome
+    </li>
+  </ul>
+</figure>

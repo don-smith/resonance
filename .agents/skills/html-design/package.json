@@ -1,0 +1,13 @@
+{
+  "name": "html-design",
+  "private": true,
+  "description": "Runtime dependencies for the HTML design Agent Skill.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "parse5": "8.0.1"
+  }
+}

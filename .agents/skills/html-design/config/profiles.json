@@ -1,0 +1,14 @@
+[
+  {
+    "id": "application-shell",
+    "print": "not required unless the application has an explicit reporting task"
+  },
+  {
+    "id": "rail-document",
+    "print": "remove chrome and rail, flatten shadows, and keep sections and diagrams together where practical"
+  },
+  {
+    "id": "review-packet",
+    "print": "omit review controls and print all decision content and secondary evidence"
+  }
+]

@@ -1,0 +1,140 @@
+<figure class="ds-diagram-frame" aria-labelledby="system-context-frame-title">
+  <figcaption class="ds-diagram-frame__header">
+    <div>
+      <p class="ds-label">Context</p>
+      <h3 id="system-context-frame-title">System context</h3>
+    </div>
+    <p>People, the system, and external dependencies.</p>
+  </figcaption>
+  <div
+    class="ds-diagram-canvas ds-scroll-x"
+    tabindex="0"
+    aria-label="Scrollable system context diagram"
+  >
+    <svg
+      viewBox="0 0 820 380"
+      role="img"
+      aria-labelledby="system-context-title system-context-desc"
+    >
+      <title id="system-context-title">Public archive access system context</title>
+      <desc id="system-context-desc">
+        Visitors and curators use an access portal. The portal reads a catalog and records vault and
+        sends events to an email service.
+      </desc>
+      <defs>
+        <marker
+          id="system-context-arrow"
+          viewBox="0 0 10 10"
+          refX="9"
+          refY="5"
+          markerWidth="7"
+          markerHeight="7"
+          orient="auto"
+        >
+          <path class="ds-diagram-marker" d="M0 0 10 5 0 10z"></path>
+        </marker>
+      </defs>
+      <rect class="ds-diagram-boundary" x="235" y="45" width="350" height="285" rx="22"></rect>
+      <text class="ds-diagram-boundary-label" x="260" y="75">PUBLIC ACCESS BOUNDARY</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--actor"
+        x="25"
+        y="90"
+        width="165"
+        height="75"
+        rx="12"
+      ></rect>
+      <text class="ds-diagram-node-title" x="50" y="125">Visitors</text>
+      <text class="ds-diagram-node-copy" x="50" y="146">Search and request</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--actor"
+        x="25"
+        y="225"
+        width="165"
+        height="75"
+        rx="12"
+      ></rect>
+      <text class="ds-diagram-node-title" x="50" y="260">Curators</text>
+      <text class="ds-diagram-node-copy" x="50" y="281">Review requests</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--primary"
+        x="300"
+        y="130"
+        width="220"
+        height="115"
+        rx="15"
+      ></rect>
+      <text class="ds-diagram-node-title" x="330" y="170">Access portal</text>
+      <text class="ds-diagram-node-copy" x="330" y="194">Discovery and request state</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--authority"
+        x="635"
+        y="45"
+        width="160"
+        height="72"
+        rx="12"
+      ></rect>
+      <text class="ds-diagram-node-title" x="660" y="80">Catalog index</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--authority"
+        x="635"
+        y="155"
+        width="160"
+        height="72"
+        rx="12"
+      ></rect>
+      <text class="ds-diagram-node-title" x="660" y="190">Records vault</text>
+      <rect
+        class="ds-diagram-node ds-diagram-node--external"
+        x="635"
+        y="265"
+        width="160"
+        height="72"
+        rx="12"
+      ></rect>
+      <text class="ds-diagram-node-title" x="660" y="300">Email service</text>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#system-context-arrow)"
+        d="M190 127 H300"
+      ></path>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#system-context-arrow)"
+        d="M190 262 H260 V215 H300"
+      ></path>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#system-context-arrow)"
+        d="M520 160 C575 160 590 81 635 81"
+      ></path>
+      <path
+        class="ds-diagram-edge"
+        marker-end="url(#system-context-arrow)"
+        d="M520 190 H635"
+      ></path>
+      <path
+        class="ds-diagram-edge ds-diagram-edge--dashed"
+        marker-end="url(#system-context-arrow)"
+        d="M520 225 C575 225 590 301 635 301"
+      ></path>
+    </svg>
+  </div>
+  <ul class="ds-diagram-legend" aria-label="System context legend">
+    <li>
+      <span class="ds-diagram-swatch ds-diagram-swatch--actor" aria-hidden="true"></span>Person
+    </li>
+    <li>
+      <span class="ds-diagram-swatch ds-diagram-swatch--primary" aria-hidden="true"></span>Access
+      system
+    </li>
+    <li>
+      <span class="ds-diagram-swatch ds-diagram-swatch--authority" aria-hidden="true"></span>Record
+      authority
+    </li>
+    <li>
+      <span class="ds-diagram-swatch ds-diagram-swatch--external" aria-hidden="true"></span>External
+      service
+    </li>
+  </ul>
+</figure>

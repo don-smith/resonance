@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Access policy review packet</title>
+    <script src="../../../dist/theme.js"></script>
+    <link rel="stylesheet" href="../../../dist/palette.css" />
+    <link rel="stylesheet" href="../../../dist/design-system.css" />
+  </head>
+  <body>
+    <a class="ds-skip-link" href="#main">Skip to review content</a>
+    <main class="ds-review-packet" id="main">
+      <header class="ds-review-packet__masthead" data-overflow-allowed="decorative watermark">
+        <span class="ds-review-packet__watermark" aria-hidden="true">R</span>
+        <p class="ds-kicker">Decision packet · review draft</p>
+        <h1 class="ds-display">Access policy review</h1>
+        <p class="ds-statement-hero__deck">
+          A bounded packet for reviewing a decision, its evidence, and the next commitment.
+        </p>
+        <div class="ds-review-packet__controls ds-no-print" aria-label="Optional review controls">
+          <button class="ds-action ds-action--secondary" type="button">Add local note</button>
+          <button class="ds-action ds-action--secondary" type="button">Export review</button>
+        </div>
+      </header>
+      <nav class="ds-review-packet__jump-nav" aria-label="Packet sections">
+        <a href="#packet-decision">01 Decision</a>
+        <a href="#packet-evidence">02 Evidence</a>
+        <a href="#packet-next">03 Next step</a>
+      </nav>
+      <section
+        class="ds-review-packet__section"
+        id="packet-decision"
+        aria-labelledby="packet-decision-title"
+      >
+        <header class="ds-section-lead ds-section-lead--numbered">
+          <p class="ds-section-index">01</p>
+          <div>
+            <p class="ds-kicker">Decision</p>
+            <h2 class="ds-section-title" id="packet-decision-title">Keep authority explicit</h2>
+          </div>
+          <p class="ds-section-lead__summary">
+            Use this section for the question under review and the proposed answer.
+          </p>
+        </header>
+        <aside class="ds-verdict ds-verdict--thesis ds-surface--tinted">
+          <p class="ds-label">Proposed position</p>
+          <h3>The access layer should coordinate requests without owning source records.</h3>
+        </aside>
+      </section>
+      <section
+        class="ds-review-packet__section"
+        id="packet-evidence"
+        aria-labelledby="packet-evidence-title"
+      >
+        <header class="ds-section-lead ds-section-lead--numbered">
+          <p class="ds-section-index">02</p>
+          <div>
+            <p class="ds-kicker">Evidence</p>
+            <h2 class="ds-section-title" id="packet-evidence-title">
+              Show what supports the position
+            </h2>
+          </div>
+        </header>
+        <div class="ds-card-grid">
+          <article class="ds-content-card">
+            <p class="ds-content-card__tag">Finding</p>
+            <h3>Public discovery is independent</h3>
+            <p>Search can remain available during supporting-service outages.</p>
+          </article>
+          <article class="ds-content-card">
+            <p class="ds-content-card__tag">Constraint</p>
+            <h3>Record writes are excluded</h3>
+            <p>The source system remains responsible for original material.</p>
+          </article>
+        </div>
+      </section>
+      <section
+        class="ds-review-packet__section"
+        id="packet-next"
+        aria-labelledby="packet-next-title"
+      >
+        <header class="ds-section-lead ds-section-lead--numbered">
+          <p class="ds-section-index">03</p>
+          <div>
+            <p class="ds-kicker">Commitment</p>
+            <h2 class="ds-section-title" id="packet-next-title">Name the next review action</h2>
+          </div>
+        </header>
+        <div class="ds-action-cluster">
+          <button class="ds-action ds-action--primary" type="button">Accept for pilot</button
+          ><button class="ds-action ds-action--secondary" type="button">Request revision</button>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Service access architecture brief</title>
+    <script src="../../../dist/theme.js"></script>
+    <link rel="stylesheet" href="../../../dist/palette.css" />
+    <link rel="stylesheet" href="../../../dist/design-system.css" />
+  </head>
+  <body class="ds-rail-document">
+    <a class="ds-skip-link" href="#main">Skip to main content</a>
+    <header class="ds-top-chrome">
+      <strong>Service access brief</strong>
+      <div class="ds-theme-controls ds-no-print" aria-label="Theme">
+        <button type="button" data-theme-choice="system" aria-pressed="true">System</button>
+        <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+      </div>
+    </header>
+    <div class="ds-rail-document__layout">
+      <nav class="ds-rail-document__rail" aria-label="Document sections">
+        <p class="ds-label">Contents</p>
+        <ul>
+          <li><a href="#position" aria-current="page">Position</a></li>
+          <li><a href="#boundary">Boundary</a></li>
+          <li><a href="#delivery">Delivery</a></li>
+        </ul>
+      </nav>
+      <main class="ds-rail-document__main" id="main">
+        <section class="ds-statement-hero" id="position" aria-labelledby="position-title">
+          <div class="ds-statement-hero__inner ds-shell">
+            <p class="ds-kicker">Architecture position</p>
+            <h1 class="ds-display" id="position-title">
+              Access should improve without moving authority.
+            </h1>
+            <p class="ds-statement-hero__deck">
+              Use this template for a long technical document with persistent orientation and wide
+              evidence.
+            </p>
+          </div>
+        </section>
+        <section class="ds-rail-document__section" id="boundary" aria-labelledby="boundary-title">
+          <header class="ds-section-lead">
+            <div>
+              <p class="ds-kicker">01 · Boundary</p>
+              <h2 class="ds-section-title" id="boundary-title">
+                Separate access from record ownership
+              </h2>
+            </div>
+            <p class="ds-section-lead__summary">
+              Replace this guidance with the artifact's actual system relationships.
+            </p>
+          </header>
+          <aside class="ds-verdict ds-verdict--rule ds-surface--tinted">
+            <p class="ds-label">Template rule</p>
+            <h3>Keep the main argument available without JavaScript.</h3>
+          </aside>
+        </section>
+        <section class="ds-rail-document__section" id="delivery" aria-labelledby="delivery-title">
+          <header class="ds-section-lead">
+            <div>
+              <p class="ds-kicker">02 · Sequence</p>
+              <h2 class="ds-section-title" id="delivery-title">Deliver in visible slices</h2>
+            </div>
+          </header>
+          <ol class="ds-phase-timeline">
+            <li class="ds-phase">
+              <span class="ds-phase__number">01</span>
+              <h3>Discover</h3>
+              <p>Make the first useful capability visible.</p>
+            </li>
+            <li class="ds-phase">
+              <span class="ds-phase__number">02</span>
+              <h3>Request</h3>
+              <p>Add the bounded workflow.</p>
+            </li>
+            <li class="ds-phase">
+              <span class="ds-phase__number">03</span>
+              <h3>Review</h3>
+              <p>Introduce privileged decisions.</p>
+            </li>
+            <li class="ds-phase">
+              <span class="ds-phase__number">04</span>
+              <h3>Operate</h3>
+              <p>Close feedback and reporting.</p>
+            </li>
+          </ol>
+        </section>
+      </main>
+    </div>
+    <script>
+      const links = [...document.querySelectorAll(".ds-rail-document__rail a")];
+      const sections = links.map((link) => document.querySelector(link.hash)).filter(Boolean);
+      if ("IntersectionObserver" in window) {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            const current = entries.filter((entry) => entry.isIntersecting).at(-1);
+            if (!current) return;
+            links.forEach((link) => {
+              if (link.hash === `#${current.target.id}`) link.setAttribute("aria-current", "page");
+              else link.removeAttribute("aria-current");
+            });
+          },
+          { rootMargin: "-20% 0px -70%" },
+        );
+        sections.forEach((section) => observer.observe(section));
+      }
+    </script>
+  </body>
+</html>

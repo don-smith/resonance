@@ -1,0 +1,196 @@
+/* GENERATED FILE. DO NOT EDIT. Source: system/palettes/slate-copper.css */
+@layer ds.palette {
+  :root {
+    color-scheme: light;
+
+    --ds-palette-light-canvas: #eef1f3;
+    --ds-palette-light-surface: #fbfcfd;
+    --ds-palette-light-surface-raised: #ffffff;
+    --ds-palette-light-text: #1d2730;
+    --ds-palette-light-text-muted: #4f5f6b;
+    --ds-palette-light-text-quiet: #596975;
+    --ds-palette-light-border: #c9d0d6;
+    --ds-palette-light-border-strong: #909ca5;
+    --ds-palette-light-action: #245a68;
+    --ds-palette-light-action-hover: #174550;
+    --ds-palette-light-warning: #98472d;
+    --ds-palette-light-focus: #a45330;
+    --ds-palette-light-selection: #d7e8ec;
+    --ds-palette-light-shadow: 0 16px 42px rgb(29 39 48 / 10%);
+    --ds-palette-light-diagram-neutral: #4f5f6b;
+    --ds-palette-light-diagram-moss: #256273;
+    --ds-palette-light-diagram-moss-soft: #d7e8ec;
+    --ds-palette-light-diagram-rust: #98472d;
+    --ds-palette-light-diagram-rust-soft: #f3ddd4;
+    --ds-palette-light-diagram-gold: #83671f;
+    --ds-palette-light-diagram-gold-soft: #eee6c9;
+    --ds-palette-light-diagram-blue: #3f5f95;
+    --ds-palette-light-diagram-blue-soft: #dde5f2;
+    --ds-palette-light-diagram-violet: #6a527f;
+    --ds-palette-light-diagram-violet-soft: #e7deed;
+
+    --ds-palette-dark-canvas: #111820;
+    --ds-palette-dark-surface: #18222c;
+    --ds-palette-dark-surface-raised: #202c37;
+    --ds-palette-dark-text: #edf1f4;
+    --ds-palette-dark-text-muted: #b3bdc5;
+    --ds-palette-dark-text-quiet: #a9b5be;
+    --ds-palette-dark-border: #364551;
+    --ds-palette-dark-border-strong: #667784;
+    --ds-palette-dark-action: #85c5d2;
+    --ds-palette-dark-action-hover: #a8d9e1;
+    --ds-palette-dark-warning: #f0a07d;
+    --ds-palette-dark-focus: #f2b17f;
+    --ds-palette-dark-selection: #244650;
+    --ds-palette-dark-shadow: 0 16px 42px rgb(0 0 0 / 30%);
+    --ds-palette-dark-diagram-neutral: #b3bdc5;
+    --ds-palette-dark-diagram-moss: #85c5d2;
+    --ds-palette-dark-diagram-moss-soft: #203b45;
+    --ds-palette-dark-diagram-rust: #f0a07d;
+    --ds-palette-dark-diagram-rust-soft: #492d27;
+    --ds-palette-dark-diagram-gold: #d9bd73;
+    --ds-palette-dark-diagram-gold-soft: #403a25;
+    --ds-palette-dark-diagram-blue: #9ab9e3;
+    --ds-palette-dark-diagram-blue-soft: #293b54;
+    --ds-palette-dark-diagram-violet: #c5acd5;
+    --ds-palette-dark-diagram-violet-soft: #3b3045;
+
+    --ds-palette-print-canvas: #ffffff;
+    --ds-palette-print-text: #111111;
+    --ds-palette-print-text-muted: #444444;
+    --ds-palette-print-text-quiet: #555555;
+    --ds-palette-print-border: #bbbbbb;
+    --ds-palette-print-border-strong: #777777;
+    --ds-palette-print-action: #244f5a;
+    --ds-palette-print-warning: #7f3d28;
+    --ds-palette-print-selection: #eeeeee;
+
+    --ds-terminal-canvas: #0d141a;
+    --ds-terminal-text: #e9eef2;
+    --ds-terminal-text-muted: #b7c3cc;
+    --ds-terminal-border: #364650;
+    --ds-overlay: rgb(9 15 20 / 74%);
+
+    --ds-canvas: var(--ds-palette-light-canvas);
+    --ds-surface: var(--ds-palette-light-surface);
+    --ds-surface-raised: var(--ds-palette-light-surface-raised);
+    --ds-text: var(--ds-palette-light-text);
+    --ds-text-muted: var(--ds-palette-light-text-muted);
+    --ds-text-quiet: var(--ds-palette-light-text-quiet);
+    --ds-border: var(--ds-palette-light-border);
+    --ds-border-strong: var(--ds-palette-light-border-strong);
+    --ds-action: var(--ds-palette-light-action);
+    --ds-action-hover: var(--ds-palette-light-action-hover);
+    --ds-warning: var(--ds-palette-light-warning);
+    --ds-focus: var(--ds-palette-light-focus);
+    --ds-selection: var(--ds-palette-light-selection);
+    --ds-shadow: var(--ds-palette-light-shadow);
+    --ds-diagram-neutral: var(--ds-palette-light-diagram-neutral);
+    --ds-diagram-moss: var(--ds-palette-light-diagram-moss);
+    --ds-diagram-moss-soft: var(--ds-palette-light-diagram-moss-soft);
+    --ds-diagram-rust: var(--ds-palette-light-diagram-rust);
+    --ds-diagram-rust-soft: var(--ds-palette-light-diagram-rust-soft);
+    --ds-diagram-gold: var(--ds-palette-light-diagram-gold);
+    --ds-diagram-gold-soft: var(--ds-palette-light-diagram-gold-soft);
+    --ds-diagram-blue: var(--ds-palette-light-diagram-blue);
+    --ds-diagram-blue-soft: var(--ds-palette-light-diagram-blue-soft);
+    --ds-diagram-violet: var(--ds-palette-light-diagram-violet);
+    --ds-diagram-violet-soft: var(--ds-palette-light-diagram-violet-soft);
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ds-canvas: var(--ds-palette-dark-canvas);
+    --ds-surface: var(--ds-palette-dark-surface);
+    --ds-surface-raised: var(--ds-palette-dark-surface-raised);
+    --ds-text: var(--ds-palette-dark-text);
+    --ds-text-muted: var(--ds-palette-dark-text-muted);
+    --ds-text-quiet: var(--ds-palette-dark-text-quiet);
+    --ds-border: var(--ds-palette-dark-border);
+    --ds-border-strong: var(--ds-palette-dark-border-strong);
+    --ds-action: var(--ds-palette-dark-action);
+    --ds-action-hover: var(--ds-palette-dark-action-hover);
+    --ds-warning: var(--ds-palette-dark-warning);
+    --ds-focus: var(--ds-palette-dark-focus);
+    --ds-selection: var(--ds-palette-dark-selection);
+    --ds-shadow: var(--ds-palette-dark-shadow);
+    --ds-diagram-neutral: var(--ds-palette-dark-diagram-neutral);
+    --ds-diagram-moss: var(--ds-palette-dark-diagram-moss);
+    --ds-diagram-moss-soft: var(--ds-palette-dark-diagram-moss-soft);
+    --ds-diagram-rust: var(--ds-palette-dark-diagram-rust);
+    --ds-diagram-rust-soft: var(--ds-palette-dark-diagram-rust-soft);
+    --ds-diagram-gold: var(--ds-palette-dark-diagram-gold);
+    --ds-diagram-gold-soft: var(--ds-palette-dark-diagram-gold-soft);
+    --ds-diagram-blue: var(--ds-palette-dark-diagram-blue);
+    --ds-diagram-blue-soft: var(--ds-palette-dark-diagram-blue-soft);
+    --ds-diagram-violet: var(--ds-palette-dark-diagram-violet);
+    --ds-diagram-violet-soft: var(--ds-palette-dark-diagram-violet-soft);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]),
+    :root[data-theme="system"] {
+      color-scheme: dark;
+      --ds-canvas: var(--ds-palette-dark-canvas);
+      --ds-surface: var(--ds-palette-dark-surface);
+      --ds-surface-raised: var(--ds-palette-dark-surface-raised);
+      --ds-text: var(--ds-palette-dark-text);
+      --ds-text-muted: var(--ds-palette-dark-text-muted);
+      --ds-text-quiet: var(--ds-palette-dark-text-quiet);
+      --ds-border: var(--ds-palette-dark-border);
+      --ds-border-strong: var(--ds-palette-dark-border-strong);
+      --ds-action: var(--ds-palette-dark-action);
+      --ds-action-hover: var(--ds-palette-dark-action-hover);
+      --ds-warning: var(--ds-palette-dark-warning);
+      --ds-focus: var(--ds-palette-dark-focus);
+      --ds-selection: var(--ds-palette-dark-selection);
+      --ds-shadow: var(--ds-palette-dark-shadow);
+      --ds-diagram-neutral: var(--ds-palette-dark-diagram-neutral);
+      --ds-diagram-moss: var(--ds-palette-dark-diagram-moss);
+      --ds-diagram-moss-soft: var(--ds-palette-dark-diagram-moss-soft);
+      --ds-diagram-rust: var(--ds-palette-dark-diagram-rust);
+      --ds-diagram-rust-soft: var(--ds-palette-dark-diagram-rust-soft);
+      --ds-diagram-gold: var(--ds-palette-dark-diagram-gold);
+      --ds-diagram-gold-soft: var(--ds-palette-dark-diagram-gold-soft);
+      --ds-diagram-blue: var(--ds-palette-dark-diagram-blue);
+      --ds-diagram-blue-soft: var(--ds-palette-dark-diagram-blue-soft);
+      --ds-diagram-violet: var(--ds-palette-dark-diagram-violet);
+      --ds-diagram-violet-soft: var(--ds-palette-dark-diagram-violet-soft);
+    }
+  }
+
+  @media print {
+    :root {
+      color-scheme: light;
+      --ds-canvas: var(--ds-palette-print-canvas);
+      --ds-surface: var(--ds-palette-print-canvas);
+      --ds-surface-raised: var(--ds-palette-print-canvas);
+      --ds-text: var(--ds-palette-print-text);
+      --ds-text-muted: var(--ds-palette-print-text-muted);
+      --ds-text-quiet: var(--ds-palette-print-text-quiet);
+      --ds-border: var(--ds-palette-print-border);
+      --ds-border-strong: var(--ds-palette-print-border-strong);
+      --ds-action: var(--ds-palette-print-action);
+      --ds-action-hover: var(--ds-palette-print-action);
+      --ds-warning: var(--ds-palette-print-warning);
+      --ds-focus: var(--ds-palette-print-text);
+      --ds-selection: var(--ds-palette-print-selection);
+      --ds-shadow: none;
+      --ds-diagram-neutral: var(--ds-palette-light-diagram-neutral);
+      --ds-diagram-moss: var(--ds-palette-light-diagram-moss);
+      --ds-diagram-moss-soft: var(--ds-palette-light-diagram-moss-soft);
+      --ds-diagram-rust: var(--ds-palette-light-diagram-rust);
+      --ds-diagram-rust-soft: var(--ds-palette-light-diagram-rust-soft);
+      --ds-diagram-gold: var(--ds-palette-light-diagram-gold);
+      --ds-diagram-gold-soft: var(--ds-palette-light-diagram-gold-soft);
+      --ds-diagram-blue: var(--ds-palette-light-diagram-blue);
+      --ds-diagram-blue-soft: var(--ds-palette-light-diagram-blue-soft);
+      --ds-diagram-violet: var(--ds-palette-light-diagram-violet);
+      --ds-diagram-violet-soft: var(--ds-palette-light-diagram-violet-soft);
+    }
+  }
+}

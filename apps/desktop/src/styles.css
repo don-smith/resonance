@@ -190,6 +190,13 @@ button {
   margin-top: 0.75rem;
 }
 
+.file-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 32rem;
+  object-fit: contain;
+}
+
 .toastui-editor-defaultUI {
   color: #222;
   border-color: #4b4560;

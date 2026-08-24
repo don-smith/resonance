@@ -8,8 +8,8 @@ use resonance_runtime::{
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary},
     workspace_file_runtime::{
-        FileConflictView, FileEntryKind, FileTreeEntry, MarkdownFileView, RootBindingStatus,
-        WorkspaceFileRuntime,
+        FileConflictChoiceKind, FileConflictChoiceView, FileConflictView, FileEntryKind,
+        FilePreview, FileTreeEntry, MarkdownFileView, RootBindingStatus, WorkspaceFileRuntime,
     },
     workspace_files::projection::ConflictKind,
     workspace_session::{
@@ -88,8 +88,30 @@ pub struct ConflictView {
     pub node_id: String,
     pub kind: String,
     pub competing_revision_ids: Vec<String>,
+    pub resolution_candidate_ids: Vec<String>,
     pub reviewable_revision_ids: Vec<String>,
     pub deletion_operation_id: Option<String>,
+    pub tree_choices: Vec<ConflictChoiceView>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictChoiceView {
+    pub candidate_id: String,
+    pub node_id: String,
+    pub kind: String,
+    pub selected: bool,
+    pub name: String,
+    pub target_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePreviewView {
+    pub kind: String,
+    pub mime_type: String,
+    pub bytes: Vec<u8>,
+    pub byte_length: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -149,6 +171,13 @@ pub struct RetryJoinRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OpenMarkdownRequest {
+    pub node_id: String,
+    pub revision_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenFilePreviewRequest {
     pub node_id: String,
     pub revision_id: String,
 }
@@ -614,6 +643,20 @@ pub async fn open_markdown_file(
 }
 
 #[tauri::command]
+pub async fn open_file_preview(
+    request: OpenFilePreviewRequest,
+    state: State<'_, ManagedWorkspaceState>,
+) -> Result<FilePreviewView, String> {
+    let files = state.inner.files.lock().await;
+    files
+        .as_ref()
+        .ok_or_else(file_runtime_unavailable)?
+        .open_file_preview(&request.node_id, &request.revision_id)
+        .map(file_preview_view)
+        .map_err(|_| "That file preview is unavailable.".to_owned())
+}
+
+#[tauri::command]
 pub async fn create_markdown_file(
     request: CreateMarkdownRequest,
     state: State<'_, ManagedWorkspaceState>,
@@ -832,8 +875,50 @@ fn conflict_view(conflict: FileConflictView) -> ConflictView {
         }
         .to_owned(),
         competing_revision_ids: conflict.competing_revision_ids,
+        resolution_candidate_ids: conflict.resolution_candidate_ids,
         reviewable_revision_ids: conflict.reviewable_revision_ids,
         deletion_operation_id: conflict.deletion_operation_id,
+        tree_choices: conflict
+            .tree_choices
+            .into_iter()
+            .map(conflict_choice_view)
+            .collect(),
+    }
+}
+
+fn conflict_choice_view(choice: FileConflictChoiceView) -> ConflictChoiceView {
+    ConflictChoiceView {
+        candidate_id: choice.candidate_id,
+        node_id: choice.node_id,
+        kind: match choice.kind {
+            FileConflictChoiceKind::File => "file",
+            FileConflictChoiceKind::Directory => "directory",
+            FileConflictChoiceKind::Move => "move",
+        }
+        .to_owned(),
+        selected: choice.selected,
+        name: choice.name,
+        target_path: choice.target_path,
+    }
+}
+
+fn file_preview_view(preview: FilePreview) -> FilePreviewView {
+    match preview {
+        FilePreview::Image { mime_type, bytes } => FilePreviewView {
+            kind: "image".to_owned(),
+            byte_length: bytes.len() as u64,
+            mime_type,
+            bytes,
+        },
+        FilePreview::Unavailable {
+            mime_type,
+            byte_length,
+        } => FilePreviewView {
+            kind: "unavailable".to_owned(),
+            mime_type,
+            bytes: Vec::new(),
+            byte_length,
+        },
     }
 }
 

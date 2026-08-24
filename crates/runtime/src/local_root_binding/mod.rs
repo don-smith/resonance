@@ -527,10 +527,14 @@ fn materialized_snapshot(
 }
 
 fn mime_type(relative_path: &str) -> &'static str {
-    if relative_path.ends_with(".md") {
-        "text/markdown"
-    } else {
-        "application/octet-stream"
+    match relative_path.to_ascii_lowercase().rsplit('.').next() {
+        Some("md") => "text/markdown",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        _ => "application/octet-stream",
     }
 }
 

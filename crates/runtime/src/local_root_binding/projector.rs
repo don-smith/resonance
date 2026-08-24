@@ -25,12 +25,119 @@ pub(crate) fn project(
     if !root.is_dir() {
         return Err(RootBindingError::Unavailable);
     }
+    remove_stale_nodes(root, projection, previous)?;
+    relocate_materialized_nodes(root, projection, previous)?;
     let mut records = BTreeMap::new();
     for node in projection.root.values() {
         project_node(root, "", node, projection, blobs, previous, &mut records)?;
     }
     remove_stale_materialization(root, previous, &records)?;
     Ok(records)
+}
+
+fn remove_stale_nodes(
+    root: &Path,
+    projection: &FileTreeProjection,
+    previous: &BTreeMap<String, MaterializedRecord>,
+) -> Result<(), RootBindingError> {
+    let mut desired_paths = BTreeMap::new();
+    for node in projection.root.values() {
+        collect_projected_paths("", node, &mut desired_paths);
+    }
+    let mut stale = previous
+        .values()
+        .filter(|record| !desired_paths.contains_key(&record.node_id))
+        .collect::<Vec<_>>();
+    stale.sort_by_key(|record| std::cmp::Reverse(record.relative_path.matches('/').count()));
+    for record in stale {
+        remove_materialized_record(root, record)?;
+    }
+    Ok(())
+}
+
+fn relocate_materialized_nodes(
+    root: &Path,
+    projection: &FileTreeProjection,
+    previous: &BTreeMap<String, MaterializedRecord>,
+) -> Result<(), RootBindingError> {
+    let mut desired_paths = BTreeMap::new();
+    for node in projection.root.values() {
+        collect_projected_paths("", node, &mut desired_paths);
+    }
+    for record in previous.values() {
+        let Some(desired_path) = desired_paths.get(&record.node_id) else {
+            continue;
+        };
+        if desired_path == &record.relative_path {
+            continue;
+        }
+        let source = root.join(
+            record
+                .relative_path
+                .replace('/', std::path::MAIN_SEPARATOR_STR),
+        );
+        let metadata = match fs::symlink_metadata(&source) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(map_projection_io(error)),
+        };
+        if metadata.file_type().is_symlink() {
+            return Err(RootBindingError::Symlink);
+        }
+        if record.directory {
+            if !metadata.is_dir() {
+                return Err(RootBindingError::ProjectionCollision(
+                    record.relative_path.clone(),
+                ));
+            }
+        } else {
+            if !metadata.is_file() {
+                return Err(RootBindingError::ProjectionCollision(
+                    record.relative_path.clone(),
+                ));
+            }
+            if let Some(expected_hash) = &record.content_hash {
+                let bytes = fs::read(&source).map_err(map_projection_io)?;
+                if ContentHash::from_bytes(&bytes).as_str() != expected_hash {
+                    return Err(RootBindingError::ProjectionCollision(
+                        record.relative_path.clone(),
+                    ));
+                }
+            }
+        }
+        let destination = root.join(desired_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+        if destination.exists() {
+            return Err(RootBindingError::ProjectionCollision(desired_path.clone()));
+        }
+        let destination_parent = destination.parent().ok_or(RootBindingError::EscapesRoot)?;
+        fs::create_dir_all(destination_parent).map_err(map_projection_io)?;
+        fs::rename(&source, &destination).map_err(map_projection_io)?;
+        if let Some(source_parent) = source.parent() {
+            fs::File::open(source_parent)
+                .and_then(|directory| directory.sync_all())
+                .map_err(map_projection_io)?;
+        }
+        if destination.parent() != source.parent() {
+            fs::File::open(destination_parent)
+                .and_then(|directory| directory.sync_all())
+                .map_err(map_projection_io)?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_projected_paths(parent: &str, node: &TreeNode, paths: &mut BTreeMap<String, String>) {
+    let relative_path = if parent.is_empty() {
+        node.name().to_owned()
+    } else {
+        format!("{parent}/{}", node.name())
+    };
+    paths.insert(node.node_id().to_owned(), relative_path.clone());
+    if let TreeNode::Directory { children, .. } = node {
+        for child in children.values() {
+            collect_projected_paths(&relative_path, child, paths);
+        }
+    }
 }
 
 fn project_node(
@@ -142,48 +249,56 @@ fn remove_stale_materialization(
         .collect::<Vec<_>>();
     stale.sort_by_key(|record| std::cmp::Reverse(record.relative_path.matches('/').count()));
     for record in stale {
-        let path = root.join(
-            record
-                .relative_path
-                .replace('/', std::path::MAIN_SEPARATOR_STR),
-        );
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(map_projection_io(error)),
-        };
-        if metadata.file_type().is_symlink() {
-            return Err(RootBindingError::Symlink);
+        remove_materialized_record(root, record)?;
+    }
+    Ok(())
+}
+
+fn remove_materialized_record(
+    root: &Path,
+    record: &MaterializedRecord,
+) -> Result<(), RootBindingError> {
+    let path = root.join(
+        record
+            .relative_path
+            .replace('/', std::path::MAIN_SEPARATOR_STR),
+    );
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(map_projection_io(error)),
+    };
+    if metadata.file_type().is_symlink() {
+        return Err(RootBindingError::Symlink);
+    }
+    if record.directory {
+        if !metadata.is_dir() {
+            return Err(RootBindingError::ProjectionCollision(
+                record.relative_path.clone(),
+            ));
         }
-        if record.directory {
-            if !metadata.is_dir() {
+        fs::remove_dir(&path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::DirectoryNotEmpty {
+                RootBindingError::ProjectionCollision(record.relative_path.clone())
+            } else {
+                map_projection_io(error)
+            }
+        })?;
+    } else {
+        if !metadata.is_file() {
+            return Err(RootBindingError::ProjectionCollision(
+                record.relative_path.clone(),
+            ));
+        }
+        if let Some(expected_hash) = &record.content_hash {
+            let bytes = fs::read(&path).map_err(map_projection_io)?;
+            if ContentHash::from_bytes(&bytes).as_str() != expected_hash {
                 return Err(RootBindingError::ProjectionCollision(
                     record.relative_path.clone(),
                 ));
             }
-            fs::remove_dir(&path).map_err(|error| {
-                if error.kind() == std::io::ErrorKind::DirectoryNotEmpty {
-                    RootBindingError::ProjectionCollision(record.relative_path.clone())
-                } else {
-                    map_projection_io(error)
-                }
-            })?;
-        } else {
-            if !metadata.is_file() {
-                return Err(RootBindingError::ProjectionCollision(
-                    record.relative_path.clone(),
-                ));
-            }
-            if let Some(expected_hash) = &record.content_hash {
-                let bytes = fs::read(&path).map_err(map_projection_io)?;
-                if ContentHash::from_bytes(&bytes).as_str() != expected_hash {
-                    return Err(RootBindingError::ProjectionCollision(
-                        record.relative_path.clone(),
-                    ));
-                }
-            }
-            fs::remove_file(&path).map_err(map_projection_io)?;
         }
+        fs::remove_file(&path).map_err(map_projection_io)?;
     }
     Ok(())
 }

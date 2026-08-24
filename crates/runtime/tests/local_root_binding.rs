@@ -133,6 +133,121 @@ fn two_private_roots_materialize_the_same_tree_and_bytes() {
 }
 
 #[test]
+fn repair_relocates_a_materialized_concurrent_create_loser() {
+    let app_data = tempfile::tempdir().expect("app data creates");
+    let root = app_data.path().join("root");
+    let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("identity creates");
+    let membership = MembershipProjection {
+        canonical_head: Some("head".to_owned()),
+        members: vec![Member::new(
+            identity.public_identity().to_string(),
+            "Ada",
+            "developer",
+            "Ada",
+            0,
+        )],
+        statuses: Default::default(),
+    };
+    let mut authority = WorkspaceFileAuthority::new("workspace");
+    let plans =
+        SignedFileOperation::create_directory(&identity, "workspace", None, "plans", Vec::new())
+            .expect("plans signs");
+    authority.apply(&plans, &membership).expect("plans applies");
+    let bytes = b"materialized file\n";
+    let hash = authority
+        .blob_store_mut()
+        .store(bytes)
+        .expect("file bytes store");
+    let file = SignedFileOperation::create_file(
+        &identity,
+        "workspace",
+        Some(plans.operation.node_id.clone()),
+        "tree-collision",
+        hash.as_str(),
+        "application/octet-stream",
+        bytes.len() as u64,
+        vec![plans.operation.operation_id.clone()],
+    )
+    .expect("file signs");
+    authority.apply(&file, &membership).expect("file applies");
+    let mut binding = LocalRootBinding::bind(
+        &store,
+        &root,
+        RootSelection::ConfirmedNotGitManaged,
+        &authority.projection(),
+        authority.blob_store(),
+    )
+    .expect("file projects");
+    let directory = (0..100)
+        .map(|_| {
+            SignedFileOperation::create_directory(
+                &identity,
+                "workspace",
+                Some(plans.operation.node_id.clone()),
+                "tree-collision",
+                vec![plans.operation.operation_id.clone()],
+            )
+            .expect("directory signs")
+        })
+        .find(|candidate| candidate.operation.operation_id < file.operation.operation_id)
+        .expect("lower ordered directory operation generates");
+    authority
+        .apply(&directory, &membership)
+        .expect("concurrent directory applies");
+
+    binding
+        .repair(&authority.projection(), authority.blob_store())
+        .expect("known file relocates before directory projects");
+
+    assert!(root.join("plans/tree-collision").is_dir());
+    let sibling = root.join(format!(
+        "plans/tree-collision.resonance-conflict-{}",
+        &file.operation.operation_id[..8]
+    ));
+    assert_eq!(fs::read(&sibling).expect("losing file remains"), bytes);
+    assert_eq!(binding.health(), RootHealth::Healthy);
+
+    let conflict = authority
+        .projection()
+        .conflicts
+        .into_iter()
+        .find(|conflict| !conflict.resolved)
+        .expect("create conflict remains");
+    let resolution = SignedFileOperation::resolve_conflict(
+        &identity,
+        "workspace",
+        conflict.node_id.clone(),
+        conflict.record_id,
+        Some(file.operation.operation_id.clone()),
+        vec![
+            file.operation.operation_id.clone(),
+            directory.operation.operation_id.clone(),
+        ],
+    )
+    .expect("directory resolution signs");
+    authority
+        .apply(&resolution, &membership)
+        .expect("directory resolution applies");
+    binding
+        .repair(&authority.projection(), authority.blob_store())
+        .expect("stale file leaves before selected directory relocates");
+
+    assert_eq!(
+        fs::read(root.join("plans/tree-collision")).expect("selected file remains"),
+        bytes
+    );
+    assert!(!sibling.exists());
+    assert_eq!(
+        fs::read_dir(root.join("plans"))
+            .expect("plans reads")
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn rejects_nonempty_git_managed_and_unconfirmed_roots() {
     let app_data = tempfile::tempdir().expect("app data creates");
     let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");

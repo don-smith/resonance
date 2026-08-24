@@ -5,10 +5,12 @@ import Editor from "@toast-ui/editor";
 import "@toast-ui/editor/dist/toastui-editor.css";
 import "./styles.css";
 import {
+  isFilePreviewView,
   isMarkdownRevisionView,
   isWorkspaceShellView,
   peerStatus,
   type FileEntryView,
+  type FilePreviewView,
   type MarkdownRevisionView,
   type RootState,
   type WorkspaceShellView,
@@ -22,6 +24,8 @@ import {
   conflictRevisionActionLabel,
   retainedOpenRevision,
   rootStatusMessage,
+  treeConflictActionLabel,
+  treeConflictPreviewLabel,
 } from "./workspace-files-view.js";
 import { createTemporaryMessage } from "./temporary-message.js";
 
@@ -33,6 +37,9 @@ let currentView: WorkspaceShellView | null = null;
 let openRevision: MarkdownRevisionView | null = null;
 let openRevisionReadOnly = false;
 let markdownEditor: Editor | null = null;
+let previewedEntry: FileEntryView | null = null;
+let filePreview: FilePreviewView | null = null;
+let filePreviewUrl: string | null = null;
 const temporaryMessage = createTemporaryMessage((message) => {
   actionMessage = message;
   if (currentView) render(currentView);
@@ -46,6 +53,8 @@ function render(view: WorkspaceShellView): void {
   currentView = view;
   markdownEditor?.destroy();
   markdownEditor = null;
+  if (filePreviewUrl) URL.revokeObjectURL(filePreviewUrl);
+  filePreviewUrl = null;
   const onboarding = view.state === "onboarding";
   const blocked =
     view.state === "identity-error" || view.state === "storage-error";
@@ -98,7 +107,10 @@ function render(view: WorkspaceShellView): void {
                 <section class="conflicts"><h3>Conflicts</h3><ul></ul></section>
               </aside>
               <section class="editor-panel">
-                <p class="editor-placeholder">Choose a Markdown file to edit.</p>
+                <p class="editor-placeholder">Choose a workspace entry to inspect or edit.</p>
+                <section class="file-preview" hidden>
+                  <h3></h3><p></p><img hidden alt="" /><ul></ul>
+                </section>
                 <div id="markdown-editor" hidden></div>
                 <button type="button" data-action="save-markdown" hidden>Save revision</button>
               </section>
@@ -180,7 +192,25 @@ function renderFiles(view: WorkspaceShellView): void {
     const title = document.createElement("p");
     title.textContent = conflictLabel(conflict.kind);
     item.append(title);
-    for (const revisionId of conflict.competingRevisionIds) {
+    if (conflict.treeChoices.length > 0) {
+      for (const choice of conflict.treeChoices) {
+        const preview = document.createElement("button");
+        preview.type = "button";
+        preview.textContent = treeConflictPreviewLabel(choice);
+        preview.addEventListener("click", () => previewEntry(choice.nodeId));
+        item.append(preview);
+        const choose = document.createElement("button");
+        choose.type = "button";
+        choose.textContent = treeConflictActionLabel(choice);
+        choose.addEventListener("click", () =>
+          resolveConflict(conflict.recordId, choice.candidateId),
+        );
+        item.append(choose);
+      }
+      conflicts.append(item);
+      continue;
+    }
+    for (const revisionId of conflict.resolutionCandidateIds) {
       if (conflict.reviewableRevisionIds.includes(revisionId)) {
         const review = document.createElement("button");
         review.type = "button";
@@ -209,6 +239,15 @@ function renderFiles(view: WorkspaceShellView): void {
     item.append(keep);
     conflicts.append(item);
   }
+
+  if (
+    previewedEntry &&
+    !files.entries.some((entry) => entry.nodeId === previewedEntry!.nodeId)
+  ) {
+    previewedEntry = null;
+    filePreview = null;
+  }
+  if (previewedEntry) mountFilePreview(previewedEntry, files.entries);
 
   const retainedRevision = retainedOpenRevision(openRevision, files.entries);
   if (openRevision && !retainedRevision) {
@@ -247,15 +286,19 @@ function appendTreeLevel(
 ): void {
   for (const entry of childEntries(entries, parentNodeId)) {
     const item = document.createElement("li");
-    const label = document.createElement(
-      entry.kind === "markdown" && entry.editable ? "button" : "span",
-    );
+    const label = document.createElement("button");
+    label.type = "button";
     label.textContent = entry.name;
-    if (label instanceof HTMLButtonElement && entry.currentRevisionId) {
-      label.type = "button";
+    if (
+      entry.kind === "markdown" &&
+      entry.editable &&
+      entry.currentRevisionId
+    ) {
       label.addEventListener("click", () =>
         openMarkdown(entry.nodeId, entry.currentRevisionId!, false),
       );
+    } else {
+      label.addEventListener("click", () => previewEntry(entry.nodeId));
     }
     item.append(label);
     if (entry.kind === "directory") {
@@ -265,6 +308,50 @@ function appendTreeLevel(
     }
     parent.append(item);
   }
+}
+
+function mountFilePreview(
+  entry: FileEntryView,
+  entries: FileEntryView[],
+): void {
+  const host = requiredElement<HTMLElement>(".file-preview");
+  host.hidden = false;
+  requiredElement<HTMLParagraphElement>(".editor-placeholder").hidden = true;
+  requiredElement<HTMLHeadingElement>(".file-preview h3").textContent =
+    entry.name;
+  const message = requiredElement<HTMLParagraphElement>(".file-preview p");
+  const image = requiredElement<HTMLImageElement>(".file-preview img");
+  const children = requiredElement<HTMLUListElement>(".file-preview ul");
+  image.hidden = true;
+  children.hidden = true;
+  if (entry.kind === "directory") {
+    const directChildren = childEntries(entries, entry.nodeId);
+    message.textContent =
+      directChildren.length === 0
+        ? "Empty folder."
+        : `${directChildren.length} workspace entries.`;
+    children.hidden = false;
+    for (const child of directChildren) {
+      const item = document.createElement("li");
+      item.textContent = `${child.kind === "directory" ? "Folder" : "File"}: ${child.name}`;
+      children.append(item);
+    }
+    return;
+  }
+  if (filePreview?.kind === "image") {
+    const blob = new Blob([new Uint8Array(filePreview.bytes)], {
+      type: filePreview.mimeType,
+    });
+    filePreviewUrl = URL.createObjectURL(blob);
+    image.src = filePreviewUrl;
+    image.alt = `Preview of ${entry.name}`;
+    image.hidden = false;
+    message.textContent = `${filePreview.mimeType} · ${filePreview.byteLength} bytes`;
+    return;
+  }
+  message.textContent = filePreview
+    ? `Preview unavailable for ${filePreview.mimeType} (${filePreview.byteLength} bytes). Review this file outside Resonance.`
+    : "Preview unavailable. Review this file outside Resonance.";
 }
 
 function mountMarkdownEditor(revision: MarkdownRevisionView): void {
@@ -347,8 +434,44 @@ async function createMarkdown(values: FormData): Promise<void> {
       },
     });
     if (isMarkdownRevisionView(result)) {
+      previewedEntry = null;
+      filePreview = null;
       openRevision = result;
       openRevisionReadOnly = false;
+      if (currentView) render(currentView);
+    }
+  } catch (error) {
+    showActionError(error);
+  }
+}
+
+async function previewEntry(nodeId: string): Promise<void> {
+  const entry = currentView?.files?.entries.find(
+    (candidate) => candidate.nodeId === nodeId,
+  );
+  if (!entry) return;
+  openRevision = null;
+  openRevisionReadOnly = false;
+  previewedEntry = entry;
+  if (entry.kind === "directory") {
+    filePreview = null;
+    if (currentView) render(currentView);
+    return;
+  }
+  if (!entry.currentRevisionId) return;
+  if (entry.kind === "markdown") {
+    await openMarkdown(entry.nodeId, entry.currentRevisionId, true);
+    return;
+  }
+  try {
+    const result = await invoke<FilePreviewView>("open_file_preview", {
+      request: {
+        nodeId: entry.nodeId,
+        revisionId: entry.currentRevisionId,
+      },
+    });
+    if (isFilePreviewView(result)) {
+      filePreview = result;
       if (currentView) render(currentView);
     }
   } catch (error) {
@@ -366,6 +489,8 @@ async function openMarkdown(
       request: { nodeId, revisionId },
     });
     if (isMarkdownRevisionView(result)) {
+      previewedEntry = null;
+      filePreview = null;
       openRevision = result;
       openRevisionReadOnly = readOnly;
       if (currentView) render(currentView);

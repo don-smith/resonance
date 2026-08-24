@@ -781,6 +781,51 @@ fn delete_edit_and_competing_moves_preserve_conflict_records() {
     let names = projection_names(&authority);
     assert!(names.iter().any(|name| name.ends_with(".deleted")));
     assert!(names.iter().any(|name| name.ends_with(".move")));
+
+    let move_conflict = projection
+        .conflicts
+        .into_iter()
+        .find(|conflict| {
+            conflict.kind
+                == resonance_runtime::workspace_files::projection::ConflictKind::CompetingMove
+        })
+        .expect("competing move conflict exists");
+    let resolution = SignedFileOperation::resolve_conflict(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        move_conflict.record_id.clone(),
+        Some(move_backlog.operation.operation_id.clone()),
+        vec![
+            move_archive.operation.operation_id.clone(),
+            move_backlog.operation.operation_id.clone(),
+        ],
+    )
+    .expect("move resolution signs");
+    authority
+        .apply(&resolution, &membership)
+        .expect("move resolution applies");
+
+    let projection = authority.projection();
+    let TreeNode::Directory {
+        children: backlog_children,
+        ..
+    } = projection.root.get("backlog").expect("backlog remains")
+    else {
+        panic!("backlog remains a directory");
+    };
+    assert_eq!(
+        backlog_children.get("plan.md").map(TreeNode::node_id),
+        Some(file.operation.node_id.as_str())
+    );
+    assert!(projection
+        .conflicts
+        .iter()
+        .find(|conflict| conflict.record_id == move_conflict.record_id)
+        .is_some_and(|conflict| conflict.resolved));
+    assert!(!projection_names(&authority)
+        .iter()
+        .any(|name| name.ends_with(".move")));
 }
 
 #[test]

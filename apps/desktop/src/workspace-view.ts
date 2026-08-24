@@ -14,6 +14,15 @@ export type FileEntryView = {
   editable: boolean;
 };
 
+export type ConflictChoiceView = {
+  candidateId: string;
+  nodeId: string;
+  kind: "file" | "directory" | "move";
+  selected: boolean;
+  name: string;
+  targetPath: string | null;
+};
+
 export type ConflictView = {
   recordId: string;
   nodeId: string;
@@ -24,8 +33,17 @@ export type ConflictView = {
     | "concurrent-create"
     | "competing-move";
   competingRevisionIds: string[];
+  resolutionCandidateIds: string[];
   reviewableRevisionIds: string[];
   deletionOperationId: string | null;
+  treeChoices: ConflictChoiceView[];
+};
+
+export type FilePreviewView = {
+  kind: "image" | "unavailable";
+  mimeType: string;
+  bytes: number[];
+  byteLength: number;
 };
 
 export type WorkspaceFilesView = {
@@ -110,6 +128,18 @@ function isFileEntry(value: unknown): value is FileEntryView {
   );
 }
 
+function isConflictChoice(value: unknown): value is ConflictChoiceView {
+  if (!isRecord(value)) return false;
+  return (
+    isString(value.candidateId) &&
+    isString(value.nodeId) &&
+    ["file", "directory", "move"].includes(value.kind as string) &&
+    typeof value.selected === "boolean" &&
+    isString(value.name) &&
+    isNullableString(value.targetPath)
+  );
+}
+
 function isConflict(value: unknown): value is ConflictView {
   if (!isRecord(value)) return false;
   return (
@@ -124,9 +154,13 @@ function isConflict(value: unknown): value is ConflictView {
     ].includes(value.kind as string) &&
     Array.isArray(value.competingRevisionIds) &&
     value.competingRevisionIds.every(isString) &&
+    Array.isArray(value.resolutionCandidateIds) &&
+    value.resolutionCandidateIds.every(isString) &&
     Array.isArray(value.reviewableRevisionIds) &&
     value.reviewableRevisionIds.every(isString) &&
-    isNullableString(value.deletionOperationId)
+    isNullableString(value.deletionOperationId) &&
+    Array.isArray(value.treeChoices) &&
+    value.treeChoices.every(isConflictChoice)
   );
 }
 
@@ -161,6 +195,21 @@ export function isWorkspaceShellView(
     Array.isArray(value.members) &&
     Array.isArray(value.peers) &&
     (value.files === null || isFilesView(value.files))
+  );
+}
+
+export function isFilePreviewView(value: unknown): value is FilePreviewView {
+  if (!isRecord(value)) return false;
+  return (
+    ["image", "unavailable"].includes(value.kind as string) &&
+    isString(value.mimeType) &&
+    Array.isArray(value.bytes) &&
+    value.bytes.every(
+      (byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255,
+    ) &&
+    typeof value.byteLength === "number" &&
+    Number.isSafeInteger(value.byteLength) &&
+    value.byteLength >= 0
   );
 }
 

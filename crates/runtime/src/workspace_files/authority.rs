@@ -201,6 +201,16 @@ impl WorkspaceFileAuthority {
         &mut self.blobs
     }
 
+    pub(crate) fn operation(&self, operation_id: &str) -> Option<&SignedFileOperation> {
+        self.operations.get(operation_id)
+    }
+
+    pub(crate) fn node_location(&self, node_id: &str) -> Option<(Option<&str>, &str)> {
+        self.nodes
+            .get(node_id)
+            .map(|node| (node.parent_node_id.as_deref(), node.name.as_str()))
+    }
+
     #[must_use]
     pub fn applied_operation_ids(&self) -> &BTreeSet<String> {
         &self.projected_operations
@@ -662,6 +672,8 @@ impl WorkspaceFileAuthority {
 
         if conflict.kind == ConflictKind::ConcurrentCreate {
             self.resolve_concurrent_create(&conflict, chosen_revision_id)?;
+        } else if conflict.kind == ConflictKind::CompetingMove {
+            self.resolve_competing_move(&conflict, chosen_revision_id)?;
         } else if conflict.kind == ConflictKind::DeleteEdit {
             if let Some(candidate_id) = chosen_revision_id {
                 if let Some(revision) = self
@@ -700,6 +712,56 @@ impl WorkspaceFileAuthority {
             .get_mut(conflict_record_id)
             .expect("conflict was checked")
             .resolved = true;
+        Ok(())
+    }
+
+    fn resolve_competing_move(
+        &mut self,
+        conflict: &ConflictRecord,
+        chosen_operation_id: Option<&str>,
+    ) -> Result<(), AuthorityError> {
+        let Some(chosen_operation_id) = chosen_operation_id else {
+            return Ok(());
+        };
+        let operation = self
+            .operations
+            .get(chosen_operation_id)
+            .filter(|operation| operation.operation.node_id == conflict.node_id)
+            .ok_or(AuthorityError::InvalidResolution)?;
+        let FileOperationBody::MoveNode {
+            new_parent_node_id,
+            new_name,
+        } = &operation.operation.body
+        else {
+            return Err(AuthorityError::InvalidResolution);
+        };
+        let new_parent_node_id = new_parent_node_id.clone();
+        let new_name = new_name.clone();
+        self.require_parent_directory(new_parent_node_id.as_deref())?;
+        let node = self
+            .nodes
+            .get(&conflict.node_id)
+            .cloned()
+            .ok_or(AuthorityError::NotFound)?;
+        self.remove_child(node.parent_node_id.as_deref(), &node.name);
+        if let Err(error) =
+            self.insert_child(new_parent_node_id.as_deref(), &new_name, &conflict.node_id)
+        {
+            self.insert_child(
+                node.parent_node_id.as_deref(),
+                &node.name,
+                &conflict.node_id,
+            )
+            .expect("existing move location must remain valid");
+            return Err(error);
+        }
+        let node = self
+            .nodes
+            .get_mut(&conflict.node_id)
+            .expect("move node was checked");
+        node.parent_node_id = new_parent_node_id;
+        node.name = new_name;
+        node.last_move_operation_id = Some(chosen_operation_id.to_owned());
         Ok(())
     }
 

@@ -151,10 +151,14 @@ impl FilesystemIngestor {
 }
 
 fn mime_type(path: &str) -> &'static str {
-    if path.ends_with(".md") {
-        "text/markdown"
-    } else {
-        "application/octet-stream"
+    match path.to_ascii_lowercase().rsplit('.').next() {
+        Some("md") => "text/markdown",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("bmp") => "image/bmp",
+        _ => "application/octet-stream",
     }
 }
 

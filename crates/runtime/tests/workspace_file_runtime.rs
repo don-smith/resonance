@@ -2,7 +2,9 @@ use resonance_runtime::{
     identity::{InMemoryKeyCustody, InstallationIdentity},
     local_root_binding::{RootHealth, RootSelection},
     workspace_catalog::WorkspaceCatalog,
-    workspace_file_runtime::{FileEntryKind, RootBindingStatus, WorkspaceFileRuntimeError},
+    workspace_file_runtime::{
+        FileEntryKind, FilePreview, RootBindingStatus, WorkspaceFileRuntimeError,
+    },
     workspace_file_transport::{FileRequest, FileResponse},
     workspace_files::blobs::ContentHash,
     workspace_session::{FakeDeliveryPort, WorkspaceSession},
@@ -140,6 +142,74 @@ fn owns_durable_markdown_bytes_and_reopens_the_private_root() {
             .markdown,
         "# Updated\n"
     );
+}
+
+#[test]
+fn previews_ingested_images_and_rejects_arbitrary_binary_rendering() {
+    let application_data = tempfile::tempdir().expect("application data creates");
+    let root = application_data.path().join("workspace-root");
+    let custody = InMemoryKeyCustody::default();
+    let identity =
+        InstallationIdentity::load_or_create(&custody).expect("installation identity creates");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog opens");
+    let mut session = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    session
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let mut files = session.open_file_runtime().expect("file runtime opens");
+    files
+        .bind_root(&root, RootSelection::ConfirmedNotGitManaged)
+        .expect("root binds");
+    let png = [
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 240, 31,
+        0, 5, 0, 1, 255, 137, 153, 61, 29, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+    std::fs::write(root.join("plans/pixel.png"), png).expect("image writes");
+    assert_eq!(files.poll_root_changes().expect("first image scan"), 0);
+    assert_eq!(files.poll_root_changes().expect("second image scan"), 1);
+    let image = files
+        .tree_entries()
+        .into_iter()
+        .find(|entry| entry.name == "pixel.png")
+        .expect("image projects");
+    let preview = files
+        .open_file_preview(
+            &image.node_id,
+            image
+                .current_revision_id
+                .as_deref()
+                .expect("image revision exists"),
+        )
+        .expect("image preview opens");
+
+    assert!(matches!(
+        preview,
+        FilePreview::Image { mime_type, bytes }
+            if mime_type == "image/png" && bytes == png
+    ));
+
+    std::fs::write(root.join("plans/archive.bin"), [0, 1, 2]).expect("binary writes");
+    assert_eq!(files.poll_root_changes().expect("first binary scan"), 0);
+    assert_eq!(files.poll_root_changes().expect("second binary scan"), 1);
+    let binary = files
+        .tree_entries()
+        .into_iter()
+        .find(|entry| entry.name == "archive.bin")
+        .expect("binary projects");
+    assert!(matches!(
+        files
+            .open_file_preview(
+                &binary.node_id,
+                binary
+                    .current_revision_id
+                    .as_deref()
+                    .expect("binary revision exists"),
+            )
+            .expect("binary preview classifies"),
+        FilePreview::Unavailable { mime_type, byte_length }
+            if mime_type == "application/octet-stream" && byte_length == 3
+    ));
 }
 
 #[test]

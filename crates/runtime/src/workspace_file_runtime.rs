@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub const MAX_MARKDOWN_BYTES: usize = 1024 * 1024;
+pub const MAX_IMAGE_PREVIEW_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RootBindingStatus {
@@ -49,14 +50,39 @@ pub struct MarkdownFileView {
     pub markdown: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileConflictChoiceKind {
+    File,
+    Directory,
+    Move,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileConflictChoiceView {
+    pub candidate_id: String,
+    pub node_id: String,
+    pub kind: FileConflictChoiceKind,
+    pub selected: bool,
+    pub name: String,
+    pub target_path: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FilePreview {
+    Image { mime_type: String, bytes: Vec<u8> },
+    Unavailable { mime_type: String, byte_length: u64 },
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileConflictView {
     pub record_id: String,
     pub node_id: String,
     pub kind: ConflictKind,
     pub competing_revision_ids: Vec<String>,
+    pub resolution_candidate_ids: Vec<String>,
     pub reviewable_revision_ids: Vec<String>,
     pub deletion_operation_id: Option<String>,
+    pub tree_choices: Vec<FileConflictChoiceView>,
 }
 
 #[derive(Debug)]
@@ -186,6 +212,18 @@ impl WorkspaceFileRuntime {
             .filter(|conflict| !conflict.resolved)
             .cloned()
             .map(|mut conflict| {
+                let tree_choices = self.tree_conflict_choices(&projection, &conflict);
+                let resolution_candidate_ids = match conflict.kind {
+                    ConflictKind::ConcurrentCreate | ConflictKind::CompetingMove => {
+                        conflict.competing_revision_ids.clone()
+                    }
+                    _ => conflict
+                        .competing_revision_ids
+                        .iter()
+                        .filter(|candidate| projection.revisions.contains_key(*candidate))
+                        .cloned()
+                        .collect(),
+                };
                 let deletion_operation_id = (conflict.kind == ConflictKind::DeleteEdit)
                     .then(|| {
                         conflict
@@ -209,9 +247,142 @@ impl WorkspaceFileRuntime {
                     })
                     .cloned()
                     .collect();
-                conflict_view(conflict, reviewable_revision_ids, deletion_operation_id)
+                conflict_view(
+                    conflict,
+                    resolution_candidate_ids,
+                    reviewable_revision_ids,
+                    deletion_operation_id,
+                    tree_choices,
+                )
             })
             .collect()
+    }
+
+    pub fn open_file_preview(
+        &self,
+        node_id: &str,
+        revision_id: &str,
+    ) -> Result<FilePreview, WorkspaceFileRuntimeError> {
+        let projection = self.authority.projection();
+        let _entry = find_entry(&projection, node_id).ok_or(WorkspaceFileRuntimeError::NotFound)?;
+        let revision = projection
+            .revisions
+            .get(revision_id)
+            .filter(|revision| revision.node_id == node_id)
+            .ok_or(WorkspaceFileRuntimeError::NotFound)?;
+        if !is_previewable_image(&revision.mime_type)
+            || revision.byte_length > MAX_IMAGE_PREVIEW_BYTES as u64
+        {
+            return Ok(FilePreview::Unavailable {
+                mime_type: revision.mime_type.clone(),
+                byte_length: revision.byte_length,
+            });
+        }
+        let bytes = self
+            .authority
+            .blob_store()
+            .open(&ContentHash(revision.content_hash.clone()))?;
+        if bytes.len() as u64 != revision.byte_length {
+            return Err(BlobError::HashMismatch.into());
+        }
+        Ok(FilePreview::Image {
+            mime_type: revision.mime_type.clone(),
+            bytes,
+        })
+    }
+
+    fn tree_conflict_choices(
+        &self,
+        projection: &FileTreeProjection,
+        conflict: &ConflictRecord,
+    ) -> Vec<FileConflictChoiceView> {
+        let entries = || {
+            let mut entries = Vec::new();
+            for node in projection.root.values() {
+                flatten_node(node, None, projection, &mut entries);
+            }
+            entries
+        };
+        match conflict.kind {
+            ConflictKind::ConcurrentCreate => conflict
+                .competing_revision_ids
+                .iter()
+                .filter_map(|candidate_id| {
+                    let operation = self.authority.operation(candidate_id)?;
+                    let (parent_node_id, name, kind) = match &operation.operation.body {
+                        FileOperationBody::CreateFile {
+                            parent_node_id,
+                            name,
+                            ..
+                        } => (
+                            parent_node_id.as_deref(),
+                            name.as_str(),
+                            FileConflictChoiceKind::File,
+                        ),
+                        FileOperationBody::CreateDirectory {
+                            parent_node_id,
+                            name,
+                        } => (
+                            parent_node_id.as_deref(),
+                            name.as_str(),
+                            FileConflictChoiceKind::Directory,
+                        ),
+                        _ => return None,
+                    };
+                    let selected = self
+                        .authority
+                        .node_location(&operation.operation.node_id)
+                        .is_some_and(|(current_parent, current_name)| {
+                            current_parent == parent_node_id && current_name == name
+                        });
+                    Some(FileConflictChoiceView {
+                        candidate_id: candidate_id.clone(),
+                        node_id: operation.operation.node_id.clone(),
+                        kind,
+                        selected,
+                        name: name.to_owned(),
+                        target_path: None,
+                    })
+                })
+                .collect(),
+            ConflictKind::CompetingMove => {
+                let entries = entries();
+                conflict
+                    .competing_revision_ids
+                    .iter()
+                    .filter_map(|candidate_id| {
+                        let operation = self.authority.operation(candidate_id)?;
+                        let FileOperationBody::MoveNode {
+                            new_parent_node_id,
+                            new_name,
+                        } = &operation.operation.body
+                        else {
+                            return None;
+                        };
+                        let selected = self.authority.node_location(&conflict.node_id).is_some_and(
+                            |(current_parent, current_name)| {
+                                current_parent == new_parent_node_id.as_deref()
+                                    && current_name == new_name
+                            },
+                        );
+                        let target_path = entry_path(&entries, new_parent_node_id.as_deref())
+                            .map_or_else(
+                                || new_name.clone(),
+                                |parent| format!("{parent}/{new_name}"),
+                            );
+                        Some(FileConflictChoiceView {
+                            candidate_id: candidate_id.clone(),
+                            node_id: conflict.node_id.clone(),
+                            kind: FileConflictChoiceKind::Move,
+                            selected,
+                            name: new_name.clone(),
+                            target_path: Some(target_path),
+                        })
+                    })
+                    .collect()
+            }
+            _ => Vec::new(),
+        }
     }
 
     pub fn bind_root(
@@ -562,15 +733,37 @@ fn is_directory(projection: &FileTreeProjection, node_id: &str) -> bool {
 
 fn conflict_view(
     conflict: ConflictRecord,
+    resolution_candidate_ids: Vec<String>,
     reviewable_revision_ids: Vec<String>,
     deletion_operation_id: Option<String>,
+    tree_choices: Vec<FileConflictChoiceView>,
 ) -> FileConflictView {
     FileConflictView {
         record_id: conflict.record_id,
         node_id: conflict.node_id,
         kind: conflict.kind,
         competing_revision_ids: conflict.competing_revision_ids,
+        resolution_candidate_ids,
         reviewable_revision_ids,
         deletion_operation_id,
+        tree_choices,
     }
+}
+
+fn entry_path(entries: &[FileTreeEntry], node_id: Option<&str>) -> Option<String> {
+    let node_id = node_id?;
+    let entry = entries.iter().find(|entry| entry.node_id == node_id)?;
+    Some(
+        entry_path(entries, entry.parent_node_id.as_deref()).map_or_else(
+            || entry.name.clone(),
+            |parent| format!("{parent}/{}", entry.name),
+        ),
+    )
+}
+
+fn is_previewable_image(mime_type: &str) -> bool {
+    matches!(
+        mime_type,
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/bmp"
+    )
 }

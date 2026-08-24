@@ -1,4 +1,5 @@
 import type {
+  ConflictChoiceView,
   ConflictView,
   FileEntryView,
   MarkdownRevisionView,
@@ -45,8 +46,35 @@ export function rootStatusMessage(state: RootState): string {
   }
 }
 
+export function treeConflictActionLabel(choice: ConflictChoiceView): string {
+  if (choice.kind === "move") {
+    const target = choice.targetPath ?? choice.name;
+    return choice.selected
+      ? `Keep current location: ${target}`
+      : `Use location: ${target}`;
+  }
+  const kind = choice.kind === "directory" ? "folder" : "file";
+  return choice.selected
+    ? `Keep current ${kind}: ${choice.name}`
+    : `Use competing ${kind}: ${choice.name}`;
+}
+
+export function treeConflictPreviewLabel(choice: ConflictChoiceView): string {
+  if (choice.kind === "move") return "Preview moved file";
+  return choice.kind === "directory" ? "Preview folder" : "Preview file";
+}
+
 export function conflictFallbackLabel(kind: ConflictView["kind"]): string {
-  return kind === "delete-edit" ? "Keep deletion" : "Keep current state";
+  switch (kind) {
+    case "delete-edit":
+      return "Keep deletion";
+    case "concurrent-create":
+      return "Keep current entry";
+    case "competing-move":
+      return "Keep current location";
+    default:
+      return "Keep current state";
+  }
 }
 
 export function conflictFallbackSelection(
@@ -60,9 +88,16 @@ export function conflictRevisionActionLabel(
   revisionId: string,
 ): string {
   const shortId = revisionId.slice(0, 8);
-  return kind === "delete-edit"
-    ? `Keep edited file ${shortId}`
-    : `Use ${shortId}`;
+  switch (kind) {
+    case "delete-edit":
+      return `Keep edited file ${shortId}`;
+    case "concurrent-create":
+      return `Use competing entry ${shortId}`;
+    case "competing-move":
+      return `Use move ${shortId}`;
+    default:
+      return `Use ${shortId}`;
+  }
 }
 
 export function conflictLabel(kind: ConflictView["kind"]): string {

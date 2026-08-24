@@ -61,6 +61,7 @@ fn main() {
             commands::workspace::repair_workspace_root,
             commands::workspace::unbind_workspace_root,
             commands::workspace::open_markdown_file,
+            commands::workspace::open_file_preview,
             commands::workspace::create_markdown_file,
             commands::workspace::replace_markdown_file,
             commands::workspace::resolve_workspace_conflict,

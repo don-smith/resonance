@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isFilePreviewView,
   isMarkdownRevisionView,
   isWorkspaceShellView,
   peerStatus,
@@ -16,6 +17,8 @@ import {
   conflictRevisionActionLabel,
   retainedOpenRevision,
   rootStatusMessage,
+  treeConflictActionLabel,
+  treeConflictPreviewLabel,
 } from "../apps/desktop/src/workspace-files-view.js";
 
 function readyView(): WorkspaceShellView {
@@ -95,8 +98,10 @@ describe("workspace shell view", () => {
       nodeId: "file",
       kind: "delete-edit",
       competingRevisionIds: ["edited-revision"],
+      resolutionCandidateIds: ["edited-revision"],
       reviewableRevisionIds: ["edited-revision"],
       deletionOperationId: "delete-operation",
+      treeChoices: [],
     };
     expect(conflictFallbackLabel(deleteConflict.kind)).toBe("Keep deletion");
     expect(conflictFallbackSelection(deleteConflict)).toBe("delete-operation");
@@ -106,6 +111,47 @@ describe("workspace shell view", () => {
     expect(conflictFallbackLabel("binary-collision")).toBe(
       "Keep current state",
     );
+    expect(conflictFallbackLabel("competing-move")).toBe(
+      "Keep current location",
+    );
+    expect(
+      conflictRevisionActionLabel("competing-move", "move-operation"),
+    ).toBe("Use move move-ope");
+    const createChoices: ConflictView["treeChoices"] = [
+      {
+        candidateId: "file-operation",
+        nodeId: "file-node",
+        kind: "file",
+        selected: true,
+        name: "tree-collision",
+        targetPath: null,
+      },
+      {
+        candidateId: "directory-operation",
+        nodeId: "directory-node",
+        kind: "directory",
+        selected: false,
+        name: "tree-collision",
+        targetPath: null,
+      },
+    ];
+    expect(createChoices.map(treeConflictActionLabel)).toEqual([
+      "Keep current file: tree-collision",
+      "Use competing folder: tree-collision",
+    ]);
+    expect(createChoices.map(treeConflictPreviewLabel)).toEqual([
+      "Preview file",
+      "Preview folder",
+    ]);
+    expect(createChoices).toHaveLength(2);
+    expect(
+      isFilePreviewView({
+        kind: "image",
+        mimeType: "image/png",
+        bytes: [137, 80, 78, 71],
+        byteLength: 4,
+      }),
+    ).toBe(true);
   });
 
   it("clears an open revision only when its node leaves the tree", () => {

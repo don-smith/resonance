@@ -30,6 +30,8 @@ Role: owns the package model, bundled content host, package manifest contract, e
 
 - **RS.SYS.PKG-R19 Privileged package operations use declared semantic capabilities.** `PackageContext` exposes no generic Tauri invocation or desktop state. A capability version such as `workspace-files:v1` defines bounded request, response, invalidation, and safe-error behavior independently of manifest version. Rust remains authoritative and validates every request.
 
+- **RS.SYS.PKG-R20 Workspace files are a capability-backed bundled package.** `resonance.workspace-files` owns the complete files content lifecycle and uses only `workspace-files:v1`. The shell owns no file tree, editor, preview, conflict, root-action, or direct file-transport state. The package receives no local path, persistence, signing, blob, watcher, or peer-transport details. `refines: RS.SYS.PKG-R01, RS.SYS.PKG-R17, RS.SYS.PKG-R19`
+
 ### Event bus
 
 - **RS.SYS.PKG-R04 Events are the cross-package communication channel.** Packages call `emit(eventName, payload)` and `listen(eventName, handler)`. The runtime routes events. Packages do not hold references to other packages. `refines: RS-R10`

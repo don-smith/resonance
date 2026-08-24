@@ -73,9 +73,10 @@ update seam disabled.
   installations cannot authenticate a new key. Publish recovery instructions
   and require a **manual reinstall** from a verified distribution channel.
 
-## Team packages
+## Bundled packages
 
-Only bundled, reviewed team packages are available in this phase. Follow the
+Only reviewed bundled packages are available in this phase. Follow the
 [package authoring guide](./package-authoring.md), validate packages in CI, and
-ship them with a desktop release. Do not add a member/repository package loader
-or give a package updater, filesystem, shell, or credential access.
+ship them with a desktop release. Packages use declared semantic SDK
+capabilities rather than updater, filesystem, shell, credential, or raw Tauri
+access. Do not add a member or repository package loader to the shared webview.

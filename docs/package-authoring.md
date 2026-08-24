@@ -1,51 +1,103 @@
 # Package authoring
 
-A Resonance package starts with a versioned manifest, not direct runtime
-imports. Phase 1 supports reviewed, bundled team packages only; member and
-repository loading are intentionally unavailable until they can run in separate
-least-privilege webviews.
+Resonance builds reviewed TypeScript packages from `packages/*`. A bundled package contributes content to the shared desktop webview. It does not register Rust commands or import desktop implementation code.
 
-## Scaffold
+## Create a package
+
+Run the scaffold from the repository root:
 
 ```sh
 pnpm --filter @resonance/contracts generate -- \
   --id resonance.my-package --output packages/my-package
 ```
 
-Edit the generated `manifest.json`, then run:
+The scaffold writes:
 
-```sh
-pnpm --filter @resonance/contracts test
-cargo test -p resonance-runtime --test package_registry_conformance
-cargo test -p resonance-runtime --test package_bus
+- `packages/my-package/manifest.json`, the manifest v2 declaration;
+- `packages/my-package/package.json`, including the SDK dependency;
+- `packages/my-package/src/index.ts`, the lifecycle entry;
+- `packages/my-package/src/styles.css`, scoped package styles;
+- `packages/my-package/src/index.test.ts`, a lifecycle test.
+
+It also regenerates `apps/desktop/src/generated/bundled-package-catalog.ts` and `apps/desktop/src-tauri/generated/bundled-package-manifests.json`. The next Vite development build includes the package. No Rust source edit is needed.
+
+## Manifest v2
+
+A bundled manifest has these fields:
+
+- `manifestVersion: 2` and `source: "bundled"`;
+- a lowercase `namespace.name` `id`;
+- `name`, `description`, and `nav.label`/`nav.icon` display metadata;
+- `content.entry`, a package-relative `.ts` file inside the package;
+- `events.emits` and `events.consumes`;
+- `minRole`, one of `viewer`, `contributor`, or `developer`;
+- optional semantic `capabilities` and agent configuration.
+
+Manifest and capability versions are independent. For example, `workspace-files:v1` can evolve without changing manifest v2. The catalog rejects duplicate IDs, absolute entries, traversal, symlink escapes, missing entries, and unknown manifest fields.
+
+## Lifecycle
+
+The entry exports `mount(root, context)`. The host calls it at most once and retains the returned instance:
+
+```ts
+export const mount: PackageContentModule["mount"] = (root, context) => ({
+  activate() {},
+  deactivate() {},
+  dispose() {},
+});
 ```
 
-The TypeScript authoring adapter and Rust registry validate the same conformance
-fixtures. The worked [`reference package`](../packages/reference-package/) is
-the complete manifest example.
+The order is `mount`, `activate`, then any number of `deactivate`/`activate` transitions, followed by one effective `dispose`. Normal navigation deactivates the package without discarding its DOM or state. `dispose` must be idempotent and release every package-owned listener, capability subscription, timer, editor, worker, and object URL.
 
-## Phase 1 boundary
+If `mount` allocates a resource and then fails, clean it before throwing or throw `PackageMountError` with a cleanup callback. Import, mount, activation, deactivation, and disposal failures stay inside that package's content region.
 
-Generation creates a valid manifest contract; it does not yet make a new
-package appear in the desktop shell. Phase 1 bundles and validates only the
-reference manifest, and ships neither package webview loading, tabs, nor agent
-execution. Keep generated packages alongside the runtime and validate them in
-CI while the content-package surface is designed in a later workstream.
+## SDK and capabilities
 
-## Manifest rules
+Import package interfaces from `@resonance/package-sdk`. `PackageContext` contains immutable package identity, declared-event access, shell design-token names, and only the capabilities declared by the validated manifest.
 
-- `manifestVersion` is `1`, and `source` is `bundled-team`.
-- IDs are lowercase `namespace.name`; reference packages use `resonance.*`.
-- `minRole` is one of `viewer`, `contributor`, or `developer`.
-- Declare every event emitted or consumed. The runtime routes a declared emit
-  without interpreting its payload. An undeclared emit is rejected with a
-  warning in development and silently dropped in production.
-- Capabilities and agent permissions describe semantic operations, not Tauri
-  command names. The finite vocabularies are listed in the contract README.
-- An optional `agent` has `systemPrompt`, `permissions`, and
-  `contextProviders`. It has no `agentPanel` field: packages supply context,
-  while the runtime owns the one shared panel UI.
+A package may emit and consume only declared events. Privileged work uses a semantic capability such as `context.capabilities.workspaceFilesV1`; packages never receive command names, raw Tauri transport, desktop state, local paths, keys, tokens, persistence details, signed operations, blobs, watcher state, SQL details, or Iroh handles.
 
-A package uses `@resonance/package-sdk` for its event transport. It must not
-hold a reference to another package or access filesystem, signing, or updater
-APIs directly.
+Request a new runtime capability only when the operation needs host or Rust authority and cannot be implemented from existing SDK methods. The proposal must define one versioned semantic interface, bounded secret-free request and result shapes, finite safe errors, production and test adapters, shared TypeScript/Rust fixtures, cleanup, and authorization behavior. Do not add a generic invoke escape hatch.
+
+## Dependency and style rules
+
+Bundled source may depend on the SDK, browser libraries, and package-owned libraries. It must not import:
+
+- `@tauri-apps/api`;
+- `apps/desktop` or `@resonance/desktop`;
+- Rust runtime internals;
+- absolute files or relative paths that leave its package.
+
+Declare every dependency in the package's `package.json`. First-party CSS selectors must begin with `[data-package-id="<manifest-id>"]` or use CSS Modules. Use the design-token custom properties exposed by the shell for colors, type, spacing, and borders. A package-owned third-party stylesheet may keep its library selectors, but package overrides must remain below the package root.
+
+## Development loop
+
+Use ordinary Vite rebuilds while editing an existing package:
+
+```sh
+pnpm desktop:dev
+```
+
+After adding or renaming a package, regenerate and check the catalogs:
+
+```sh
+pnpm packages:generate
+pnpm packages:check
+```
+
+Run package tests and the repository gates before delivery:
+
+```sh
+pnpm exec vitest run packages/my-package/src
+pnpm typecheck
+pnpm check
+pnpm build:desktop
+```
+
+`pnpm packages:check` rejects stale catalogs, forbidden imports and dependencies, undeclared capability use, and unscoped first-party CSS.
+
+## Trust boundary
+
+Bundled packages are reviewed code in the main webview. Import checks and the explicit application-command allowlist prevent accidental coupling; they do not sandbox JavaScript modules from each other. Do not ship member-loaded or otherwise unreviewed code through this host. A future member-package loader must use separately labelled webviews with separate Tauri capabilities while preserving the semantic SDK interface.
+
+See `packages/reference-package` for a small package and `packages/workspace-files` for a complete capability-backed package.

@@ -34,17 +34,17 @@ Design uncertainties that need resolution before or during implementation. Each 
 
 **Status:** Resolved (2026-08-21, RFC 0006).
 
-**Decision:** Bundled, reviewed team packages are trusted but must declare finite semantic capabilities and events. Member and repository package loaders are deferred until separate least-privilege webviews can enforce their capabilities; a shared main webview is not represented as a package sandbox.
+**Decision:** Reviewed bundled packages are trusted but must declare finite semantic capabilities and events. Member and repository package loaders are deferred until separate least-privilege webviews can enforce their capabilities; a shared main webview is not represented as a package sandbox.
 
-**Question:** How strictly should packages be sandboxed? Tauri provides CSP and capability-based permissions. Should the runtime enforce a strict allowlist for package capabilities, or rely on review (team packages are authored by trusted team members)?
+**Question:** How strictly should packages be sandboxed? Tauri provides CSP and capability-based permissions. Should the runtime enforce a strict allowlist for package capabilities, or rely on review for bundled source?
 
 **Considerations:**
 - Strict sandboxing (capability allowlist per package) is more defensible but adds authoring friction.
 - Review-based trust (packages are human-reviewed before shipping) is simpler but requires the review to actually happen.
 - Member packages have a stronger sandboxing argument since they are not team-reviewed.
-- The capability model should probably differ between team packages (lighter) and member packages (stricter).
+- The capability model should differ between reviewed bundled packages and member-loaded packages.
 
-**Resolution:** RFC 0006 selected capability-declared trusted team packages and deferred untrusted loaders until enforceable webview isolation exists.
+**Resolution:** RFC 0006 selected capability-declared reviewed packages, and Decision 0010 fixed the bundled source host. Untrusted loaders remain deferred until enforceable webview isolation exists.
 
 ---
 

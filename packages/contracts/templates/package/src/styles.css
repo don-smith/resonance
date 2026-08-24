@@ -1,0 +1,6 @@
+[data-package-id="__PACKAGE_ID__"] {
+  padding: var(--resonance-spacing);
+  border: 1px solid var(--resonance-color-border);
+  color: var(--resonance-color-foreground);
+  background: var(--resonance-color-panel);
+}

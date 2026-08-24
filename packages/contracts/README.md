@@ -1,40 +1,27 @@
-# Resonance package contract
+# Resonance package contracts
 
-`manifest.v1.json` is the public package-manifest interface. It is validated by
-both the TypeScript authoring adapter and the Rust runtime registry against the
-same fixtures. `manifestVersion: 1` is deliberately explicit: changing this
-schema, roles, standard events, or capability vocabulary requires an RFC.
+`schema/manifest.v2.json` defines reviewed bundled packages. `schema/workspace-files.v1.json` independently defines the secret-free workspace-files capability wire contract. TypeScript and Rust use hand-written types and validate the same fixtures under `fixtures/`.
 
-## Bundled team packages only
+## Manifest v2
 
-Phase 1 accepts only reviewed `bundled-team` manifests. Member-local and
-repository loaders are deferred until separate least-privilege webviews can
-enforce their access. A package ID is lowercase `namespace.name`; the reference
-namespace is `resonance.*`.
+A manifest declares `source: "bundled"`, a namespaced ID, display and navigation metadata, a package-relative `content.entry`, events, minimum role, optional semantic capabilities, and optional agent configuration. The catalog generator validates every direct `packages/*/manifest.json`, bounds its entry inside the package, sorts by ID, and writes the TypeScript and Rust catalogs.
 
-Roles are `viewer`, `contributor`, and `developer`. Standard events are
-`repo:changed`, `doc:updated`, `doc:opened`, `message:received`, `peer:joined`,
-`peer:left`, `peer:connection`, `workspace:member-added`, and
-`workspace:member-removed`. A package
-may declare its own lowercase `namespace:event` or `agent-context:event` name.
-The runtime routes declared events without interpreting their payloads.
+Roles are `viewer`, `contributor`, and `developer`. Standard events are `repo:changed`, `doc:updated`, `doc:opened`, `message:received`, `peer:joined`, `peer:left`, `peer:connection`, `workspace:member-added`, and `workspace:member-removed`. Packages may also declare lowercase domain events and `agent-context:*` events.
 
-Capabilities are semantic declarations, not Tauri command names:
-`documents:read`, `documents:write`, `workspace:read`, `repository:read`, and
-`telemetry:write`. Agent permissions are likewise semantic: `read`,
-`suggest-edits`, `apply-edits`, `create-documents`, and `post-messages`. An
-agent declaration contains `systemPrompt`, `permissions`, and
-`contextProviders`; it never contains panel HTML because the runtime owns the
-shared panel.
+Current semantic capabilities are `documents:read`, `documents:write`, `workspace:read`, `repository:read`, `telemetry:write`, and `workspace-files:v1`. A capability version does not imply a manifest version change.
 
-## Generate a manifest
+## Workspace-files v1
+
+Workspace-files v1 covers snapshots, local-root actions through host-owned dialogs, Markdown revisions, previews, creation and replacement, conflict resolution, payload-free invalidation, and finite safe errors. Unknown fields and private runtime details are invalid. TypeScript validates requests and results before transport; Rust validates them again before calling `WorkspaceFileRuntime`.
+
+## Scaffold and checks
 
 ```sh
 pnpm --filter @resonance/contracts generate -- \
   --id resonance.my-package --output packages/my-package
+pnpm packages:generate
+pnpm packages:check
 pnpm --filter @resonance/contracts test
 ```
 
-The generator writes `manifest.json` from the versioned template. See
-[`../reference-package/manifest.json`](../reference-package/manifest.json) for a
-worked validated package.
+The scaffold writes a complete lifecycle package and regenerates both catalogs when the output is a direct package directory. See [`../../docs/package-authoring.md`](../../docs/package-authoring.md), [`../reference-package`](../reference-package), and [`../workspace-files`](../workspace-files).

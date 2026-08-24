@@ -1,7 +1,7 @@
 import type {
   PackageContentModule,
   PackageInstance,
-} from "../../sdk/src/index.js";
+} from "@resonance/package-sdk";
 
 import "./styles.css";
 

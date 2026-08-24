@@ -28,7 +28,15 @@ The host constructs `PackageContext` from the validated manifest. The context co
 
 Privileged operations use request and response methods on a versioned semantic capability. Events announce state changes but do not carry authoritative snapshots. The adapter fetches current state after invalidation, suppresses stale responses, validates wire values, and owns listener cleanup. Rust validates every operation and maps internal failures to finite safe errors.
 
-## 4. Runtime event vocabulary
+## 4. Authoring enforcement
+
+The package scaffold writes a complete manifest, package metadata, lifecycle entry, scoped styles, and lifecycle test, then regenerates the catalog. A direct package appears in the next development build without a Rust source edit.
+
+Repository checks reject stale catalogs, `@tauri-apps/api`, desktop and runtime implementation imports, absolute or escaping imports, undeclared capability use, forbidden host dependencies, and unscoped first-party package CSS. Package-owned third-party library styles are the only selector exception.
+
+`resonance.workspace-files` is the reference capability-backed package. It owns the files tree, root controls, Markdown editor and draft state, previews, conflicts, subscriptions, object URLs, listeners, timers, and styles. The shell retains onboarding, membership, peers, package navigation, package mounts, and package-local error regions.
+
+## 5. Runtime event vocabulary
 
 The runtime owns standard event names. Packages may consume declared standard events but cannot receive installation private keys, workspace tokens, raw Iroh handles, filesystem paths, or unvalidated membership data.
 

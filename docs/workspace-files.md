@@ -131,4 +131,6 @@ If a folder is rejected, choose a new empty folder outside Git management. If a 
 
 ## Technical detail
 
-See [Local workspace data](local-data.md) for private storage and recovery behavior. The architecture is recorded in [Decision 0009](../context/.decisions/0009-filesystem-first-workspace-authority.md), and the normative behavior lives in the [document requirements](../context/02-system/03-documents/requirements.md).
+The `resonance.workspace-files` bundled TypeScript package owns this interface, including the tree, editor sessions, previews, root actions, conflict review, and cleanup. It uses only the documented `workspace-files:v1` SDK capability. Rust still owns file authority, private root custody, blobs, persistence, signing, conflict computation, and peer recovery. Package-visible snapshots and errors contain no local path or transport state.
+
+See [Package authoring](package-authoring.md) for the package boundary and [Local workspace data](local-data.md) for private storage and recovery. The architecture is recorded in [Decision 0009](../context/.decisions/0009-filesystem-first-workspace-authority.md) and [Decision 0010](../context/.decisions/0010-source-bundled-content-host.md). Normative file behavior lives in the [document requirements](../context/02-system/03-documents/requirements.md).

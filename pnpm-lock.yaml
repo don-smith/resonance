@@ -38,7 +38,11 @@ importers:
         specifier: 8.17.1
         version: 8.17.1
 
-  packages/reference-package: {}
+  packages/reference-package:
+    dependencies:
+      "@resonance/package-sdk":
+        specifier: workspace:*
+        version: link:../sdk
 
   packages/sdk: {}
 

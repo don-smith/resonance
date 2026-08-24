@@ -6,8 +6,9 @@ blobs; each member may bind the shared logical tree to a separate private local
 root. The desktop can choose or repair that root, browse the workspace tree,
 create and edit rendered Markdown files, and resolve file conflicts. The runtime
 owns filesystem polling, authorized file-history recovery, and verified private
-blob storage. Content packages, conversations, repository loading, and agent
-execution do not ship yet.
+blob storage. The workspace-files and reference views load as reviewed bundled
+TypeScript packages. Conversations, repository loading, member packages, and
+agent execution do not ship yet.
 
 ## Prerequisites
 
@@ -95,13 +96,16 @@ same command.
 
 ## Package authors
 
-The versioned package-manifest schema, generator, shared fixtures, and API
-vocabulary live in [`packages/contracts/`](./packages/contracts/). Start with
-the [package authoring guide](./docs/package-authoring.md) and the worked
-[`reference package`](./packages/reference-package/). Only bundled, reviewed
-team packages are supported in this foundation; no package content view or
-agent execution ships yet. Development workspace storage, migration, and
-recovery behavior are documented in [local data](./docs/local-data.md).
+The manifest and capability schemas, scaffold, shared fixtures, SDK, and package
+checks live under [`packages/contracts/`](./packages/contracts/) and
+[`packages/sdk/`](./packages/sdk/). Start with the
+[package authoring guide](./docs/package-authoring.md), the small
+[`reference package`](./packages/reference-package/), and the complete
+[`workspace-files package`](./packages/workspace-files/). `pnpm packages:check`
+checks catalogs, imports, capabilities, dependencies, and CSS scope. Bundled
+packages are reviewed code in one webview; member packages remain deferred to
+separately labelled webviews. Development workspace storage and recovery are
+documented in [local data](./docs/local-data.md).
 
 ## Fork release delivery
 

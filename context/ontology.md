@@ -44,7 +44,9 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **Repo package.** A package that reads from a registered Git repository and emits repository events. Repo packages are loaded from the repository's package manifest (`.resonance/config.json`). `See: 02-system/06-repos/`
 
-**Package manifest.** A JSON file declaring a package's ID, source, display name, navigation metadata, content entry, emitted and consumed events, minimum role, and optional capabilities or agent configuration. Bundled content uses `manifestVersion: 2` and `source: "bundled"`. A manifest lives at `packages/<id>/manifest.json`, or at `.resonance/config.json` once repo packages are implemented.
+**Package manifest.** A JSON file declaring a package's ID, source, display name, navigation metadata, content entry, emitted and consumed events, minimum role, and optional capabilities or agent configuration. Bundled content uses `manifestVersion: 2` and `source: "bundled"`. A manifest lives at `packages/<package>/manifest.json`, or at `.resonance/config.json` once repo packages are implemented.
+
+**Semantic capability.** A versioned SDK interface through which a package requests bounded host or Rust behavior. Capability versions evolve independently of manifest versions. A capability exposes no command names, raw transport, or private runtime state. `workspace-files:v1` is the first production capability.
 
 **Event bus.** The Tauri event system, used as the cross-package pub/sub channel. Packages emit typed events; other packages subscribe. The runtime routes events but does not interpret semantics. `See: 02-system/05-packages/`
 

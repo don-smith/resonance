@@ -8,5 +8,6 @@ export default defineConfig({
       "packages/**/*.test.ts",
       "scripts/**/*.test.mjs",
     ],
+    exclude: ["**/node_modules/**", "packages/contracts/templates/**"],
   },
 });

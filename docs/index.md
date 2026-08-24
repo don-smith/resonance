@@ -41,4 +41,4 @@ These references explain implementation and project decisions rather than ordina
 - [Filesystem-first workspace authority](../context/.decisions/0009-filesystem-first-workspace-authority.md) records the accepted architecture decision.
 - [Document requirements](../context/02-system/03-documents/requirements.md) define the authoritative behavior and boundaries.
 - [Fork and release guide](fork-guide.md) is for teams that build and distribute their own Resonance fork.
-- [Package authoring](package-authoring.md) is for developers creating bundled team packages.
+- [Package authoring](package-authoring.md) is for developers creating reviewed bundled packages.

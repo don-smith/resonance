@@ -3,9 +3,11 @@ import { resolve } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { WorkspaceFilesSnapshot } from "@resonance/package-sdk";
-import { InMemoryWorkspaceFilesV1 } from "../../sdk/src/testing/in-memory-workspace-files-v1.js";
-import { workspaceFilesError } from "../../sdk/src/workspace-files-v1.js";
+import {
+  InMemoryWorkspaceFilesV1,
+  workspaceFilesError,
+  type WorkspaceFilesSnapshot,
+} from "@resonance/package-sdk";
 
 function snapshot(): WorkspaceFilesSnapshot {
   return {

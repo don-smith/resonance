@@ -1,17 +1,45 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
-const argumentsByName = new Map(
-  process.argv
-    .slice(2)
-    .flatMap((value, index, values) =>
-      value.startsWith("--") && values[index + 1]
-        ? [[value.slice(2), values[index + 1]]]
-        : [],
-    ),
-);
+import { generateBundledPackageCatalog } from "../../../scripts/bundled-package-catalog.mjs";
+
+function parseArguments(values) {
+  const argumentsByName = new Map();
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (!value.startsWith("--") || !values[index + 1]) {
+      throw new Error(`Unknown scaffold argument: ${value}`);
+    }
+    argumentsByName.set(value.slice(2), values[index + 1]);
+    index += 1;
+  }
+  return argumentsByName;
+}
+
+async function templateFiles(directory, prefix = "") {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries.sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      files.push(
+        ...(await templateFiles(resolve(directory, entry.name), relativePath)),
+      );
+    } else if (entry.isFile()) {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
+
+const argumentsByName = parseArguments(process.argv.slice(2));
 const id = argumentsByName.get("id");
 const output = argumentsByName.get("output");
+const root = resolve(
+  argumentsByName.get("root") ?? resolve(import.meta.dirname, "../../.."),
+);
 
 if (
   !id ||
@@ -19,24 +47,47 @@ if (
   !/^(resonance|[a-z][a-z0-9-]*)\.[a-z][a-z0-9-]*$/.test(id)
 ) {
   throw new Error(
-    "Usage: pnpm generate -- --id <namespace.name> --output <directory>",
+    "Usage: pnpm generate -- --id <namespace.name> --output <directory> [--root <repository>]",
   );
 }
 
-const template = await readFile(
-  resolve(import.meta.dirname, "../templates/manifest.v2.json"),
-  "utf8",
-);
-const packageName = basename(id).replace(
-  /(^|[-_])(\w)/g,
-  (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`,
-);
-const destination = resolve(output, "manifest.json");
+const [namespace, packageSlug] = id.split(".");
+const packageName = packageSlug
+  .split("-")
+  .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`)
+  .join(" ");
+const npmPackageName = `@${namespace}/${packageSlug}`;
+const destination = resolve(output);
+const outputFromRoot = relative(root, destination).split(sep).join("/");
+const packageOutput =
+  !isAbsolute(outputFromRoot) && !outputFromRoot.startsWith("../")
+    ? outputFromRoot
+    : destination.split(sep).join("/");
+const replacements = new Map([
+  ["__PACKAGE_ID__", id],
+  ["__PACKAGE_NAME__", packageName],
+  ["__NPM_PACKAGE_NAME__", npmPackageName],
+  ["__PACKAGE_OUTPUT__", packageOutput],
+]);
+const templateRoot = resolve(import.meta.dirname, "../templates/package");
 
-await mkdir(dirname(destination), { recursive: true });
-await writeFile(
-  destination,
-  template
-    .replaceAll("__PACKAGE_ID__", id)
-    .replaceAll("__PACKAGE_NAME__", packageName),
-);
+for (const path of await templateFiles(templateRoot)) {
+  let content = await readFile(resolve(templateRoot, path), "utf8");
+  for (const [placeholder, value] of replacements) {
+    content = content.replaceAll(placeholder, value);
+  }
+  const outputPath = resolve(destination, path);
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, content);
+}
+
+const packagesDirectory = resolve(root, "packages");
+const packageRelativePath = relative(packagesDirectory, destination);
+const isDirectPackage =
+  packageRelativePath !== "" &&
+  packageRelativePath !== ".." &&
+  !packageRelativePath.startsWith(`..${sep}`) &&
+  !packageRelativePath.includes(sep);
+if (isDirectPackage) {
+  await generateBundledPackageCatalog({ root });
+}

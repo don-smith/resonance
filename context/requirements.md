@@ -24,7 +24,7 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 - **RS-T02 Key revocation is eventual in v1.** Removing a member from the workspace member list prevents future messages from being accepted by peers. Messages already replicated to peer stores remain. 
 
-- **RS-T03 Package isolation relies on Tauri's CSP, not a sandbox.** Packages authored by team members operate within the team's trusted context. Resonance does not provide isolation against a malicious package authored by someone who already has the team's trust.
+- **RS-T03 Bundled packages share one reviewed-code trust domain.** Tauri permissions apply to the main webview, not individual JavaScript modules. Import checks, CSP, and an explicit command allowlist prevent accidental coupling but do not sandbox bundled packages from each other. Member-loaded code requires separately labelled webviews.
 
 - **RS-T04 Collaborative convergence requires connectivity.** Offline workspace-file edits converge on reconnection from signed operation history. Resonance merges only proven-disjoint Markdown changes; every unsafe race remains visibly resolvable rather than being silently overwritten. Teams are expected to review merged content and resolve preserved conflicts when needed.
 
@@ -60,9 +60,9 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 - **RS-R09 Package authors need only web skills.** A package that does not need system access (filesystem, background threads) is authored entirely in TypeScript/JavaScript. No Rust knowledge is required.
 
-- **RS-R10 Packages communicate through events.** Packages do not call each other directly. The event bus is the only cross-package communication channel. A package declares the events it emits and consumes. `refines: RS-R08`
+- **RS-R10 Packages communicate through declared runtime seams.** Packages do not call each other directly. Declared events carry cross-package notifications; versioned semantic capabilities provide bounded runtime operations. `refines: RS-R08`
 
-- **RS-R11 Team and member packages coexist.** Team-agreed packages are checked into the team's fork. Individual member packages are loaded from local configuration and do not affect peers. Team packages win contribution conflicts. `refines: RS-R08`
+- **RS-R11 Bundled and member packages coexist.** Reviewed bundled packages ship from the source checkout. Future member packages load from local configuration in separately labelled webviews and do not affect peers. Bundled packages win contribution conflicts. `refines: RS-R08`
 
 ### AI capability
 

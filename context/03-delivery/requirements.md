@@ -22,7 +22,7 @@ Role: owns the CI pipeline, update manifest publication, binary signing, platfor
 
 ### Fork guide
 
-- **RS.DEL-R06 The fork guide is a first-class deliverable.** The fork guide covers: forking the repository, generating a signing key, configuring CI, publishing the update manifest, adding team packages, and rolling out the first update. It targets a developer with GitHub and CI experience but no Rust knowledge. `refines: RS.PROD-R03`
+- **RS.DEL-R06 The fork guide is a first-class deliverable.** The fork guide covers: forking the repository, generating a signing key, configuring CI, publishing the update manifest, adding bundled packages, and rolling out the first update. It targets a developer with GitHub and CI experience but no Rust knowledge. `refines: RS.PROD-R03`
 
 - **RS.DEL-R07 The fork guide includes key rotation procedures.** The procedure for rotating the signing key (when the key is compromised or team ownership changes) is documented. It does not require code changes; it is an operational procedure. `refines: RS-R13`
 

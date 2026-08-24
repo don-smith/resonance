@@ -424,6 +424,7 @@ function mountMarkdownSession(
     return;
   }
   mountedMarkdown = editableMarkdownMount(
+    session.loadedRevision,
     new Editor({
       el: host,
       height: "32rem",

@@ -82,7 +82,7 @@ describe("mounted Markdown review", () => {
       },
       false,
     );
-    const editor = editableMarkdownMount({
+    const editor = editableMarkdownMount(session.loadedRevision, {
       destroy() {},
       getMarkdown: () => "# Roadmap\n\nUnsaved idea\n",
     });
@@ -90,6 +90,65 @@ describe("mounted Markdown review", () => {
     expect(captureMountedMarkdownDraft(session, editor)?.draft).toBe(
       "# Roadmap\n\nUnsaved idea\n",
     );
+  });
+
+  it("does not copy document A's mounted draft into document B", () => {
+    const documentA = createMarkdownEditorSession(
+      {
+        nodeId: "document-a",
+        revisionId: "revision-a",
+        markdown: "# Document A\n",
+      },
+      false,
+    );
+    const documentB = createMarkdownEditorSession(
+      {
+        nodeId: "document-b",
+        revisionId: "revision-b",
+        markdown: "# Document B\n",
+      },
+      false,
+    );
+    const mountedDocumentA = editableMarkdownMount(documentA.loadedRevision, {
+      destroy() {},
+      getMarkdown: () => "# Document A\n\nUnsaved A draft\n",
+    });
+
+    expect(captureMountedMarkdownDraft(documentB, mountedDocumentA)).toBe(
+      documentB,
+    );
+    expect(documentB.draft).toBe("# Document B\n");
+  });
+
+  it("does not copy a mounted draft into a newly created Markdown file", () => {
+    const openDocument = createMarkdownEditorSession(
+      {
+        nodeId: "open-document",
+        revisionId: "open-revision",
+        markdown: "# Open document\n",
+      },
+      false,
+    );
+    const newDocument = createMarkdownEditorSession(
+      {
+        nodeId: "new-document",
+        revisionId: "new-revision",
+        markdown: "",
+      },
+      false,
+    );
+    const mountedOpenDocument = editableMarkdownMount(
+      openDocument.loadedRevision,
+      {
+        destroy() {},
+        getMarkdown: () => "# Open document\n\nUnsaved draft\n",
+      },
+    );
+
+    expect(captureMountedMarkdownDraft(newDocument, mountedOpenDocument)).toBe(
+      newDocument,
+    );
+    expect(newDocument.draft).toBe("");
   });
 
   it("uses a dark viewer theme with readable body text", async () => {

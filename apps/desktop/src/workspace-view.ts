@@ -20,7 +20,7 @@ export type ConflictChoiceView = {
   kind: "file" | "directory" | "move";
   selected: boolean;
   name: string;
-  targetPath: string | null;
+  targetLocation: string | null;
 };
 
 export type ConflictView = {
@@ -136,7 +136,7 @@ function isConflictChoice(value: unknown): value is ConflictChoiceView {
     ["file", "directory", "move"].includes(value.kind as string) &&
     typeof value.selected === "boolean" &&
     isString(value.name) &&
-    isNullableString(value.targetPath)
+    isNullableString(value.targetLocation)
   );
 }
 

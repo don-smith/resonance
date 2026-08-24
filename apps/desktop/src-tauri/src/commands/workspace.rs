@@ -4,36 +4,31 @@ use resonance_runtime::{
     identity::InstallationIdentity,
     invite::Invite,
     iroh_transport::{IrohSessionAdapterError, IrohTransport, IrohTransportError},
-    local_root_binding::{RootHealth, RootSelection},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary},
-    workspace_file_runtime::{
-        FileConflictChoiceKind, FileConflictChoiceView, FileConflictView, FileEntryKind,
-        FilePreview, FileTreeEntry, MarkdownFileView, RootBindingStatus, WorkspaceFileRuntime,
-        WorkspaceFileRuntimeError,
-    },
-    workspace_files::projection::ConflictKind,
+    workspace_file_runtime::WorkspaceFileRuntime,
     workspace_session::{
         FakeDeliveryPort, WorkspaceSession, WorkspaceSessionError, WorkspaceTransition,
     },
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+
+use super::workspace_files::{workspace_files_view, WorkspaceFilesView};
 use tokio::{sync::Mutex, time};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 const TRANSPORT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
 pub struct ManagedWorkspaceState {
-    inner: Arc<ManagedWorkspace>,
+    pub(super) inner: Arc<ManagedWorkspace>,
 }
 
-struct ManagedWorkspace {
+pub(super) struct ManagedWorkspace {
     app: AppHandle,
     session: Mutex<Option<WorkspaceSession<FakeDeliveryPort>>>,
     transport: Mutex<Option<IrohTransport>>,
-    files: Mutex<Option<WorkspaceFileRuntime>>,
+    pub(super) files: Mutex<Option<WorkspaceFileRuntime>>,
     issue: Mutex<Option<WorkspaceIssue>>,
     local_public_identity: Option<String>,
 }
@@ -55,72 +50,6 @@ pub struct WorkspaceShellView {
     pub members: Vec<MemberView>,
     pub peers: Vec<PeerView>,
     pub files: Option<WorkspaceFilesView>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceFilesView {
-    pub root: RootView,
-    pub entries: Vec<FileEntryView>,
-    pub conflicts: Vec<ConflictView>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RootView {
-    pub state: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FileEntryView {
-    pub node_id: String,
-    pub parent_node_id: Option<String>,
-    pub name: String,
-    pub kind: String,
-    pub current_revision_id: Option<String>,
-    pub editable: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConflictView {
-    pub record_id: String,
-    pub node_id: String,
-    pub kind: String,
-    pub competing_revision_ids: Vec<String>,
-    pub resolution_candidate_ids: Vec<String>,
-    pub reviewable_revision_ids: Vec<String>,
-    pub deletion_operation_id: Option<String>,
-    pub tree_choices: Vec<ConflictChoiceView>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ConflictChoiceView {
-    pub candidate_id: String,
-    pub node_id: String,
-    pub kind: String,
-    pub selected: bool,
-    pub name: String,
-    pub target_path: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FilePreviewView {
-    pub kind: String,
-    pub mime_type: String,
-    pub bytes: Vec<u8>,
-    pub byte_length: u64,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MarkdownRevisionView {
-    pub node_id: String,
-    pub revision_id: String,
-    pub markdown: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -167,43 +96,6 @@ pub struct JoinWorkspaceRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RetryJoinRequest {
     pub display_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct OpenMarkdownRequest {
-    pub node_id: String,
-    pub revision_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct OpenFilePreviewRequest {
-    pub node_id: String,
-    pub revision_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CreateMarkdownRequest {
-    pub parent_node_id: String,
-    pub name: String,
-    pub markdown: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReplaceMarkdownRequest {
-    pub node_id: String,
-    pub base_revision_id: String,
-    pub markdown: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ResolveConflictRequest {
-    pub record_id: String,
-    pub chosen_revision_id: Option<String>,
 }
 
 impl ManagedWorkspaceState {
@@ -266,7 +158,7 @@ impl ManagedWorkspaceState {
 }
 
 impl ManagedWorkspace {
-    async fn view(&self) -> WorkspaceShellView {
+    pub(super) async fn view(&self) -> WorkspaceShellView {
         let files = self.files.lock().await.as_ref().map(workspace_files_view);
         let mut session = self.session.lock().await;
         let issue = self.issue.lock().await.clone();
@@ -328,7 +220,7 @@ impl ManagedWorkspace {
         }
     }
 
-    async fn emit_view(&self) {
+    pub(super) async fn emit_view(&self) {
         let view = self.view().await;
         let transitions = {
             let mut session = self.session.lock().await;
@@ -360,6 +252,10 @@ impl ManagedWorkspace {
         }
     }
 
+    pub(super) fn emit_files_changed(&self) {
+        let _ = self.app.emit("workspace-files:changed", ());
+    }
+
     async fn refresh_file_runtime(&self) {
         let files = {
             let session = self.session.lock().await;
@@ -388,11 +284,12 @@ impl ManagedWorkspace {
             self.announce_file_changes(announcements).await;
         }
         if changed {
+            self.emit_files_changed();
             self.emit_view().await;
         }
     }
 
-    async fn announce_file_changes(&self, operation_ids: Vec<String>) {
+    pub(super) async fn announce_file_changes(&self, operation_ids: Vec<String>) {
         let recovery_service = self
             .files
             .lock()
@@ -490,6 +387,7 @@ impl ManagedWorkspace {
         if should_emit {
             self.refresh_file_runtime().await;
             self.refresh_file_recovery_service().await;
+            self.emit_files_changed();
             self.emit_view().await;
         } else if !has_transport {
             time::sleep(Duration::from_secs(1)).await;
@@ -548,170 +446,6 @@ impl ManagedWorkspace {
 pub async fn workspace_view(
     state: State<'_, ManagedWorkspaceState>,
 ) -> Result<WorkspaceShellView, String> {
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn choose_workspace_root(
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    let Some(root) = choose_confirmed_root(&app)? else {
-        return Ok(state.inner.view().await);
-    };
-    let root = root
-        .into_path()
-        .map_err(|_| "Resonance could not use that folder.".to_owned())?;
-    {
-        let mut files = state.inner.files.lock().await;
-        files
-            .as_mut()
-            .ok_or_else(file_runtime_unavailable)?
-            .bind_root(root, RootSelection::ConfirmedNotGitManaged)
-            .map_err(|_| "Choose a new or empty folder outside Git management.".to_owned())?;
-    }
-    state.inner.emit_view().await;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn replace_workspace_root(
-    app: AppHandle,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    let Some(root) = choose_confirmed_root(&app)? else {
-        return Ok(state.inner.view().await);
-    };
-    let root = root
-        .into_path()
-        .map_err(|_| "Resonance could not use that folder.".to_owned())?;
-    {
-        let mut files = state.inner.files.lock().await;
-        files
-            .as_mut()
-            .ok_or_else(file_runtime_unavailable)?
-            .replace_root(root, RootSelection::ConfirmedNotGitManaged)
-            .map_err(|_| "Choose a new or empty folder outside Git management.".to_owned())?;
-    }
-    state.inner.emit_view().await;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn repair_workspace_root(
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    {
-        let mut files = state.inner.files.lock().await;
-        files
-            .as_mut()
-            .ok_or_else(file_runtime_unavailable)?
-            .repair_root()
-            .map_err(|_| "The bound folder is still unavailable or not writable.".to_owned())?;
-    }
-    state.inner.emit_view().await;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn unbind_workspace_root(
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    {
-        let mut files = state.inner.files.lock().await;
-        files
-            .as_mut()
-            .ok_or_else(file_runtime_unavailable)?
-            .unbind_root()
-            .map_err(|_| "Resonance could not clear the private root binding.".to_owned())?;
-    }
-    state.inner.emit_view().await;
-    Ok(state.inner.view().await)
-}
-
-#[tauri::command]
-pub async fn open_markdown_file(
-    request: OpenMarkdownRequest,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<MarkdownRevisionView, String> {
-    let files = state.inner.files.lock().await;
-    files
-        .as_ref()
-        .ok_or_else(file_runtime_unavailable)?
-        .open_markdown_file(&request.node_id, &request.revision_id)
-        .map(markdown_revision_view)
-        .map_err(|_| "That Markdown revision is unavailable.".to_owned())
-}
-
-#[tauri::command]
-pub async fn open_file_preview(
-    request: OpenFilePreviewRequest,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<FilePreviewView, String> {
-    let files = state.inner.files.lock().await;
-    files
-        .as_ref()
-        .ok_or_else(file_runtime_unavailable)?
-        .open_file_preview(&request.node_id, &request.revision_id)
-        .map(file_preview_view)
-        .map_err(|_| "That file preview is unavailable.".to_owned())
-}
-
-#[tauri::command]
-pub async fn create_markdown_file(
-    request: CreateMarkdownRequest,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<MarkdownRevisionView, String> {
-    let (revision, announcements) = {
-        let mut files = state.inner.files.lock().await;
-        let files = files.as_mut().ok_or_else(file_runtime_unavailable)?;
-        let revision = files
-            .create_markdown_file(&request.parent_node_id, &request.name, &request.markdown)
-            .map_err(|_| "Resonance could not create that Markdown file.".to_owned())?;
-        (revision, files.take_pending_announcements())
-    };
-    state.inner.announce_file_changes(announcements).await;
-    state.inner.emit_view().await;
-    Ok(markdown_revision_view(revision))
-}
-
-#[tauri::command]
-pub async fn replace_markdown_file(
-    request: ReplaceMarkdownRequest,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<MarkdownRevisionView, String> {
-    let (revision, announcements) = {
-        let mut files = state.inner.files.lock().await;
-        let files = files.as_mut().ok_or_else(file_runtime_unavailable)?;
-        let revision = files
-            .replace_markdown_file(
-                &request.node_id,
-                &request.base_revision_id,
-                &request.markdown,
-            )
-            .map_err(markdown_replacement_error)?;
-        (revision, files.take_pending_announcements())
-    };
-    state.inner.announce_file_changes(announcements).await;
-    state.inner.emit_view().await;
-    Ok(markdown_revision_view(revision))
-}
-
-#[tauri::command]
-pub async fn resolve_workspace_conflict(
-    request: ResolveConflictRequest,
-    state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    let announcements = {
-        let mut files = state.inner.files.lock().await;
-        let files = files.as_mut().ok_or_else(file_runtime_unavailable)?;
-        files
-            .resolve_conflict(&request.record_id, request.chosen_revision_id)
-            .map_err(|_| "That conflict choice is no longer available.".to_owned())?;
-        files.take_pending_announcements()
-    };
-    state.inner.announce_file_changes(announcements).await;
-    state.inner.emit_view().await;
     Ok(state.inner.view().await)
 }
 
@@ -803,143 +537,6 @@ pub async fn retry_workspace_join(
     }
     state.inner.refresh_file_runtime().await;
     Ok(state.inner.view().await)
-}
-
-fn choose_confirmed_root(app: &AppHandle) -> Result<Option<tauri_plugin_dialog::FilePath>, String> {
-    let Some(root) = app.dialog().file().blocking_pick_folder() else {
-        return Ok(None);
-    };
-    let confirmed = app
-        .dialog()
-        .message("Use this folder only if it is new or empty and is not managed by Git.")
-        .title("Confirm workspace folder")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Use folder".to_owned(),
-            "Cancel".to_owned(),
-        ))
-        .blocking_show();
-    if !confirmed {
-        return Ok(None);
-    }
-    Ok(Some(root))
-}
-
-fn workspace_files_view(files: &WorkspaceFileRuntime) -> WorkspaceFilesView {
-    WorkspaceFilesView {
-        root: RootView {
-            state: match files.root_status() {
-                RootBindingStatus::Unbound => "unbound",
-                RootBindingStatus::Bound(RootHealth::Healthy) => "healthy",
-                RootBindingStatus::Bound(RootHealth::Unavailable) => "unavailable",
-                RootBindingStatus::Bound(RootHealth::Unwritable) => "unwritable",
-                RootBindingStatus::Bound(RootHealth::Unhealthy) => "unhealthy",
-            }
-            .to_owned(),
-        },
-        entries: files
-            .tree_entries()
-            .into_iter()
-            .map(file_entry_view)
-            .collect(),
-        conflicts: files.conflicts().into_iter().map(conflict_view).collect(),
-    }
-}
-
-fn file_entry_view(entry: FileTreeEntry) -> FileEntryView {
-    FileEntryView {
-        node_id: entry.node_id,
-        parent_node_id: entry.parent_node_id,
-        name: entry.name,
-        kind: match entry.kind {
-            FileEntryKind::Directory => "directory",
-            FileEntryKind::Markdown => "markdown",
-            FileEntryKind::Binary => "binary",
-        }
-        .to_owned(),
-        current_revision_id: entry.current_revision_id,
-        editable: entry.editable,
-    }
-}
-
-fn conflict_view(conflict: FileConflictView) -> ConflictView {
-    ConflictView {
-        record_id: conflict.record_id,
-        node_id: conflict.node_id,
-        kind: match conflict.kind {
-            ConflictKind::MarkdownOverlap => "markdown-overlap",
-            ConflictKind::BinaryCollision => "binary-collision",
-            ConflictKind::DeleteEdit => "delete-edit",
-            ConflictKind::ConcurrentCreate => "concurrent-create",
-            ConflictKind::CompetingMove => "competing-move",
-        }
-        .to_owned(),
-        competing_revision_ids: conflict.competing_revision_ids,
-        resolution_candidate_ids: conflict.resolution_candidate_ids,
-        reviewable_revision_ids: conflict.reviewable_revision_ids,
-        deletion_operation_id: conflict.deletion_operation_id,
-        tree_choices: conflict
-            .tree_choices
-            .into_iter()
-            .map(conflict_choice_view)
-            .collect(),
-    }
-}
-
-fn conflict_choice_view(choice: FileConflictChoiceView) -> ConflictChoiceView {
-    ConflictChoiceView {
-        candidate_id: choice.candidate_id,
-        node_id: choice.node_id,
-        kind: match choice.kind {
-            FileConflictChoiceKind::File => "file",
-            FileConflictChoiceKind::Directory => "directory",
-            FileConflictChoiceKind::Move => "move",
-        }
-        .to_owned(),
-        selected: choice.selected,
-        name: choice.name,
-        target_path: choice.target_path,
-    }
-}
-
-fn file_preview_view(preview: FilePreview) -> FilePreviewView {
-    match preview {
-        FilePreview::Image { mime_type, bytes } => FilePreviewView {
-            kind: "image".to_owned(),
-            byte_length: bytes.len() as u64,
-            mime_type,
-            bytes,
-        },
-        FilePreview::Unavailable {
-            mime_type,
-            byte_length,
-        } => FilePreviewView {
-            kind: "unavailable".to_owned(),
-            mime_type,
-            bytes: Vec::new(),
-            byte_length,
-        },
-    }
-}
-
-fn markdown_revision_view(revision: MarkdownFileView) -> MarkdownRevisionView {
-    MarkdownRevisionView {
-        node_id: revision.node_id,
-        revision_id: revision.revision_id,
-        markdown: revision.markdown,
-    }
-}
-
-fn markdown_replacement_error(error: WorkspaceFileRuntimeError) -> String {
-    match error {
-        WorkspaceFileRuntimeError::StaleRevision | WorkspaceFileRuntimeError::NotFound =>
-            "The file changed before this edit could be saved. Your draft remains open. Review the latest revision before replacing it."
-                .to_owned(),
-        _ => "Resonance could not save this Markdown revision. Your draft remains open.".to_owned(),
-    }
-}
-
-fn file_runtime_unavailable() -> String {
-    "Workspace files are unavailable until membership is ready.".to_owned()
 }
 
 fn workspace_summary_view(workspace: &WorkspaceSummary) -> WorkspaceView {
@@ -1049,11 +646,13 @@ fn unix_seconds() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        issue_message, markdown_replacement_error, network_delivery_issue, network_start_issue,
-        IrohSessionAdapterError, IrohTransportError, MemberView, PeerView, ReplaceMarkdownRequest,
-        WorkspaceSessionError, WorkspaceShellView, WorkspaceView,
+        issue_message, network_delivery_issue, network_start_issue, IrohSessionAdapterError,
+        IrohTransportError, MemberView, PeerView, WorkspaceSessionError, WorkspaceShellView,
+        WorkspaceView,
     };
-    use resonance_runtime::workspace_file_runtime::WorkspaceFileRuntimeError;
+    use crate::commands::workspace_files::{
+        FileEntryView, FileEntryViewKind, RootState, RootView, WorkspaceFilesView,
+    };
 
     #[test]
     fn maps_transport_start_errors_to_safe_actionable_messages() {
@@ -1081,35 +680,6 @@ mod tests {
     }
 
     #[test]
-    fn markdown_replacement_errors_keep_the_draft_recovery_path_explicit() {
-        for error in [
-            WorkspaceFileRuntimeError::StaleRevision,
-            WorkspaceFileRuntimeError::NotFound,
-        ] {
-            let message = markdown_replacement_error(error);
-            assert_eq!(
-                message,
-                "The file changed before this edit could be saved. Your draft remains open. Review the latest revision before replacing it."
-            );
-            for forbidden in ["secret", "token", "private", "path", "blob"] {
-                assert!(!message.to_ascii_lowercase().contains(forbidden));
-            }
-        }
-    }
-
-    #[test]
-    fn markdown_replacement_request_rejects_private_or_unknown_fields() {
-        let request = serde_json::json!({
-            "nodeId": "node-id",
-            "baseRevisionId": "revision-id",
-            "markdown": "# Safe",
-            "path": "/private/root/file.md"
-        });
-
-        assert!(serde_json::from_value::<ReplaceMarkdownRequest>(request).is_err());
-    }
-
-    #[test]
     fn public_workspace_event_contains_no_secret_or_transport_fields() {
         let view = WorkspaceShellView {
             state: "ready".to_owned(),
@@ -1131,15 +701,15 @@ mod tests {
                 online: true,
                 connection: "direct".to_owned(),
             }],
-            files: Some(super::WorkspaceFilesView {
-                root: super::RootView {
-                    state: "healthy".to_owned(),
+            files: Some(WorkspaceFilesView {
+                root: RootView {
+                    state: RootState::Healthy,
                 },
-                entries: vec![super::FileEntryView {
+                entries: vec![FileEntryView {
                     node_id: "node-id".to_owned(),
                     parent_node_id: None,
                     name: "plans".to_owned(),
-                    kind: "directory".to_owned(),
+                    kind: FileEntryViewKind::Directory,
                     current_revision_id: None,
                     editable: true,
                 }],

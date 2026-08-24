@@ -1,3 +1,5 @@
+export * from "./workspace-files-v1.js";
+
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
 
 import manifestSchema from "../schema/manifest.v2.json";

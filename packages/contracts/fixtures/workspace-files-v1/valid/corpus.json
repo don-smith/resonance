@@ -1,0 +1,337 @@
+[
+  { "kind": "request", "value": { "operation": "snapshot" } },
+  { "kind": "request", "value": { "operation": "select-root" } },
+  { "kind": "request", "value": { "operation": "replace-root" } },
+  { "kind": "request", "value": { "operation": "repair-root" } },
+  { "kind": "request", "value": { "operation": "unbind-root" } },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "open-markdown",
+      "nodeId": "node-1",
+      "revisionId": "revision-1"
+    }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "open-preview",
+      "nodeId": "node-2",
+      "revisionId": "revision-2"
+    }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "create-markdown",
+      "parentNodeId": "plans",
+      "name": "notes.md",
+      "markdown": "# Notes\n"
+    }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "replace-markdown",
+      "nodeId": "node-1",
+      "baseRevisionId": "revision-1",
+      "markdown": "# Updated\n"
+    }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "resolve-conflict",
+      "recordId": "conflict-1",
+      "chosenCandidateId": null
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "snapshot",
+      "snapshot": {
+        "root": { "state": "unbound" },
+        "entries": [
+          {
+            "nodeId": "plans",
+            "parentNodeId": null,
+            "name": "plans",
+            "kind": "directory",
+            "currentRevisionId": null,
+            "editable": true
+          },
+          {
+            "nodeId": "notes",
+            "parentNodeId": "plans",
+            "name": "notes.md",
+            "kind": "markdown",
+            "currentRevisionId": "revision-1",
+            "editable": true
+          },
+          {
+            "nodeId": "image",
+            "parentNodeId": "plans",
+            "name": "image.png",
+            "kind": "binary",
+            "currentRevisionId": "revision-2",
+            "editable": false
+          }
+        ],
+        "conflicts": [
+          {
+            "recordId": "conflict-markdown",
+            "nodeId": "notes",
+            "kind": "markdown-overlap",
+            "competingRevisionIds": ["revision-1", "revision-3"],
+            "resolutionCandidateIds": ["revision-1", "revision-3"],
+            "reviewableRevisionIds": ["revision-1", "revision-3"],
+            "deletionOperationId": null,
+            "treeChoices": []
+          },
+          {
+            "recordId": "conflict-binary",
+            "nodeId": "image",
+            "kind": "binary-collision",
+            "competingRevisionIds": ["revision-2", "revision-4"],
+            "resolutionCandidateIds": ["revision-2", "revision-4"],
+            "reviewableRevisionIds": [],
+            "deletionOperationId": null,
+            "treeChoices": []
+          },
+          {
+            "recordId": "conflict-delete",
+            "nodeId": "notes",
+            "kind": "delete-edit",
+            "competingRevisionIds": ["revision-3"],
+            "resolutionCandidateIds": ["revision-3", "delete-operation"],
+            "reviewableRevisionIds": ["revision-3"],
+            "deletionOperationId": "delete-operation",
+            "treeChoices": []
+          },
+          {
+            "recordId": "conflict-create",
+            "nodeId": "created",
+            "kind": "concurrent-create",
+            "competingRevisionIds": ["candidate-file", "candidate-directory"],
+            "resolutionCandidateIds": ["candidate-file", "candidate-directory"],
+            "reviewableRevisionIds": [],
+            "deletionOperationId": null,
+            "treeChoices": [
+              {
+                "candidateId": "candidate-file",
+                "nodeId": "created-file",
+                "kind": "file",
+                "selected": true,
+                "name": "created.md",
+                "targetLocation": null
+              },
+              {
+                "candidateId": "candidate-directory",
+                "nodeId": "created-directory",
+                "kind": "directory",
+                "selected": false,
+                "name": "created",
+                "targetLocation": null
+              }
+            ]
+          },
+          {
+            "recordId": "conflict-move",
+            "nodeId": "notes",
+            "kind": "competing-move",
+            "competingRevisionIds": ["move-1"],
+            "resolutionCandidateIds": ["move-1"],
+            "reviewableRevisionIds": [],
+            "deletionOperationId": null,
+            "treeChoices": [
+              {
+                "candidateId": "move-1",
+                "nodeId": "notes",
+                "kind": "move",
+                "selected": true,
+                "name": "notes.md",
+                "targetLocation": "plans/notes.md"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "select-root",
+      "snapshot": {
+        "root": { "state": "healthy" },
+        "entries": [],
+        "conflicts": []
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "replace-root",
+      "snapshot": {
+        "root": { "state": "unavailable" },
+        "entries": [],
+        "conflicts": []
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "repair-root",
+      "snapshot": {
+        "root": { "state": "unwritable" },
+        "entries": [],
+        "conflicts": []
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "unbind-root",
+      "snapshot": {
+        "root": { "state": "unhealthy" },
+        "entries": [],
+        "conflicts": []
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "resolve-conflict",
+      "snapshot": {
+        "root": { "state": "unbound" },
+        "entries": [],
+        "conflicts": []
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "open-markdown",
+      "revision": {
+        "nodeId": "notes",
+        "revisionId": "revision-1",
+        "markdown": "# Notes\n"
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "create-markdown",
+      "revision": {
+        "nodeId": "new",
+        "revisionId": "revision-5",
+        "markdown": ""
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "replace-markdown",
+      "revision": {
+        "nodeId": "notes",
+        "revisionId": "revision-6",
+        "markdown": "# Updated\n"
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "open-preview",
+      "preview": {
+        "kind": "image",
+        "mimeType": "image/png",
+        "bytes": [137, 80],
+        "byteLength": 2
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "open-preview",
+      "preview": {
+        "kind": "unavailable",
+        "mimeType": "application/octet-stream",
+        "bytes": [],
+        "byteLength": 42
+      }
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "unavailable-capability",
+      "message": "Workspace files are unavailable."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "invalid-request",
+      "message": "The workspace-files request is invalid."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "missing-revision",
+      "message": "That file revision is unavailable."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "stale-revision",
+      "message": "The file changed before this edit could be saved."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "invalid-markdown-name",
+      "message": "Markdown file names must end in .md."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "size-limit",
+      "message": "The workspace-files size limit was exceeded."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "unusable-root",
+      "message": "Choose a usable workspace folder."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "changed-conflict-choice",
+      "message": "That conflict choice is no longer available."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "internal",
+      "message": "Workspace files could not complete the request."
+    }
+  }
+]

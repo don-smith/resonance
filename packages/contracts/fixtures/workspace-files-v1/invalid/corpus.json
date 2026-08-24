@@ -1,0 +1,198 @@
+[
+  {
+    "name": "unknown request field",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "extra": true }
+    }
+  },
+  {
+    "name": "unknown operation",
+    "value": { "kind": "request", "value": { "operation": "read-files" } }
+  },
+  {
+    "name": "identifier limit",
+    "value": {
+      "kind": "request",
+      "value": {
+        "operation": "open-markdown",
+        "nodeId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "revisionId": "revision"
+      }
+    }
+  },
+  {
+    "name": "name limit",
+    "value": {
+      "kind": "request",
+      "value": {
+        "operation": "create-markdown",
+        "parentNodeId": "plans",
+        "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md",
+        "markdown": ""
+      }
+    }
+  },
+  {
+    "name": "invalid root enum",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": { "state": "private" },
+          "entries": [],
+          "conflicts": []
+        }
+      }
+    }
+  },
+  {
+    "name": "invalid entry enum",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": { "state": "unbound" },
+          "entries": [
+            {
+              "nodeId": "node",
+              "parentNodeId": null,
+              "name": "file",
+              "kind": "symlink",
+              "currentRevisionId": null,
+              "editable": false
+            }
+          ],
+          "conflicts": []
+        }
+      }
+    }
+  },
+  {
+    "name": "invalid conflict enum",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": { "state": "unbound" },
+          "entries": [],
+          "conflicts": [
+            {
+              "recordId": "conflict",
+              "nodeId": "node",
+              "kind": "automatic-merge",
+              "competingRevisionIds": [],
+              "resolutionCandidateIds": [],
+              "reviewableRevisionIds": [],
+              "deletionOperationId": null,
+              "treeChoices": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "invalid preview byte",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "open-preview",
+        "preview": {
+          "kind": "image",
+          "mimeType": "image/png",
+          "bytes": [256],
+          "byteLength": 1
+        }
+      }
+    }
+  },
+  {
+    "name": "preview size limit",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "open-preview",
+        "preview": {
+          "kind": "image",
+          "mimeType": "image/png",
+          "bytes": [],
+          "byteLength": 10485761
+        }
+      }
+    }
+  },
+  {
+    "name": "unsafe error text",
+    "value": {
+      "kind": "error",
+      "value": { "code": "internal", "message": "database path failed" }
+    }
+  },
+  {
+    "name": "path",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "path": "/private/root" }
+    }
+  },
+  {
+    "name": "token",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "token": "secret" }
+    }
+  },
+  {
+    "name": "private key",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "privateKey": "secret" }
+    }
+  },
+  {
+    "name": "blob location",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "blobLocation": "private" }
+    }
+  },
+  {
+    "name": "watcher state",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "watcherState": {} }
+    }
+  },
+  {
+    "name": "persistence details",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "persistence": {} }
+    }
+  },
+  {
+    "name": "sql details",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "sql": "SELECT *" }
+    }
+  },
+  {
+    "name": "signed operation",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "signedOperation": {} }
+    }
+  },
+  {
+    "name": "iroh data",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "iroh": {} }
+    }
+  }
+]

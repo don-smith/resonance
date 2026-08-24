@@ -1,3 +1,5 @@
+import type { WorkspaceFilesV1 } from "./workspace-files-v1.js";
+
 export type PackageIdentity = Readonly<{
   id: string;
   name: string;
@@ -33,7 +35,9 @@ export type PackageContext = Readonly<{
   package: PackageIdentity;
   events: PackageEventAccess;
   designTokens: PackageDesignTokens;
-  capabilities: Readonly<Record<string, unknown>>;
+  capabilities: Readonly<{
+    workspaceFilesV1?: WorkspaceFilesV1;
+  }>;
 }>;
 
 export type PackageInstance = {

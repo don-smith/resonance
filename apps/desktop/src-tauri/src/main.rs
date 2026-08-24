@@ -56,15 +56,16 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::packages::bundled_package_ids,
             commands::workspace::workspace_view,
-            commands::workspace::choose_workspace_root,
-            commands::workspace::replace_workspace_root,
-            commands::workspace::repair_workspace_root,
-            commands::workspace::unbind_workspace_root,
-            commands::workspace::open_markdown_file,
-            commands::workspace::open_file_preview,
-            commands::workspace::create_markdown_file,
-            commands::workspace::replace_markdown_file,
-            commands::workspace::resolve_workspace_conflict,
+            commands::workspace_files::workspace_files_v1,
+            commands::workspace_files::choose_workspace_root,
+            commands::workspace_files::replace_workspace_root,
+            commands::workspace_files::repair_workspace_root,
+            commands::workspace_files::unbind_workspace_root,
+            commands::workspace_files::open_markdown_file,
+            commands::workspace_files::open_file_preview,
+            commands::workspace_files::create_markdown_file,
+            commands::workspace_files::replace_markdown_file,
+            commands::workspace_files::resolve_workspace_conflict,
             commands::workspace::create_workspace,
             commands::workspace::create_workspace_invite,
             commands::workspace::join_workspace,
@@ -119,6 +120,9 @@ fn select_workspace_startup(
 #[cfg(test)]
 mod tests {
     const TAURI_CONFIGURATION: &str = include_str!("../tauri.conf.json");
+    const MAIN_SOURCE: &str = include_str!("main.rs");
+    const BUILD_SOURCE: &str = include_str!("../build.rs");
+    const MAIN_SHELL_CAPABILITY: &str = include_str!("../capabilities/main-shell.json");
 
     #[test]
     fn keeps_the_unprovisioned_updater_plugin_deserializable() {
@@ -128,5 +132,42 @@ mod tests {
 
         assert_eq!(updater["pubkey"], "");
         assert_eq!(updater["endpoints"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn application_command_manifest_and_main_capability_match_registration() {
+        let capability: serde_json::Value = serde_json::from_str(MAIN_SHELL_CAPABILITY)
+            .expect("main shell capability is valid JSON");
+        let permissions = capability["permissions"]
+            .as_array()
+            .expect("permissions are an array");
+        let commands = [
+            "bundled_package_ids",
+            "workspace_view",
+            "workspace_files_v1",
+            "choose_workspace_root",
+            "replace_workspace_root",
+            "repair_workspace_root",
+            "unbind_workspace_root",
+            "open_markdown_file",
+            "open_file_preview",
+            "create_markdown_file",
+            "replace_markdown_file",
+            "resolve_workspace_conflict",
+            "create_workspace",
+            "create_workspace_invite",
+            "join_workspace",
+            "retry_workspace_join",
+        ];
+
+        for command in commands {
+            assert!(MAIN_SOURCE.contains(&format!("::{command}")));
+            assert!(BUILD_SOURCE.contains(&format!("\"{command}\"")));
+            let permission = command.replace('_', "-");
+            assert!(permissions
+                .iter()
+                .any(|value| value == &format!("allow-{permission}")));
+        }
+        assert_eq!(permissions.len(), commands.len() + 2);
     }
 }

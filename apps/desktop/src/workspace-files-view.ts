@@ -119,7 +119,7 @@ export function rootStatusMessage(state: RootState): string {
 
 export function treeConflictActionLabel(choice: ConflictChoiceView): string {
   if (choice.kind === "move") {
-    const target = choice.targetPath ?? choice.name;
+    const target = choice.targetLocation ?? choice.name;
     return choice.selected
       ? `Keep current location: ${target}`
       : `Use location: ${target}`;

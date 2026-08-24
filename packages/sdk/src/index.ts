@@ -1,4 +1,5 @@
 export * from "./package-lifecycle.js";
+export * from "./workspace-files-v1.js";
 
 import type { PackageEvent, PackageEventAccess } from "./package-lifecycle.js";
 

@@ -1,0 +1,1002 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resonance.local/schema/workspace-files.v1.json",
+  "title": "Resonance workspace-files v1 wire contract",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/requestEnvelope"
+    },
+    {
+      "$ref": "#/$defs/responseEnvelope"
+    },
+    {
+      "$ref": "#/$defs/errorEnvelope"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "requestEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "const": "request"
+        },
+        "value": {
+          "$ref": "#/$defs/request"
+        }
+      }
+    },
+    "responseEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "const": "response"
+        },
+        "value": {
+          "$ref": "#/$defs/response"
+        }
+      }
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "const": "error"
+        },
+        "value": {
+          "$ref": "#/$defs/error"
+        }
+      }
+    },
+    "request": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/snapshotRequest"
+        },
+        {
+          "$ref": "#/$defs/selectRootRequest"
+        },
+        {
+          "$ref": "#/$defs/replaceRootRequest"
+        },
+        {
+          "$ref": "#/$defs/repairRootRequest"
+        },
+        {
+          "$ref": "#/$defs/unbindRootRequest"
+        },
+        {
+          "$ref": "#/$defs/openMarkdownRequest"
+        },
+        {
+          "$ref": "#/$defs/openPreviewRequest"
+        },
+        {
+          "$ref": "#/$defs/createMarkdownRequest"
+        },
+        {
+          "$ref": "#/$defs/replaceMarkdownRequest"
+        },
+        {
+          "$ref": "#/$defs/resolveConflictRequest"
+        }
+      ]
+    },
+    "emptyRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation"],
+      "properties": {
+        "operation": {
+          "enum": [
+            "snapshot",
+            "select-root",
+            "replace-root",
+            "repair-root",
+            "unbind-root"
+          ]
+        }
+      }
+    },
+    "snapshotRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/emptyRequest"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "snapshot"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "selectRootRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/emptyRequest"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "select-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "replaceRootRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/emptyRequest"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "replace-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "repairRootRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/emptyRequest"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "repair-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "unbindRootRequest": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/emptyRequest"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "unbind-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "openMarkdownRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "nodeId", "revisionId"],
+      "properties": {
+        "operation": {
+          "const": "open-markdown"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revisionId": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "openPreviewRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "nodeId", "revisionId"],
+      "properties": {
+        "operation": {
+          "const": "open-preview"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revisionId": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "createMarkdownRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "parentNodeId", "name", "markdown"],
+      "properties": {
+        "operation": {
+          "const": "create-markdown"
+        },
+        "parentNodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "markdown": {
+          "type": "string",
+          "maxLength": 1048576
+        }
+      }
+    },
+    "replaceMarkdownRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "nodeId", "baseRevisionId", "markdown"],
+      "properties": {
+        "operation": {
+          "const": "replace-markdown"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "baseRevisionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "markdown": {
+          "type": "string",
+          "maxLength": 1048576
+        }
+      }
+    },
+    "resolveConflictRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "recordId", "chosenCandidateId"],
+      "properties": {
+        "operation": {
+          "const": "resolve-conflict"
+        },
+        "recordId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "chosenCandidateId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "response": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/snapshotResponse"
+        },
+        {
+          "$ref": "#/$defs/selectRootResponse"
+        },
+        {
+          "$ref": "#/$defs/replaceRootResponse"
+        },
+        {
+          "$ref": "#/$defs/repairRootResponse"
+        },
+        {
+          "$ref": "#/$defs/unbindRootResponse"
+        },
+        {
+          "$ref": "#/$defs/openMarkdownResponse"
+        },
+        {
+          "$ref": "#/$defs/openPreviewResponse"
+        },
+        {
+          "$ref": "#/$defs/createMarkdownResponse"
+        },
+        {
+          "$ref": "#/$defs/replaceMarkdownResponse"
+        },
+        {
+          "$ref": "#/$defs/resolveConflictResponse"
+        }
+      ]
+    },
+    "snapshotResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshotOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "snapshot"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "snapshotOperationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "snapshot"],
+      "properties": {
+        "operation": {
+          "enum": [
+            "snapshot",
+            "select-root",
+            "replace-root",
+            "repair-root",
+            "unbind-root",
+            "resolve-conflict"
+          ]
+        },
+        "snapshot": {
+          "$ref": "#/$defs/snapshot"
+        }
+      }
+    },
+    "selectRootResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshotOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "select-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "replaceRootResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshotOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "replace-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "repairRootResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshotOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "repair-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "unbindRootResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshotOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "unbind-root"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "resolveConflictResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/snapshotOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "resolve-conflict"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "revisionOperationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "revision"],
+      "properties": {
+        "operation": {
+          "enum": ["open-markdown", "create-markdown", "replace-markdown"]
+        },
+        "revision": {
+          "$ref": "#/$defs/markdownRevision"
+        }
+      }
+    },
+    "openMarkdownResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/revisionOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "open-markdown"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "createMarkdownResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/revisionOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "create-markdown"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "replaceMarkdownResponse": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/revisionOperationResponse"
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "replace-markdown"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "openPreviewResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "preview"],
+      "properties": {
+        "operation": {
+          "const": "open-preview"
+        },
+        "preview": {
+          "$ref": "#/$defs/preview"
+        }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "entries", "conflicts"],
+      "properties": {
+        "root": {
+          "$ref": "#/$defs/root"
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/entry"
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/conflict"
+          }
+        }
+      }
+    },
+    "root": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "enum": [
+            "unbound",
+            "healthy",
+            "unavailable",
+            "unwritable",
+            "unhealthy"
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "parentNodeId",
+        "name",
+        "kind",
+        "currentRevisionId",
+        "editable"
+      ],
+      "properties": {
+        "nodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "parentNodeId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "kind": {
+          "enum": ["directory", "markdown", "binary"]
+        },
+        "currentRevisionId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "editable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordId",
+        "nodeId",
+        "kind",
+        "competingRevisionIds",
+        "resolutionCandidateIds",
+        "reviewableRevisionIds",
+        "deletionOperationId",
+        "treeChoices"
+      ],
+      "properties": {
+        "recordId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "enum": [
+            "markdown-overlap",
+            "binary-collision",
+            "delete-edit",
+            "concurrent-create",
+            "competing-move"
+          ]
+        },
+        "competingRevisionIds": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "resolutionCandidateIds": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "reviewableRevisionIds": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "deletionOperationId": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "treeChoices": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/conflictChoice"
+          }
+        }
+      }
+    },
+    "conflictChoice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidateId",
+        "nodeId",
+        "kind",
+        "selected",
+        "name",
+        "targetLocation"
+      ],
+      "properties": {
+        "candidateId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "nodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "enum": ["file", "directory", "move"]
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "targetLocation": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "markdownRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "revisionId", "markdown"],
+      "properties": {
+        "nodeId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "revisionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "markdown": {
+          "type": "string",
+          "maxLength": 1048576
+        }
+      }
+    },
+    "preview": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/imagePreview"
+        },
+        {
+          "$ref": "#/$defs/unavailablePreview"
+        }
+      ]
+    },
+    "imagePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "mimeType", "bytes", "byteLength"],
+      "properties": {
+        "kind": {
+          "const": "image"
+        },
+        "mimeType": {
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "image/bmp"
+          ]
+        },
+        "bytes": {
+          "type": "array",
+          "maxItems": 10485760,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10485760
+        }
+      }
+    },
+    "unavailablePreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "mimeType", "bytes", "byteLength"],
+      "properties": {
+        "kind": {
+          "const": "unavailable"
+        },
+        "mimeType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "bytes": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "error": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/unavailableCapabilityError"
+        },
+        {
+          "$ref": "#/$defs/invalidRequestError"
+        },
+        {
+          "$ref": "#/$defs/missingRevisionError"
+        },
+        {
+          "$ref": "#/$defs/staleRevisionError"
+        },
+        {
+          "$ref": "#/$defs/invalidMarkdownNameError"
+        },
+        {
+          "$ref": "#/$defs/sizeLimitError"
+        },
+        {
+          "$ref": "#/$defs/unusableRootError"
+        },
+        {
+          "$ref": "#/$defs/changedConflictChoiceError"
+        },
+        {
+          "$ref": "#/$defs/internalError"
+        }
+      ]
+    },
+    "errorBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "enum": [
+            "unavailable-capability",
+            "invalid-request",
+            "missing-revision",
+            "stale-revision",
+            "invalid-markdown-name",
+            "size-limit",
+            "unusable-root",
+            "changed-conflict-choice",
+            "internal"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "unavailableCapabilityError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "unavailable-capability"
+            },
+            "message": {
+              "const": "Workspace files are unavailable."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "invalidRequestError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "invalid-request"
+            },
+            "message": {
+              "const": "The workspace-files request is invalid."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "missingRevisionError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "missing-revision"
+            },
+            "message": {
+              "const": "That file revision is unavailable."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "staleRevisionError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "stale-revision"
+            },
+            "message": {
+              "const": "The file changed before this edit could be saved."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "invalidMarkdownNameError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "invalid-markdown-name"
+            },
+            "message": {
+              "const": "Markdown file names must end in .md."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "sizeLimitError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "size-limit"
+            },
+            "message": {
+              "const": "The workspace-files size limit was exceeded."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "unusableRootError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "unusable-root"
+            },
+            "message": {
+              "const": "Choose a usable workspace folder."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "changedConflictChoiceError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "changed-conflict-choice"
+            },
+            "message": {
+              "const": "That conflict choice is no longer available."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "internalError": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/errorBase"
+        },
+        {
+          "properties": {
+            "code": {
+              "const": "internal"
+            },
+            "message": {
+              "const": "Workspace files could not complete the request."
+            }
+          },
+          "type": "object"
+        }
+      ]
+    }
+  }
+}

@@ -129,7 +129,7 @@ describe("workspace shell view", () => {
         kind: "file",
         selected: true,
         name: "tree-collision",
-        targetPath: null,
+        targetLocation: null,
       },
       {
         candidateId: "directory-operation",
@@ -137,7 +137,7 @@ describe("workspace shell view", () => {
         kind: "directory",
         selected: false,
         name: "tree-collision",
-        targetPath: null,
+        targetLocation: null,
       },
     ];
     expect(createChoices.map(treeConflictActionLabel)).toEqual([

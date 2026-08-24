@@ -1,7 +1,26 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-shell",
-  "description": "The trusted main shell may use core IPC and the shell-owned updater only.",
+  "description": "The trusted main shell may use only registered shell commands and the shell-owned updater.",
   "windows": ["main"],
-  "permissions": ["core:default", "updater:default"]
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "allow-bundled-package-ids",
+    "allow-workspace-view",
+    "allow-workspace-files-v1",
+    "allow-choose-workspace-root",
+    "allow-replace-workspace-root",
+    "allow-repair-workspace-root",
+    "allow-unbind-workspace-root",
+    "allow-open-markdown-file",
+    "allow-open-file-preview",
+    "allow-create-markdown-file",
+    "allow-replace-markdown-file",
+    "allow-resolve-workspace-conflict",
+    "allow-create-workspace",
+    "allow-create-workspace-invite",
+    "allow-join-workspace",
+    "allow-retry-workspace-join"
+  ]
 }

@@ -1,16 +1,20 @@
 //! Package-manifest and declared-event runtime seams.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::{Component, Path},
+};
 
 use serde::Deserialize;
 
 const ROLES: [&str; 3] = ["viewer", "contributor", "developer"];
-const CAPABILITIES: [&str; 5] = [
+const CAPABILITIES: [&str; 6] = [
     "documents:read",
     "documents:write",
     "workspace:read",
     "repository:read",
     "telemetry:write",
+    "workspace-files:v1",
 ];
 const AGENT_PERMISSIONS: [&str; 5] = [
     "read",
@@ -40,6 +44,7 @@ pub struct PackageManifest {
     pub name: String,
     pub description: String,
     pub nav: Navigation,
+    pub content: ContentEntry,
     pub events: EventDeclarations,
     pub min_role: String,
     #[serde(default)]
@@ -55,6 +60,13 @@ pub struct Navigation {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ContentEntry {
+    pub entry: String,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EventDeclarations {
     pub emits: Vec<String>,
     pub consumes: Vec<String>,
@@ -85,7 +97,7 @@ impl PackageDiagnostic {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PackageSource {
-    BundledTeam,
+    Bundled,
     MemberLocal,
     Repository,
 }
@@ -96,16 +108,16 @@ pub struct PackageRegistry {
 }
 
 impl PackageRegistry {
-    /// Parses and validates only bundled team manifests. Diagnostics are sorted
-    /// so callers can report reproducible remediation to package authors.
+    /// Parses and validates bundled manifests. Diagnostics are sorted so
+    /// callers can report reproducible remediation to package authors.
     pub fn load(
         source: PackageSource,
         raw_manifests: &[&str],
     ) -> Result<Self, Vec<PackageDiagnostic>> {
-        if source != PackageSource::BundledTeam {
+        if source != PackageSource::Bundled {
             return Err(vec![PackageDiagnostic::new(
                 "<source>",
-                "only bundled-team packages may load in Phase 1",
+                "only bundled packages may load from the bundled catalog",
             )]);
         }
 
@@ -136,8 +148,31 @@ impl PackageRegistry {
         }
     }
 
+    pub fn load_catalog(
+        source: PackageSource,
+        raw_catalog: &str,
+    ) -> Result<Self, Vec<PackageDiagnostic>> {
+        let values: Vec<serde_json::Value> =
+            serde_json::from_str(raw_catalog).map_err(|error| {
+                vec![PackageDiagnostic::new(
+                    "<catalog>",
+                    format!("malformed package catalog: {error}"),
+                )]
+            })?;
+        let manifests = values
+            .into_iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>();
+        let raw_manifests = manifests.iter().map(String::as_str).collect::<Vec<_>>();
+        Self::load(source, &raw_manifests)
+    }
+
     pub fn get(&self, id: &str) -> Option<&PackageManifest> {
         self.manifests.get(id)
+    }
+
+    pub fn ids(&self) -> impl Iterator<Item = &str> {
+        self.manifests.keys().map(String::as_str)
     }
 
     fn parse(raw: &str) -> Result<PackageManifest, Vec<PackageDiagnostic>> {
@@ -150,17 +185,14 @@ impl PackageRegistry {
         let mut diagnostics = Vec::new();
         let id = manifest.id.clone();
 
-        if manifest.manifest_version != 1 {
+        if manifest.manifest_version != 2 {
             diagnostics.push(PackageDiagnostic::new(
                 id.clone(),
-                "manifestVersion must be 1",
+                "manifestVersion must be 2",
             ));
         }
-        if manifest.source != "bundled-team" {
-            diagnostics.push(PackageDiagnostic::new(
-                id.clone(),
-                "source must be bundled-team",
-            ));
+        if manifest.source != "bundled" {
+            diagnostics.push(PackageDiagnostic::new(id.clone(), "source must be bundled"));
         }
         if !is_namespaced_id(&manifest.id) {
             diagnostics.push(PackageDiagnostic::new(
@@ -176,6 +208,12 @@ impl PackageRegistry {
             diagnostics.push(PackageDiagnostic::new(
                 id.clone(),
                 "name, description, and nav fields must be non-empty",
+            ));
+        }
+        if !is_relative_typescript_entry(&manifest.content.entry) {
+            diagnostics.push(PackageDiagnostic::new(
+                id.clone(),
+                "content entry must be a package-relative TypeScript path without traversal",
             ));
         }
         if !ROLES.contains(&manifest.min_role.as_str()) {
@@ -223,6 +261,15 @@ impl PackageRegistry {
             Err(diagnostics)
         }
     }
+}
+
+fn is_relative_typescript_entry(entry: &str) -> bool {
+    !entry.is_empty()
+        && !entry.contains('\\')
+        && entry.ends_with(".ts")
+        && Path::new(entry)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
 }
 
 fn validate_set(

@@ -10,24 +10,33 @@ import { validateManifest } from "./index.js";
 
 async function fixture(path: string): Promise<unknown> {
   return JSON.parse(
-    await readFile(resolve("packages/contracts/fixtures", path), "utf8"),
+    await readFile(
+      resolve("packages/contracts/fixtures/manifest-v2", path),
+      "utf8",
+    ),
   ) as unknown;
 }
 
 const execute = promisify(execFile);
 
-describe("package manifest v1", () => {
+describe("package manifest v2", () => {
   it("accepts the shared valid conformance fixture", async () => {
     const result = validateManifest(
       await fixture("valid/reference-manifest.json"),
     );
 
     expect(result.diagnostics).toEqual([]);
-    expect("manifest" in result && result.manifest.id).toBe(
-      "resonance.reference",
-    );
+    expect("manifest" in result && result.manifest).toMatchObject({
+      manifestVersion: 2,
+      source: "bundled",
+      id: "resonance.reference",
+      content: { entry: "src/index.ts" },
+    });
     expect("manifest" in result && result.manifest.events.emits).toContain(
       "peer:connection",
+    );
+    expect("manifest" in result && result.manifest.capabilities).toContain(
+      "workspace-files:v1",
     );
   });
 
@@ -47,6 +56,11 @@ describe("package manifest v1", () => {
         ),
       ).toMatchObject({
         diagnostics: [],
+        manifest: {
+          manifestVersion: 2,
+          source: "bundled",
+          content: { entry: "src/index.ts" },
+        },
       });
     } finally {
       await rm(output, { recursive: true, force: true });
@@ -56,6 +70,7 @@ describe("package manifest v1", () => {
   it.each([
     ["invalid/placeholder-source.json", "/source"],
     ["invalid/unknown-permission.json", "/agent/permissions/0"],
+    ["invalid/traversing-entry.json", "/content/entry"],
   ])("reports an actionable diagnostic for %s", async (path, expectedPath) => {
     const result = validateManifest(await fixture(path));
 

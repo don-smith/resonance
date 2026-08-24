@@ -4,10 +4,32 @@
 
 Active.
 
-This spec records the runtime-owned package boundary for the foundation and standard event vocabulary. It does not authorize package webviews, loaders, or agent execution.
+This spec records the bundled content host, manifest contract, semantic capability boundary, and standard event vocabulary authorized by Decision 0010. Runtime-loaded member and repository packages remain deferred.
 
-## 1. Runtime event vocabulary
+## 1. Bundled manifest and catalog
+
+A bundled package has a direct `packages/*/manifest.json` file that conforms to `manifestVersion: 2`. Its `source` is `bundled`, and `content.entry` names a package-relative TypeScript file. The entry must exist inside the package. Absolute paths, traversal, symlink escapes, duplicate IDs, unknown fields, and unsupported semantic declarations are invalid.
+
+One deterministic generator sorts packages by ID and writes both build inputs. The TypeScript catalog contains literal lazy imports for Vite. The Rust catalog contains the same normalized manifests. Both outputs are committed, end with a newline, and must match generator check mode.
+
+Manifest version and semantic capability versions are independent. A manifest may declare `workspace-files:v1` without tying that capability's evolution to the manifest contract.
+
+## 2. Shared-webview content lifecycle
+
+The desktop shell owns package discovery, navigation, mount elements, active selection, and package-local error rendering. A bundled package mounts into a host-owned element at most once and returns a retained instance with `activate`, `deactivate`, and idempotent `dispose` methods. Deactivation preserves package state. Disposal releases resources created by the package.
+
+Import, mount, activation, deactivation, and disposal failures stay inside that package's content region. They do not replace onboarding, membership controls, peer state, navigation, or another package mount.
+
+Bundled modules in the main webview are reviewed code in one trust domain. Source checks and explicit Tauri command permissions restrict accidental dependencies but do not isolate modules from each other. Member-loaded packages require separately labelled webviews before implementation.
+
+## 3. Package context and semantic capabilities
+
+The host constructs `PackageContext` from the validated manifest. The context contains package identity, declared-event access, shell design-token names, and only declared semantic capability adapters. It does not expose mutable manifest authority, desktop state, a generic command function, Tauri transport objects, local paths, persistence details, identity keys, workspace tokens, signed operations, blob locations, watcher state, SQL details, or Iroh handles.
+
+Privileged operations use request and response methods on a versioned semantic capability. Events announce state changes but do not carry authoritative snapshots. The adapter fetches current state after invalidation, suppresses stale responses, validates wire values, and owns listener cleanup. Rust validates every operation and maps internal failures to finite safe errors.
+
+## 4. Runtime event vocabulary
 
 The runtime owns standard event names. Packages may consume declared standard events but cannot receive installation private keys, workspace tokens, raw Iroh handles, filesystem paths, or unvalidated membership data.
 
-The peer lifecycle vocabulary is `peer:joined`, `peer:left`, and `peer:connection`. `peer:connection` carries only a public member identifier and a secret-free connection/presence state. The runtime derives every event from the active workspace session; packages do not infer membership from gossip traffic.
+The peer lifecycle vocabulary is `peer:joined`, `peer:left`, and `peer:connection`. `peer:connection` carries only a public member identifier and a secret-free connection or presence state. The runtime derives every event from the active workspace session. Packages do not infer membership from gossip traffic.

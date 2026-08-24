@@ -1,12 +1,12 @@
 use resonance_runtime::packages::{PackageRegistry, PackageSource};
 
-const REFERENCE_MANIFEST: &str =
-    include_str!("../../../../../packages/reference-package/manifest.json");
+const BUNDLED_PACKAGE_MANIFESTS: &str =
+    include_str!("../../generated/bundled-package-manifests.json");
 
-/// Narrow desktop adapter: package discovery stays inside the runtime registry.
+/// Returns package IDs from the generated, validated bundled catalog.
 #[tauri::command]
 pub fn bundled_package_ids() -> Result<Vec<String>, String> {
-    let registry = PackageRegistry::load(PackageSource::BundledTeam, &[REFERENCE_MANIFEST])
+    let registry = PackageRegistry::load_catalog(PackageSource::Bundled, BUNDLED_PACKAGE_MANIFESTS)
         .map_err(|diagnostics| {
             diagnostics
                 .into_iter()
@@ -15,9 +15,5 @@ pub fn bundled_package_ids() -> Result<Vec<String>, String> {
                 .join("; ")
         })?;
 
-    Ok(["resonance.reference"]
-        .into_iter()
-        .filter(|id| registry.get(id).is_some())
-        .map(str::to_owned)
-        .collect())
+    Ok(registry.ids().map(str::to_owned).collect())
 }

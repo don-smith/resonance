@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 2,
+  "source": "bundled",
+  "id": "resonance.traversal",
+  "name": "Traversal",
+  "description": "Content entries stay inside the package.",
+  "nav": { "label": "Invalid", "icon": "x" },
+  "content": { "entry": "../desktop/src/main.ts" },
+  "events": { "emits": [], "consumes": [] },
+  "minRole": "viewer"
+}

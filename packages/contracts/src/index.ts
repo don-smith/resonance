@@ -1,6 +1,6 @@
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
 
-import manifestSchema from "../schema/manifest.v1.json";
+import manifestSchema from "../schema/manifest.v2.json";
 
 export const roles = ["viewer", "contributor", "developer"] as const;
 export const semanticCapabilities = [
@@ -9,6 +9,7 @@ export const semanticCapabilities = [
   "workspace:read",
   "repository:read",
   "telemetry:write",
+  "workspace-files:v1",
 ] as const;
 export const semanticAgentPermissions = [
   "read",
@@ -19,16 +20,18 @@ export const semanticAgentPermissions = [
 ] as const;
 
 export type ManifestRole = (typeof roles)[number];
+export type SemanticCapability = (typeof semanticCapabilities)[number];
 export type PackageManifest = {
-  manifestVersion: 1;
-  source: "bundled-team";
+  manifestVersion: 2;
+  source: "bundled";
   id: string;
   name: string;
   description: string;
   nav: { label: string; icon: string };
+  content: { entry: string };
   events: { emits: string[]; consumes: string[] };
   minRole: ManifestRole;
-  capabilities?: (typeof semanticCapabilities)[number][];
+  capabilities?: SemanticCapability[];
   agent?: {
     systemPrompt: string;
     permissions: (typeof semanticAgentPermissions)[number][];

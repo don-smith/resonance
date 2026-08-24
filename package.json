@@ -6,6 +6,8 @@
   "scripts": {
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "desktop:profiles": "node scripts/desktop-profiles.mjs",
+    "packages:generate": "node scripts/bundled-package-catalog.mjs write",
+    "packages:check": "node scripts/bundled-package-catalog.mjs check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -17,7 +19,7 @@
     "release:validate": "node scripts/validate-release-config.mjs",
     "release:manifest": "node scripts/generate-update-manifest.mjs",
     "release:collect": "node scripts/collect-signed-update-artifacts.mjs",
-    "check": "pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
+    "check": "pnpm packages:check && pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.8.4",

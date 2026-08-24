@@ -1,6 +1,6 @@
 # Packages — Requirements
 
-Role: owns the package model, the package manifest contract, the event bus wiring, the agent panel contract, and the team/member package distinction. Defines what a package is, what it can declare, and what the runtime provides.
+Role: owns the package model, bundled content host, package manifest contract, event bus wiring, agent panel contract, and bundled/member package distinction. Defines what a package is, what it can declare, and what the runtime provides.
 
 ---
 
@@ -8,7 +8,7 @@ Role: owns the package model, the package manifest contract, the event bus wirin
 
 - **RS.SYS.PKG-A01 Package creation must feel fluid and well-supported, regardless of language.** The primary goal is a great developer experience: clear expectations, good generators, and AI-assisted scaffolding. If Rust is needed, it should be generated with transparent explanations of what it does and why. If TypeScript or web technologies suffice, that path should be equally well-supported. The team should never feel lost or uncertain about the architecture of their package.
 
-- **RS.SYS.PKG-A02 Packages are trusted by the team.** Team packages are reviewed and committed by someone with commit access to the team's fork. The runtime does not sandbox team packages against each other; it relies on team review.
+- **RS.SYS.PKG-A02 Bundled packages are reviewed code.** Bundled package source may come from an upstream checkout, clone, or fork. Packages mounted in the main webview share one trust domain. Import checks and command permissions prevent accidental coupling but do not sandbox JavaScript modules from each other.
 
 ---
 
@@ -16,13 +16,19 @@ Role: owns the package model, the package manifest contract, the event bus wirin
 
 ### Package model
 
-- **RS.SYS.PKG-R01 A content package is a webview module with an optional Rust side.** Its UI is an HTML entry point loaded into a Tauri webview tab, and its optional Rust side registers Tauri commands; the runtime owns the tab lifecycle. Phase 1 establishes only the manifest/registry boundary: it validates bundled manifests but loads no package content view or tab. A later content-surface change must extend the contract through an RFC.
+- **RS.SYS.PKG-R01 A bundled content package is a TypeScript module mounted by the desktop host.** Its manifest names a package-relative source entry. The host mounts reviewed bundled modules in the shared main webview. A package receives only its declared SDK context and does not register Rust commands. Future member packages require separately labelled webviews. `refines: RS.SYS.PKG-A02`
 
-- **RS.SYS.PKG-R02 Packages are declared in a manifest.** The Phase 1 `manifestVersion: 1` contract declares `source`, `id` (globally unique within the installation), `name`, `description`, `nav` (navigation entry metadata), `events.emits[]`, `events.consumes[]`, `agent` (optional), `capabilities` (optional), and `minRole` (`viewer` | `contributor` | `developer`). It deliberately has no webview entry point; the runtime validates the manifest at load time.
+- **RS.SYS.PKG-R02 Packages are declared in a manifest.** The bundled `manifestVersion: 2` contract declares `source: "bundled"`, a namespaced `id`, display metadata, navigation metadata, `content.entry`, declared events, optional semantic capabilities, optional agent configuration, and `minRole` (`viewer` | `contributor` | `developer`). Manifest and capability versions evolve independently. The generator and Rust registry validate every bundled manifest.
 
-- **RS.SYS.PKG-R03 Package IDs are namespaced.** Team packages use the team's namespace (e.g., `acme.backlog`). Reference packages use the `resonance.*` namespace. Member packages use `member.<id>`. Namespace collisions are rejected at load time.
+- **RS.SYS.PKG-R03 Package IDs are namespaced.** Bundled packages use a source-owner namespace such as `acme.backlog`; reference packages use `resonance.*`. Member packages will use `member.<id>`. The catalog generator and runtime reject namespace collisions.
 
-- **RS.SYS.PKG-R16 Package creation is scaffolded, not authored from scratch.** The runtime provides generators and AI agents that produce a complete, well-documented package skeleton. The generated code includes inline explanations of each file's purpose, the architecture decisions made, and any Rust or TypeScript patterns used. The team member should be able to understand the full package architecture without external documentation. `refines: RS.SYS.PKG-A01`
+- **RS.SYS.PKG-R16 Package creation is scaffolded, not authored from scratch.** The generator produces a complete TypeScript package, validates its manifest, and regenerates the bundled catalog. A generated package appears in the next development build without a Rust source edit. Generated code and the authoring guide explain each file and dependency rule. `refines: RS.SYS.PKG-A01`
+
+- **RS.SYS.PKG-R17 The host retains one mount instance per active package session.** A content module mounts at most once and returns `activate`, `deactivate`, and idempotent `dispose` methods. Navigation deactivates without discarding package state. Final disposal releases package-owned listeners, editors, object URLs, and timers.
+
+- **RS.SYS.PKG-R18 Package failures remain local to their content region.** Import, mount, activation, deactivation, and disposal failures do not replace onboarding, membership controls, peers, navigation, or other package mounts.
+
+- **RS.SYS.PKG-R19 Privileged package operations use declared semantic capabilities.** `PackageContext` exposes no generic Tauri invocation or desktop state. A capability version such as `workspace-files:v1` defines bounded request, response, invalidation, and safe-error behavior independently of manifest version. Rust remains authoritative and validates every request.
 
 ### Event bus
 
@@ -42,17 +48,17 @@ Role: owns the package model, the package manifest contract, the event bus wirin
 
 - **RS.SYS.PKG-R10 The runtime owns the agent panel UI.** The runtime renders one consistent, right-hand, collapsible agent-panel shell. Packages configure behavior through the manifest and declared context events, but do not render panel HTML or customize its layout or controls. `refines: RS.SYS-R04, RS.SYS-R13`
 
-### Team and member packages
+### Bundled and member packages
 
-- **RS.SYS.PKG-R11 Team packages are compiled into the binary.** Team packages are part of the forked repository. They ship with each app update.
+- **RS.SYS.PKG-R11 Bundled packages are compiled into the binary.** The deterministic catalog selects reviewed package source from the checkout. Bundled packages ship with each app update.
 
 - **RS.SYS.PKG-R12 Member packages are loaded at runtime from a local path.** Member packages are loaded from a path in local member configuration. They are not compiled into the binary and do not affect other team members. `refines: RS-R11`
 
-- **RS.SYS.PKG-R13 Team packages win contribution conflicts.** If a team package and a member package declare the same navigation slot or event handler, the team package wins. The runtime logs the conflict but does not crash.
+- **RS.SYS.PKG-R13 Bundled packages win contribution conflicts.** If a bundled package and a member package declare the same navigation slot or event handler, the bundled package wins. The runtime logs the conflict but does not crash.
 
 ### Repo packages
 
-- **RS.SYS.PKG-R14 Repo packages are loaded from the repository manifest.** When a repository is registered and its `.resonance/config.json` exists, the runtime loads the packages declared in that manifest as repo packages for that repository. Repo packages are a subset of team packages: they are checked in, team-agreed, and may be replaced by individual member configuration. `refines: RS-R16`
+- **RS.SYS.PKG-R14 Repo packages are loaded from the repository manifest.** When a repository is registered and its `.resonance/config.json` exists, the runtime loads the packages declared in that manifest as repo packages for that repository. Repo packages are reviewed, shared contributions and may be replaced by individual member configuration. `refines: RS-R16`
 
 - **RS.SYS.PKG-R15 Repo packages receive a repository context.** The runtime injects the repository root path and the git watcher event stream into repo packages. Repo packages may read from the repository path via bounded Tauri commands.
 

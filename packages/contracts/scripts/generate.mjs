@@ -24,7 +24,7 @@ if (
 }
 
 const template = await readFile(
-  resolve(import.meta.dirname, "../templates/manifest.v1.json"),
+  resolve(import.meta.dirname, "../templates/manifest.v2.json"),
   "utf8",
 );
 const packageName = basename(id).replace(

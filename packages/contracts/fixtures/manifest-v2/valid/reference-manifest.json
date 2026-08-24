@@ -1,10 +1,11 @@
 {
-  "manifestVersion": 1,
-  "source": "bundled-team",
+  "manifestVersion": 2,
+  "source": "bundled",
   "id": "resonance.reference",
   "name": "Reference package",
   "description": "A validated example package.",
   "nav": { "label": "Reference", "icon": "book" },
+  "content": { "entry": "src/index.ts" },
   "events": {
     "emits": [
       "doc:opened",
@@ -14,7 +15,7 @@
     "consumes": ["workspace:member-added"]
   },
   "minRole": "viewer",
-  "capabilities": ["documents:read", "telemetry:write"],
+  "capabilities": ["documents:read", "workspace-files:v1"],
   "agent": {
     "systemPrompt": "prompts/reference.md",
     "permissions": ["read", "suggest-edits"],

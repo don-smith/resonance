@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://resonance.local/schema/package-manifest.v1.json",
-  "title": "Resonance package manifest v1",
+  "$id": "https://resonance.local/schema/package-manifest.v2.json",
+  "title": "Resonance package manifest v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,12 +11,13 @@
     "name",
     "description",
     "nav",
+    "content",
     "events",
     "minRole"
   ],
   "properties": {
-    "manifestVersion": { "const": 1 },
-    "source": { "const": "bundled-team" },
+    "manifestVersion": { "const": 2 },
+    "source": { "const": "bundled" },
     "id": {
       "type": "string",
       "pattern": "^(resonance|[a-z][a-z0-9-]*)\\.[a-z][a-z0-9-]*$"
@@ -30,6 +31,18 @@
       "properties": {
         "label": { "type": "string", "minLength": 1 },
         "icon": { "type": "string", "minLength": 1 }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry"],
+      "properties": {
+        "entry": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.ts$"
+        }
       }
     },
     "events": {
@@ -59,7 +72,8 @@
           "documents:write",
           "workspace:read",
           "repository:read",
-          "telemetry:write"
+          "telemetry:write",
+          "workspace-files:v1"
         ]
       }
     },

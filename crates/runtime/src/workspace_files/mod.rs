@@ -2,6 +2,7 @@
 
 pub mod authority;
 pub mod blobs;
+pub mod ignore;
 pub mod merge;
 pub mod paths;
 pub mod projection;
@@ -54,6 +55,12 @@ pub enum FileOperationBody {
     ResolveConflict {
         conflict_record_id: String,
         chosen_revision_id: Option<String>,
+    },
+    AddIgnoreRule {
+        pattern: String,
+    },
+    RemoveIgnoreRule {
+        rule_operation_id: String,
     },
 }
 
@@ -207,6 +214,40 @@ impl SignedFileOperation {
             node_id.into(),
             causal_parents,
             FileOperationBody::TombstoneNode,
+        )
+    }
+
+    pub fn add_ignore_rule(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        pattern: impl Into<String>,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::sign(
+            identity,
+            workspace_id,
+            random_id()?,
+            causal_parents,
+            FileOperationBody::AddIgnoreRule {
+                pattern: pattern.into(),
+            },
+        )
+    }
+
+    pub fn remove_ignore_rule(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        rule_operation_id: impl Into<String>,
+        causal_parents: Vec<String>,
+    ) -> Result<Self, FileOperationError> {
+        Self::sign(
+            identity,
+            workspace_id,
+            random_id()?,
+            causal_parents,
+            FileOperationBody::RemoveIgnoreRule {
+                rule_operation_id: rule_operation_id.into(),
+            },
         )
     }
 

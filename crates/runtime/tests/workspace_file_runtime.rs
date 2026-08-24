@@ -383,6 +383,115 @@ fn restart_ingests_an_offline_deletion_before_reprojecting_authority() {
 }
 
 #[test]
+fn restart_ingests_an_offline_recursive_directory_deletion() {
+    let application_data = tempfile::tempdir().expect("application data creates");
+    let root = application_data.path().join("workspace-root");
+    let custody = InMemoryKeyCustody::default();
+    let identity =
+        InstallationIdentity::load_or_create(&custody).expect("installation identity creates");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog opens");
+    let mut session = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    session
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let mut files = session.open_file_runtime().expect("file runtime opens");
+    files
+        .bind_root(&root, RootSelection::ConfirmedNotGitManaged)
+        .expect("root binds");
+    std::fs::create_dir(root.join("plans/archive")).expect("external directory creates");
+    std::fs::write(root.join("plans/archive/history.md"), b"history\n")
+        .expect("external file writes");
+    assert_eq!(files.poll_root_changes().expect("first create scan"), 0);
+    assert_eq!(files.poll_root_changes().expect("tree creates"), 2);
+    drop(files);
+    drop(session);
+
+    std::fs::remove_dir_all(root.join("plans/archive")).expect("tree deletes while offline");
+    let identity =
+        InstallationIdentity::load_or_create(&custody).expect("installation identity reloads");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog reopens");
+    let mut restarted = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    restarted
+        .activate_active_workspace()
+        .expect("workspace activates");
+    let mut files = restarted.open_file_runtime().expect("file runtime reopens");
+    assert_eq!(
+        files
+            .poll_root_changes()
+            .expect("recursive offline deletion ingests"),
+        2
+    );
+    assert!(!files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "archive" || entry.name == "history.md"));
+    drop(files);
+    drop(restarted);
+
+    let identity = InstallationIdentity::load_or_create(&custody).expect("identity reloads again");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog reopens again");
+    let mut restarted = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    restarted
+        .activate_active_workspace()
+        .expect("workspace activates again");
+    let files = restarted
+        .open_file_runtime()
+        .expect("file runtime reopens again");
+    assert!(!root.join("plans/archive").exists());
+    assert!(!files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "archive" || entry.name == "history.md"));
+}
+
+#[test]
+fn persisted_ignore_rules_filter_root_input_after_restart() {
+    let application_data = tempfile::tempdir().expect("application data creates");
+    let root = application_data.path().join("workspace-root");
+    let custody = InMemoryKeyCustody::default();
+    let identity =
+        InstallationIdentity::load_or_create(&custody).expect("installation identity creates");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog opens");
+    let mut session = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    session
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let mut files = session.open_file_runtime().expect("file runtime opens");
+    files
+        .bind_root(&root, RootSelection::ConfirmedNotGitManaged)
+        .expect("root binds");
+    let rule = files
+        .add_ignore_rule("scratch/**")
+        .expect("ignore rule persists");
+    assert_eq!(files.ignore_rules(), vec![rule.clone()]);
+    std::fs::create_dir(root.join("scratch")).expect("ignored directory creates");
+    std::fs::write(root.join("scratch/private.md"), b"private\n").expect("ignored file writes");
+    assert_eq!(files.poll_root_changes().expect("ignored scan"), 0);
+    assert_eq!(files.poll_root_changes().expect("ignored stable scan"), 0);
+    drop(files);
+    drop(session);
+
+    let identity =
+        InstallationIdentity::load_or_create(&custody).expect("installation identity reloads");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog reopens");
+    let mut restarted = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    restarted
+        .activate_active_workspace()
+        .expect("workspace activates");
+    let mut files = restarted.open_file_runtime().expect("file runtime reopens");
+    assert_eq!(files.ignore_rules(), vec![rule.clone()]);
+    assert_eq!(
+        files.root_status(),
+        RootBindingStatus::Bound(RootHealth::Healthy)
+    );
+    assert_eq!(files.poll_root_changes().expect("ignored restart scan"), 0);
+    files
+        .remove_ignore_rule(&rule.operation_id)
+        .expect("ignore rule removal persists");
+    assert!(files.ignore_rules().is_empty());
+}
+
+#[test]
 fn rejects_non_markdown_and_stale_revision_editor_requests() {
     let application_data = tempfile::tempdir().expect("application data creates");
     let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())

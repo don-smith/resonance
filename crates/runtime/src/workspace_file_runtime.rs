@@ -11,6 +11,7 @@ use crate::{
     workspace_files::{
         authority::{AuthorityError, WorkspaceFileAuthority},
         blobs::{BlobError, ContentHash},
+        ignore::WorkspaceIgnoreRule,
         projection::{ConflictKind, ConflictRecord, FileTreeProjection, TreeNode},
         FileOperationBody, SignedFileOperation,
     },
@@ -191,6 +192,36 @@ impl WorkspaceFileRuntime {
             .map_or(RootBindingStatus::Unbound, |root| {
                 RootBindingStatus::Bound(root.health())
             })
+    }
+
+    #[must_use]
+    pub fn ignore_rules(&self) -> Vec<WorkspaceIgnoreRule> {
+        self.authority.projection().ignore_set.rules()
+    }
+
+    pub fn add_ignore_rule(
+        &mut self,
+        pattern: &str,
+    ) -> Result<WorkspaceIgnoreRule, WorkspaceFileRuntimeError> {
+        let operation = self
+            .authority
+            .author_add_ignore_rule(&self.identity, pattern)?;
+        let rule = WorkspaceIgnoreRule {
+            operation_id: operation.operation.operation_id.clone(),
+            pattern: pattern.to_owned(),
+        };
+        self.commit_operation(operation)?;
+        Ok(rule)
+    }
+
+    pub fn remove_ignore_rule(
+        &mut self,
+        rule_operation_id: &str,
+    ) -> Result<(), WorkspaceFileRuntimeError> {
+        let operation = self
+            .authority
+            .author_remove_ignore_rule(&self.identity, rule_operation_id)?;
+        self.commit_operation(operation)
     }
 
     #[must_use]

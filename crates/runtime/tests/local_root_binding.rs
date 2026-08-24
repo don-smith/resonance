@@ -62,6 +62,7 @@ fn plans_projection(file: Option<(&str, &[u8])>) -> (FileTreeProjection, Workspa
             root,
             revisions,
             conflicts: Vec::new(),
+            ignore_set: Default::default(),
         },
         blobs,
     )
@@ -440,8 +441,201 @@ fn reports_stable_external_create_and_delete_intents() {
         binding.poll_changes().expect("second delete observation"),
         vec![LocalChange::TombstoneNode {
             node_id: "file-node".to_owned(),
+            relative_path: "plans/existing.md".to_owned(),
         }]
     );
+}
+
+#[test]
+fn recursive_directory_deletion_tombstones_children_before_parent_and_replays() {
+    let app_data = tempfile::tempdir().expect("app data creates");
+    let peer_data = tempfile::tempdir().expect("peer app data creates");
+    let root = app_data.path().join("root");
+    let peer_root = peer_data.path().join("peer-root");
+    let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");
+    let peer_store = WorkspaceStore::open(peer_data.path(), "workspace").expect("peer store opens");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("identity creates");
+    let membership = MembershipProjection {
+        canonical_head: Some("head".to_owned()),
+        members: vec![Member::new(
+            identity.public_identity().to_string(),
+            "Ada",
+            "developer",
+            "Ada",
+            0,
+        )],
+        statuses: Default::default(),
+    };
+    let mut authority = WorkspaceFileAuthority::new("workspace");
+    let plans =
+        SignedFileOperation::create_directory(&identity, "workspace", None, "plans", Vec::new())
+            .expect("plans signs");
+    authority.apply(&plans, &membership).expect("plans applies");
+    let archive = SignedFileOperation::create_directory(
+        &identity,
+        "workspace",
+        Some(plans.operation.node_id.clone()),
+        "archive",
+        vec![plans.operation.operation_id.clone()],
+    )
+    .expect("archive signs");
+    authority
+        .apply(&archive, &membership)
+        .expect("archive applies");
+    let bytes = b"retained on replay\n";
+    let hash = authority
+        .blob_store_mut()
+        .store(bytes)
+        .expect("blob stores");
+    let file = SignedFileOperation::create_file(
+        &identity,
+        "workspace",
+        Some(archive.operation.node_id.clone()),
+        "history.md",
+        hash.as_str(),
+        "text/markdown",
+        bytes.len() as u64,
+        vec![archive.operation.operation_id.clone()],
+    )
+    .expect("file signs");
+    authority.apply(&file, &membership).expect("file applies");
+    let mut binding = LocalRootBinding::bind(
+        &store,
+        &root,
+        RootSelection::ConfirmedNotGitManaged,
+        &authority.projection(),
+        authority.blob_store(),
+    )
+    .expect("root binds");
+
+    fs::remove_dir_all(root.join("plans/archive")).expect("known tree removes");
+    assert!(binding
+        .poll_changes()
+        .expect("first deletion observation")
+        .is_empty());
+    let changes = binding.poll_changes().expect("second deletion observation");
+    assert_eq!(changes.len(), 2);
+    assert!(matches!(
+        &changes[0],
+        LocalChange::TombstoneNode { node_id, relative_path }
+            if node_id == &file.operation.node_id && relative_path == "plans/archive/history.md"
+    ));
+    assert!(matches!(
+        &changes[1],
+        LocalChange::TombstoneNode { node_id, relative_path }
+            if node_id == &archive.operation.node_id && relative_path == "plans/archive"
+    ));
+    let causal_frontier = authority.causal_frontier();
+    let deletions = binding
+        .author_changes(
+            &identity,
+            "workspace",
+            &changes,
+            authority.blob_store_mut(),
+            causal_frontier,
+        )
+        .expect("recursive deletion signs");
+    for deletion in &deletions {
+        authority
+            .apply(deletion, &membership)
+            .expect("depth-ordered deletion applies");
+    }
+    assert!(!projection_names(&authority.projection()).contains(&"archive".to_owned()));
+
+    let mut replayed = WorkspaceFileAuthority::new("workspace");
+    replayed
+        .blob_store_mut()
+        .store(bytes)
+        .expect("peer blob stores");
+    let mut operations = vec![plans, archive, file];
+    operations.extend(deletions);
+    replayed
+        .replay(&operations, &membership)
+        .expect("peer replays recursive deletion");
+    LocalRootBinding::bind(
+        &peer_store,
+        &peer_root,
+        RootSelection::ConfirmedNotGitManaged,
+        &replayed.projection(),
+        replayed.blob_store(),
+    )
+    .expect("peer root binds");
+    assert!(peer_root.join("plans").is_dir());
+    assert!(!peer_root.join("plans/archive").exists());
+}
+
+#[test]
+fn configured_and_permanent_ignores_exclude_external_input() {
+    let app_data = tempfile::tempdir().expect("app data creates");
+    let root = app_data.path().join("root");
+    let store = WorkspaceStore::open(app_data.path(), "workspace").expect("store opens");
+    let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+        .expect("identity creates");
+    let membership = MembershipProjection {
+        canonical_head: Some("head".to_owned()),
+        members: vec![Member::new(
+            identity.public_identity().to_string(),
+            "Ada",
+            "developer",
+            "Ada",
+            0,
+        )],
+        statuses: Default::default(),
+    };
+    let mut authority = WorkspaceFileAuthority::new("workspace");
+    let plans =
+        SignedFileOperation::create_directory(&identity, "workspace", None, "plans", Vec::new())
+            .expect("plans signs");
+    authority.apply(&plans, &membership).expect("plans applies");
+    let ignore = authority
+        .author_add_ignore_rule(&identity, "scratch/**")
+        .expect("ignore rule authors");
+    authority
+        .apply(&ignore, &membership)
+        .expect("ignore rule applies");
+    let mut binding = LocalRootBinding::bind(
+        &store,
+        &root,
+        RootSelection::ConfirmedNotGitManaged,
+        &authority.projection(),
+        authority.blob_store(),
+    )
+    .expect("root binds");
+
+    fs::create_dir(root.join("scratch")).expect("ignored directory creates");
+    fs::write(root.join("scratch/private.bin"), [1, 2, 3]).expect("ignored file writes");
+    fs::create_dir(root.join(".git")).expect("Git metadata creates");
+    fs::write(root.join(".git/config"), b"private\n").expect("Git config writes");
+    fs::write(root.join("plans/shared.md"), b"shared\n").expect("shared file writes");
+    assert!(binding
+        .poll_changes()
+        .expect("first stable observation")
+        .is_empty());
+    let changes = binding.poll_changes().expect("second stable observation");
+    assert_eq!(changes.len(), 1);
+    assert!(matches!(
+        &changes[0],
+        LocalChange::CreateFile { relative_path, .. } if relative_path == "plans/shared.md"
+    ));
+    assert!(binding.poll_changes().expect("repeat scan").is_empty());
+}
+
+fn projection_names(projection: &FileTreeProjection) -> Vec<String> {
+    fn collect(node: &TreeNode, names: &mut Vec<String>) {
+        names.push(node.name().to_owned());
+        if let TreeNode::Directory { children, .. } = node {
+            for child in children.values() {
+                collect(child, names);
+            }
+        }
+    }
+
+    let mut names = Vec::new();
+    for node in projection.root.values() {
+        collect(node, &mut names);
+    }
+    names
 }
 
 #[test]

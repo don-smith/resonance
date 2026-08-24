@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use super::ignore::WorkspaceIgnoreSet;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TreeNode {
     Directory {
@@ -66,4 +68,5 @@ pub struct FileTreeProjection {
     pub root: BTreeMap<String, TreeNode>,
     pub revisions: BTreeMap<String, FileRevision>,
     pub conflicts: Vec<ConflictRecord>,
+    pub ignore_set: WorkspaceIgnoreSet,
 }

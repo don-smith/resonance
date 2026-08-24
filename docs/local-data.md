@@ -14,11 +14,13 @@ application-data root selected at startup:
 
 `catalog.sqlite3` records the installation's workspaces and active workspace.
 A workspace database stores private configuration, the workspace token,
-membership data, signed file-operation history, node and revision records,
-conflicts, ignore rules, root bindings, watcher state, and recovery journals.
-`blobs/` contains immutable BLAKE3-addressed file bytes. These locations are
-private runtime state: they are not the shared workspace root and no package or
-frontend command receives their paths.
+membership data, signed file-operation history, the local root binding, and the
+last materialized node and revision for each local path. The runtime rebuilds
+logical nodes, revisions, tombstones, conflicts, and active ignore rules from
+the signed operation history when it opens the workspace. `blobs/` contains
+immutable BLAKE3-addressed file bytes. These locations are private runtime
+state. They are not the shared workspace root, and no package or frontend
+command receives their paths.
 
 The shared workspace authority is the signed operation history plus verified
 blobs. A member binds a newly created or empty local directory as a private
@@ -26,6 +28,15 @@ materialization of that authority. Its visible root begins with `plans` and
 contains ordinary workspace files only. Resonance never writes tokens, private
 keys, SQLite data, blob-store files, watcher markers, or other control metadata
 there. Git-managed content remains a separate Git-only domain.
+
+Ignore rules are replicated signed operations, not files in the shared root.
+Patterns are anchored to the workspace root and use `/` between segments. `*`
+matches within one segment, `?` matches one character, and a complete `**`
+segment matches any number of path segments. Bracket classes, braces, absolute
+paths, dot segments, non-NFC text, and partial `**` segments are rejected. A
+new rule cannot hide a live logical node. `.git` and generated
+`.resonance-conflict-` names are permanently excluded and cannot be configured.
+The projector and filesystem scanner use the same active rule set.
 
 Ordinary `pnpm desktop:dev` uses Tauri's platform application-data directory
 and native Keychain custody. On macOS, its development identifier normally

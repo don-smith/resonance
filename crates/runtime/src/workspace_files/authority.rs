@@ -6,6 +6,9 @@ use crate::{
     membership_log::MembershipProjection,
     workspace_files::{
         blobs::{BlobError, ContentHash, WorkspaceBlobStore},
+        ignore::{
+            ignore_pattern_matches, validate_ignore_pattern, IgnorePatternError, WorkspaceIgnoreSet,
+        },
         merge::{merge_markdown, MergeResult},
         paths::{PathError, PortablePath},
         projection::{ConflictKind, ConflictRecord, FileRevision, FileTreeProjection, TreeNode},
@@ -28,6 +31,9 @@ pub enum AuthorityError {
     NotFound,
     AlreadyExists,
     InvalidResolution,
+    IgnorePattern(IgnorePatternError),
+    IgnoreRuleMatchesLiveNode,
+    InvalidIgnoreRule,
 }
 
 impl std::fmt::Display for AuthorityError {
@@ -56,6 +62,11 @@ impl std::fmt::Display for AuthorityError {
             Self::InvalidResolution => {
                 formatter.write_str("conflict resolution does not name a competing revision")
             }
+            Self::IgnorePattern(error) => write!(formatter, "{error}"),
+            Self::IgnoreRuleMatchesLiveNode => {
+                formatter.write_str("ignore rule would hide a live workspace node")
+            }
+            Self::InvalidIgnoreRule => formatter.write_str("ignore rule operation is invalid"),
         }
     }
 }
@@ -80,6 +91,12 @@ impl From<PathError> for AuthorityError {
     }
 }
 
+impl From<IgnorePatternError> for AuthorityError {
+    fn from(error: IgnorePatternError) -> Self {
+        Self::IgnorePattern(error)
+    }
+}
+
 #[derive(Clone)]
 pub struct WorkspaceFileAuthority {
     workspace_id: String,
@@ -89,6 +106,8 @@ pub struct WorkspaceFileAuthority {
     children: BTreeMap<Option<String>, BTreeMap<String, String>>,
     revisions: BTreeMap<String, FileRevision>,
     conflicts: BTreeMap<String, ConflictRecord>,
+    ignore_rules: BTreeMap<String, String>,
+    removed_ignore_rules: BTreeSet<String>,
     blobs: WorkspaceBlobStore,
 }
 
@@ -126,6 +145,8 @@ impl WorkspaceFileAuthority {
             children: BTreeMap::new(),
             revisions: BTreeMap::new(),
             conflicts: BTreeMap::new(),
+            ignore_rules: BTreeMap::new(),
+            removed_ignore_rules: BTreeSet::new(),
             blobs,
         }
     }
@@ -183,11 +204,13 @@ impl WorkspaceFileAuthority {
                 }
             }
         }
+        let ignore_set = self.effective_ignore_set(&root);
         self.add_conflict_artifacts(&mut root);
         FileTreeProjection {
             root,
             revisions: self.revisions.clone(),
             conflicts: self.conflicts.values().cloned().collect(),
+            ignore_set,
         }
     }
 
@@ -209,6 +232,50 @@ impl WorkspaceFileAuthority {
         self.nodes
             .get(node_id)
             .map(|node| (node.parent_node_id.as_deref(), node.name.as_str()))
+    }
+
+    pub fn author_add_ignore_rule(
+        &self,
+        identity: &crate::identity::InstallationIdentity,
+        pattern: &str,
+    ) -> Result<SignedFileOperation, AuthorityError> {
+        validate_ignore_pattern(pattern)?;
+        if logical_paths(&self.projection().root)
+            .iter()
+            .any(|path| ignore_pattern_matches(pattern, path))
+        {
+            return Err(AuthorityError::IgnoreRuleMatchesLiveNode);
+        }
+        SignedFileOperation::add_ignore_rule(
+            identity,
+            &self.workspace_id,
+            pattern,
+            self.causal_frontier(),
+        )
+        .map_err(Into::into)
+    }
+
+    pub fn author_remove_ignore_rule(
+        &self,
+        identity: &crate::identity::InstallationIdentity,
+        rule_operation_id: &str,
+    ) -> Result<SignedFileOperation, AuthorityError> {
+        if !self
+            .projection()
+            .ignore_set
+            .rules()
+            .iter()
+            .any(|rule| rule.operation_id == rule_operation_id)
+        {
+            return Err(AuthorityError::InvalidIgnoreRule);
+        }
+        SignedFileOperation::remove_ignore_rule(
+            identity,
+            &self.workspace_id,
+            rule_operation_id,
+            self.causal_frontier(),
+        )
+        .map_err(Into::into)
     }
 
     #[must_use]
@@ -264,6 +331,8 @@ impl WorkspaceFileAuthority {
         self.children.clear();
         self.revisions.clear();
         self.conflicts.clear();
+        self.ignore_rules.clear();
+        self.removed_ignore_rules.clear();
 
         loop {
             let ready = self
@@ -328,6 +397,15 @@ impl WorkspaceFileAuthority {
                 new_name,
             } => self.move_node(operation, new_parent_node_id.as_deref(), new_name),
             FileOperationBody::TombstoneNode => self.tombstone_node(operation),
+            FileOperationBody::AddIgnoreRule { pattern } => {
+                validate_ignore_pattern(pattern)?;
+                self.ignore_rules
+                    .insert(operation.operation_id.clone(), pattern.clone());
+                Ok(())
+            }
+            FileOperationBody::RemoveIgnoreRule { rule_operation_id } => {
+                self.remove_ignore_rule(rule_operation_id)
+            }
             FileOperationBody::ResolveConflict {
                 conflict_record_id,
                 chosen_revision_id,
@@ -1007,6 +1085,41 @@ impl WorkspaceFileAuthority {
         }
     }
 
+    fn remove_ignore_rule(&mut self, rule_operation_id: &str) -> Result<(), AuthorityError> {
+        if !valid_id(rule_operation_id)
+            || !self
+                .operations
+                .get(rule_operation_id)
+                .is_some_and(|candidate| {
+                    matches!(
+                        candidate.operation.body,
+                        FileOperationBody::AddIgnoreRule { .. }
+                    )
+                })
+        {
+            return Err(AuthorityError::InvalidIgnoreRule);
+        }
+        self.removed_ignore_rules
+            .insert(rule_operation_id.to_owned());
+        Ok(())
+    }
+
+    fn effective_ignore_set(&self, root: &BTreeMap<String, TreeNode>) -> WorkspaceIgnoreSet {
+        let live_paths = logical_paths(root);
+        let rules = self
+            .ignore_rules
+            .iter()
+            .filter(|(operation_id, pattern)| {
+                !self.removed_ignore_rules.contains(*operation_id)
+                    && !live_paths
+                        .iter()
+                        .any(|path| ignore_pattern_matches(pattern, path))
+            })
+            .map(|(operation_id, pattern)| (operation_id.clone(), pattern.clone()))
+            .collect();
+        WorkspaceIgnoreSet::from_rules(rules)
+    }
+
     fn require_parent_directory(&self, parent_node_id: Option<&str>) -> Result<(), AuthorityError> {
         let Some(parent_node_id) = parent_node_id else {
             return Ok(());
@@ -1076,6 +1189,28 @@ impl WorkspaceFileAuthority {
             }),
         }
     }
+}
+
+fn logical_paths(root: &BTreeMap<String, TreeNode>) -> Vec<String> {
+    fn collect(parent: &str, node: &TreeNode, paths: &mut Vec<String>) {
+        let path = if parent.is_empty() {
+            node.name().to_owned()
+        } else {
+            format!("{parent}/{}", node.name())
+        };
+        paths.push(path.clone());
+        if let TreeNode::Directory { children, .. } = node {
+            for child in children.values() {
+                collect(&path, child, paths);
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    for node in root.values() {
+        collect("", node, &mut paths);
+    }
+    paths
 }
 
 fn insert_projected_child(

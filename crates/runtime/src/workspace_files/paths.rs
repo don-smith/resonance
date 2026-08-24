@@ -18,6 +18,7 @@ pub enum PathError {
     NonNfc,
     SeparatorInName,
     ReservedDeviceName,
+    ReservedGitMetadata,
     ReservedConflictName,
     CaseFoldCollision,
 }
@@ -35,6 +36,9 @@ impl std::fmt::Display for PathError {
             Self::SeparatorInName => formatter.write_str("segment name contains a path separator"),
             Self::ReservedDeviceName => {
                 formatter.write_str("segment name is a reserved device name")
+            }
+            Self::ReservedGitMetadata => {
+                formatter.write_str(".git is permanently outside workspace authority")
             }
             Self::ReservedConflictName => {
                 formatter.write_str("segment name uses a reserved conflict prefix")
@@ -81,7 +85,11 @@ impl PortablePath {
             if !is_nfc(segment) {
                 return Err(PathError::NonNfc);
             }
-            if segment.starts_with(RESERVED_CONFLICT_PREFIX) {
+            let lower = segment.to_lowercase();
+            if lower == ".git" {
+                return Err(PathError::ReservedGitMetadata);
+            }
+            if lower.contains(RESERVED_CONFLICT_PREFIX) {
                 return Err(PathError::ReservedConflictName);
             }
             let upper = segment.to_uppercase();
@@ -182,8 +190,12 @@ mod tests {
             Err(PathError::ReservedDeviceName)
         );
         assert_eq!(
-            PortablePath::parse("a/.resonance-conflict-abc"),
+            PortablePath::parse("a/file.resonance-conflict-abc.md"),
             Err(PathError::ReservedConflictName)
+        );
+        assert_eq!(
+            PortablePath::parse("a/.GIT/config"),
+            Err(PathError::ReservedGitMetadata)
         );
     }
 }

@@ -118,10 +118,28 @@ impl FilesystemIngestor {
                 None => {
                     changes.push(LocalChange::TombstoneNode {
                         node_id: record.node_id.clone(),
+                        relative_path: path.clone(),
                     });
                     materialized.remove(&path);
                 }
             }
+        }
+
+        let removed_directories = materialized
+            .iter()
+            .filter(|(path, record)| {
+                record.directory
+                    && !path.contains(".resonance-conflict-")
+                    && !snapshot.contains_key(*path)
+            })
+            .map(|(path, record)| (path.clone(), record.node_id.clone()))
+            .collect::<Vec<_>>();
+        for (path, node_id) in removed_directories {
+            changes.push(LocalChange::TombstoneNode {
+                node_id,
+                relative_path: path.clone(),
+            });
+            materialized.remove(&path);
         }
 
         for (path, entry) in &snapshot {
@@ -138,38 +156,36 @@ impl FilesystemIngestor {
                 SnapshotEntry::File { hash, bytes } => changes.push(LocalChange::CreateFile {
                     relative_path: path.clone(),
                     content_hash: hash.clone(),
-                    mime_type: mime_type(path).to_owned(),
+                    mime_type: super::mime_type(path).to_owned(),
                     bytes: bytes.to_vec(),
                 }),
             }
         }
 
         self.acknowledged = snapshot;
-        changes.sort_by_key(change_key);
+        changes.sort_by(|left, right| change_key(left).cmp(&change_key(right)));
         changes
     }
 }
 
-fn mime_type(path: &str) -> &'static str {
-    match path.to_ascii_lowercase().rsplit('.').next() {
-        Some("md") => "text/markdown",
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("bmp") => "image/bmp",
-        _ => "application/octet-stream",
-    }
-}
-
-fn change_key(change: &LocalChange) -> String {
+fn change_key(change: &LocalChange) -> (u8, usize, &str) {
     match change {
-        LocalChange::CreateDirectory { relative_path }
-        | LocalChange::CreateFile { relative_path, .. }
-        | LocalChange::ReplaceFile { relative_path, .. } => relative_path.clone(),
+        LocalChange::CreateDirectory { relative_path } => {
+            (0, relative_path.matches('/').count(), relative_path)
+        }
+        LocalChange::CreateFile { relative_path, .. } => {
+            (1, relative_path.matches('/').count(), relative_path)
+        }
         LocalChange::MoveNode {
             new_relative_path, ..
-        } => new_relative_path.clone(),
-        LocalChange::TombstoneNode { node_id } => node_id.clone(),
+        } => (2, new_relative_path.matches('/').count(), new_relative_path),
+        LocalChange::ReplaceFile { relative_path, .. } => {
+            (3, relative_path.matches('/').count(), relative_path)
+        }
+        LocalChange::TombstoneNode { relative_path, .. } => (
+            4,
+            usize::MAX - relative_path.matches('/').count(),
+            relative_path,
+        ),
     }
 }

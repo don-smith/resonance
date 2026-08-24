@@ -5,7 +5,7 @@ use resonance_runtime::{
     workspace_files::{
         authority::{AuthorityError, WorkspaceFileAuthority},
         projection::TreeNode,
-        SignedFileOperation,
+        FileOperationBody, SignedFileOperation,
     },
     workspace_store::WorkspaceStore,
 };
@@ -952,11 +952,81 @@ fn durable_replay_retains_resolved_delete_edit_history() {
 }
 
 #[test]
+fn replicated_ignore_rules_replay_and_cannot_hide_live_nodes() {
+    let member = identity();
+    let membership = membership(&member);
+    let mut authority = WorkspaceFileAuthority::new(WORKSPACE_ID);
+    let plans =
+        SignedFileOperation::create_directory(&member, WORKSPACE_ID, None, "plans", Vec::new())
+            .expect("plans signs");
+    authority.apply(&plans, &membership).expect("plans applies");
+
+    let add = authority
+        .author_add_ignore_rule(&member, "scratch/**")
+        .expect("anchored ignore rule authors");
+    assert!(matches!(
+        add.operation.body,
+        FileOperationBody::AddIgnoreRule { ref pattern } if pattern == "scratch/**"
+    ));
+    authority
+        .apply(&add, &membership)
+        .expect("ignore rule applies");
+    assert_eq!(authority.projection().ignore_set.rules().len(), 1);
+    assert!(authority
+        .projection()
+        .ignore_set
+        .matches_configured("scratch/cache/data.bin"));
+
+    let mut replayed = WorkspaceFileAuthority::new(WORKSPACE_ID);
+    replayed
+        .replay(&[add.clone(), plans.clone()], &membership)
+        .expect("replicated rule replays out of order");
+    assert_eq!(
+        replayed.projection().ignore_set,
+        authority.projection().ignore_set
+    );
+
+    assert_eq!(
+        authority.author_add_ignore_rule(&member, "plans/**"),
+        Err(AuthorityError::IgnoreRuleMatchesLiveNode)
+    );
+    let bypassed = SignedFileOperation::add_ignore_rule(
+        &member,
+        WORKSPACE_ID,
+        "plans/**",
+        authority.causal_frontier(),
+    )
+    .expect("direct rule signs");
+    authority
+        .apply(&bypassed, &membership)
+        .expect("direct rule remains harmless");
+    assert!(!authority
+        .projection()
+        .ignore_set
+        .matches_configured("plans/anything"));
+
+    let remove = authority
+        .author_remove_ignore_rule(&member, &add.operation.operation_id)
+        .expect("rule removal authors");
+    authority
+        .apply(&remove, &membership)
+        .expect("rule removal applies");
+    assert!(authority.projection().ignore_set.rules().is_empty());
+}
+
+#[test]
 fn rejects_nonportable_and_case_fold_colliding_names() {
     let member = identity();
     let membership = membership(&member);
     let mut authority = WorkspaceFileAuthority::new(WORKSPACE_ID);
-    for name in [".", "..", "CON", ".resonance-conflict-x", "e\u{301}"] {
+    for name in [
+        ".",
+        "..",
+        "CON",
+        ".git",
+        "file.resonance-conflict-x.md",
+        "e\u{301}",
+    ] {
         let operation =
             SignedFileOperation::create_directory(&member, WORKSPACE_ID, None, name, Vec::new())
                 .expect("operation signs");

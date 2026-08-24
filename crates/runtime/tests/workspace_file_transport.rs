@@ -63,6 +63,13 @@ fn two_peers_recover_reordered_offline_operations_idempotently_and_after_restart
         vec![create.operation.operation_id.clone()],
     )
     .expect("replace signs");
+    let ignore = SignedFileOperation::add_ignore_rule(
+        &owner,
+        WORKSPACE_ID,
+        "scratch/**",
+        vec![replace.operation.operation_id.clone()],
+    )
+    .expect("ignore rule signs");
 
     let directory = tempfile::tempdir().expect("workspace directory creates");
     let store = WorkspaceStore::open(directory.path(), WORKSPACE_ID).expect("store opens");
@@ -70,11 +77,14 @@ fn two_peers_recover_reordered_offline_operations_idempotently_and_after_restart
     assert_eq!(
         target
             .recover_operations_to_store(
-                FileResponse::Operations(vec![replace.encode().expect("replace encodes")]),
+                FileResponse::Operations(vec![
+                    ignore.encode().expect("ignore rule encodes"),
+                    replace.encode().expect("replace encodes"),
+                ]),
                 &store,
             )
-            .expect("unknown-base operation remains pending"),
-        1
+            .expect("unknown-base operations remain pending"),
+        2
     );
     assert!(target.authority().projection().root.is_empty());
     assert_eq!(
@@ -91,6 +101,11 @@ fn two_peers_recover_reordered_offline_operations_idempotently_and_after_restart
         .projection()
         .root
         .contains_key("notes.md"));
+    assert!(target
+        .authority()
+        .projection()
+        .ignore_set
+        .matches_configured("scratch/private.bin"));
     assert_eq!(
         target
             .recover_operations(FileResponse::Operations(vec![create
@@ -113,6 +128,10 @@ fn two_peers_recover_reordered_offline_operations_idempotently_and_after_restart
     assert_eq!(
         restarted.authority().applied_operation_ids(),
         target.authority().applied_operation_ids()
+    );
+    assert_eq!(
+        restarted.authority().projection().ignore_set,
+        target.authority().projection().ignore_set
     );
 }
 

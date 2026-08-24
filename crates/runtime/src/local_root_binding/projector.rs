@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, fs, io::Write, path::Path};
 
 use crate::workspace_files::{
     blobs::{ContentHash, WorkspaceBlobStore},
+    ignore::is_generated_conflict_path,
     projection::{FileTreeProjection, TreeNode},
 };
 
@@ -42,7 +43,7 @@ fn remove_stale_nodes(
 ) -> Result<(), RootBindingError> {
     let mut desired_paths = BTreeMap::new();
     for node in projection.root.values() {
-        collect_projected_paths("", node, &mut desired_paths);
+        collect_projected_paths("", node, projection, &mut desired_paths);
     }
     let mut stale = previous
         .values()
@@ -62,7 +63,7 @@ fn relocate_materialized_nodes(
 ) -> Result<(), RootBindingError> {
     let mut desired_paths = BTreeMap::new();
     for node in projection.root.values() {
-        collect_projected_paths("", node, &mut desired_paths);
+        collect_projected_paths("", node, projection, &mut desired_paths);
     }
     for record in previous.values() {
         let Some(desired_path) = desired_paths.get(&record.node_id) else {
@@ -126,16 +127,24 @@ fn relocate_materialized_nodes(
     Ok(())
 }
 
-fn collect_projected_paths(parent: &str, node: &TreeNode, paths: &mut BTreeMap<String, String>) {
+fn collect_projected_paths(
+    parent: &str,
+    node: &TreeNode,
+    projection: &FileTreeProjection,
+    paths: &mut BTreeMap<String, String>,
+) {
     let relative_path = if parent.is_empty() {
         node.name().to_owned()
     } else {
         format!("{parent}/{}", node.name())
     };
+    if should_ignore_projection_path(projection, &relative_path) {
+        return;
+    }
     paths.insert(node.node_id().to_owned(), relative_path.clone());
     if let TreeNode::Directory { children, .. } = node {
         for child in children.values() {
-            collect_projected_paths(&relative_path, child, paths);
+            collect_projected_paths(&relative_path, child, projection, paths);
         }
     }
 }
@@ -154,6 +163,9 @@ fn project_node(
     } else {
         format!("{parent}/{}", node.name())
     };
+    if should_ignore_projection_path(projection, &relative_path) {
+        return Ok(());
+    }
     let destination = root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
     match node {
         TreeNode::Directory {
@@ -236,6 +248,11 @@ fn project_node(
         }
     }
     Ok(())
+}
+
+fn should_ignore_projection_path(projection: &FileTreeProjection, relative_path: &str) -> bool {
+    !is_generated_conflict_path(relative_path)
+        && projection.ignore_set.matches_configured(relative_path)
 }
 
 fn remove_stale_materialization(

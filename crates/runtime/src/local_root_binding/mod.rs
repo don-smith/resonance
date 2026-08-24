@@ -15,6 +15,7 @@ use crate::{
     identity::InstallationIdentity,
     workspace_files::{
         blobs::WorkspaceBlobStore,
+        ignore::WorkspaceIgnoreSet,
         paths::{PathError, PortablePath},
         projection::FileTreeProjection,
         FileOperationError, SignedFileOperation,
@@ -84,6 +85,7 @@ pub enum LocalChange {
     },
     TombstoneNode {
         node_id: String,
+        relative_path: String,
     },
 }
 
@@ -191,6 +193,7 @@ pub struct LocalRootBinding {
     health: RootHealth,
     materialized: BTreeMap<String, MaterializedRecord>,
     ingestor: FilesystemIngestor,
+    ignore_set: WorkspaceIgnoreSet,
 }
 
 impl LocalRootBinding {
@@ -210,7 +213,7 @@ impl LocalRootBinding {
         }
         prepare_empty_root(&root)?;
         let materialized = projector::project(&root, projection, blobs, &BTreeMap::new())?;
-        let snapshot = watcher::snapshot(&root)?;
+        let snapshot = watcher::snapshot(&root, &projection.ignore_set)?;
         store.set_local_root_binding(&root, RootHealth::Healthy)?;
         store.replace_local_root_materialization(materialized.values())?;
         Ok(Self {
@@ -219,6 +222,7 @@ impl LocalRootBinding {
             health: RootHealth::Healthy,
             materialized,
             ingestor: FilesystemIngestor::new(snapshot),
+            ignore_set: projection.ignore_set.clone(),
         })
     }
 
@@ -235,10 +239,10 @@ impl LocalRootBinding {
             .into_iter()
             .map(|record| (record.relative_path.clone(), record))
             .collect();
-        let expected = materialized_snapshot(&materialized, blobs)?;
+        let expected = materialized_snapshot(&materialized, blobs, &projection.ignore_set)?;
         let observed = (|| {
             recovery::remove_interrupted_writes(&root)?;
-            watcher::snapshot(&root)
+            watcher::snapshot(&root, &projection.ignore_set)
         })();
         let mut binding = Self {
             store: store.clone(),
@@ -246,6 +250,7 @@ impl LocalRootBinding {
             health: persisted_health,
             materialized,
             ingestor: FilesystemIngestor::new(BTreeMap::new()),
+            ignore_set: projection.ignore_set.clone(),
         };
         match observed {
             Ok(observed) if observed == expected => {
@@ -278,7 +283,7 @@ impl LocalRootBinding {
     }
 
     pub fn poll_changes(&mut self) -> Result<Vec<LocalChange>, RootBindingError> {
-        match watcher::snapshot(&self.root) {
+        match watcher::snapshot(&self.root, &self.ignore_set) {
             Ok(snapshot) => {
                 self.set_health(RootHealth::Healthy, None)?;
                 Ok(self.ingestor.observe(snapshot, &mut self.materialized))
@@ -396,7 +401,7 @@ impl LocalRootBinding {
                         causal_frontier,
                     )?
                 }
-                LocalChange::TombstoneNode { node_id } => SignedFileOperation::tombstone_node(
+                LocalChange::TombstoneNode { node_id, .. } => SignedFileOperation::tombstone_node(
                     identity,
                     workspace_id,
                     node_id,
@@ -425,7 +430,7 @@ impl LocalRootBinding {
         }
         prepare_empty_root(&root)?;
         let materialized = projector::project(&root, projection, blobs, &BTreeMap::new())?;
-        let snapshot = watcher::snapshot(&root)?;
+        let snapshot = watcher::snapshot(&root, &projection.ignore_set)?;
         self.store
             .set_local_root_binding(&root, RootHealth::Healthy)?;
         self.store
@@ -433,6 +438,7 @@ impl LocalRootBinding {
         self.root = root;
         self.materialized = materialized;
         self.ingestor = FilesystemIngestor::new(snapshot);
+        self.ignore_set = projection.ignore_set.clone();
         self.health = RootHealth::Healthy;
         Ok(())
     }
@@ -446,8 +452,9 @@ impl LocalRootBinding {
             recovery::remove_interrupted_writes(&self.root)?;
             self.materialized =
                 projector::project(&self.root, projection, blobs, &self.materialized)?;
-            let snapshot = watcher::snapshot(&self.root)?;
-            self.ingestor = FilesystemIngestor::new(snapshot);
+            self.ignore_set = projection.ignore_set.clone();
+            let snapshot = watcher::snapshot(&self.root, &self.ignore_set)?;
+            let _ = self.ingestor.observe(snapshot, &mut self.materialized);
             self.store
                 .replace_local_root_materialization(self.materialized.values())?;
             Ok::<(), RootBindingError>(())
@@ -502,10 +509,11 @@ impl LocalRootBinding {
 fn materialized_snapshot(
     materialized: &BTreeMap<String, MaterializedRecord>,
     blobs: &WorkspaceBlobStore,
+    ignore_set: &WorkspaceIgnoreSet,
 ) -> Result<watcher::RootSnapshot, RootBindingError> {
     materialized
         .iter()
-        .filter(|(path, _)| !path.contains(".resonance-conflict-"))
+        .filter(|(path, _)| !ignore_set.is_ignored_input(path))
         .map(|(path, record)| {
             let entry = if record.directory {
                 watcher::SnapshotEntry::Directory
@@ -526,7 +534,7 @@ fn materialized_snapshot(
         .collect()
 }
 
-fn mime_type(relative_path: &str) -> &'static str {
+pub(crate) fn mime_type(relative_path: &str) -> &'static str {
     match relative_path.to_ascii_lowercase().rsplit('.').next() {
         Some("md") => "text/markdown",
         Some("png") => "image/png",
@@ -547,7 +555,7 @@ fn prepare_empty_root(root: &Path) -> Result<(), RootBindingError> {
             if !metadata.is_dir() {
                 return Err(RootBindingError::NotDirectory);
             }
-            let snapshot = watcher::snapshot(root)?;
+            let snapshot = watcher::snapshot_for_binding(root)?;
             if !snapshot.is_empty() {
                 return Err(RootBindingError::NonEmpty);
             }

@@ -1,0 +1,15 @@
+[data-package-id="resonance.reference"] {
+  padding: calc(var(--resonance-spacing) * 1.5);
+  border: 1px solid var(--resonance-color-border);
+  border-radius: 0.5rem;
+  color: var(--resonance-color-foreground);
+  background: var(--resonance-color-panel);
+}
+
+[data-package-id="resonance.reference"] h2 {
+  margin-top: 0;
+}
+
+[data-package-id="resonance.reference"] p {
+  color: var(--resonance-color-muted);
+}

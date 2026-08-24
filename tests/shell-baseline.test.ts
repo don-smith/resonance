@@ -8,6 +8,10 @@ describe("workspace shell", () => {
     const source = await readFile(resolve("apps/desktop/src/main.ts"), "utf8");
 
     expect(source).toContain("Runtime navigation");
+    expect(source).toContain("PackageHost");
+    expect(source).toContain("bundledPackageCatalog");
+    expect(source).toContain("Workspace files");
+    expect(source).toContain("packageMountRoot");
     expect(source).toContain("Create a workspace");
     expect(source).toContain("join_workspace");
     expect(source).toContain("workspace:changed");

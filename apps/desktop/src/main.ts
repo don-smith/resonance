@@ -5,6 +5,9 @@ import Editor from "@toast-ui/editor";
 import "@toast-ui/editor/dist/toastui-editor.css";
 import "@toast-ui/editor/dist/theme/toastui-editor-dark.css";
 import "./styles.css";
+import { bundledPackageCatalog } from "./generated/bundled-package-catalog.js";
+import { createPackageContext } from "./package-context.js";
+import { PackageHost } from "./package-host.js";
 import {
   isFilePreviewView,
   isMarkdownRevisionView,
@@ -45,6 +48,15 @@ import { createTemporaryMessage } from "./temporary-message.js";
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Resonance shell mount point is missing.");
 const shell = app;
+const packageMountRoot = document.createElement("section");
+packageMountRoot.className = "package-mounts";
+packageMountRoot.setAttribute("aria-label", "Package content");
+const packageHost = new PackageHost({
+  root: packageMountRoot,
+  catalog: bundledPackageCatalog,
+  createContext: createPackageContext,
+});
+let activePackageId: string | null = null;
 let actionMessage: string | null = null;
 let currentView: WorkspaceShellView | null = null;
 let markdownSession: MarkdownEditorSession | null = null;
@@ -75,7 +87,10 @@ function render(view: WorkspaceShellView): void {
     <main class="shell" aria-labelledby="app-title">
       <aside class="navigation" aria-label="Runtime navigation">
         <p class="brand">Resonance</p>
-        <nav><a aria-current="page" href="#workspace">Workspace</a></nav>
+        <nav aria-label="Packages">
+          <button type="button" data-package-id="">Workspace files</button>
+          <div class="package-navigation"></div>
+        </nav>
       </aside>
       <section class="workspace" id="workspace">
         <p class="eyebrow">${onboarding ? "Get started" : "Workspace"}</p>
@@ -104,7 +119,7 @@ function render(view: WorkspaceShellView): void {
               <button type="submit">Retry join</button>
             </form>
           </div>
-          <section class="files-panel" ${view.files ? "" : "hidden"}>
+          <section class="files-panel" ${view.files && activePackageId === null ? "" : "hidden"}>
             <div class="section-heading">
               <div><h2>Files</h2><p class="root-status"></p></div>
               <div class="root-actions"></div>
@@ -137,6 +152,7 @@ function render(view: WorkspaceShellView): void {
               </section>
             </div>
           </section>
+          <div class="package-mount-anchor"></div>
           <details class="people"><summary>Members and peers</summary>
             <h2>Members</h2><ul class="members"></ul>
             <h2>Peers</h2><ul class="peers"></ul>
@@ -144,6 +160,13 @@ function render(view: WorkspaceShellView): void {
         </section>
       </section>
     </main>`;
+
+  requiredElement<HTMLDivElement>(".package-mount-anchor").replaceWith(
+    packageMountRoot,
+  );
+  packageMountRoot.hidden = onboarding || blocked || activePackageId === null;
+  void packageHost.activate(packageMountRoot.hidden ? null : activePackageId);
+  renderPackageNavigation();
 
   requiredElement<HTMLHeadingElement>("#app-title").textContent = onboarding
     ? "Create a workspace or join one with an invite."
@@ -164,6 +187,36 @@ function render(view: WorkspaceShellView): void {
   document
     .querySelector<HTMLButtonElement>('[data-action="save-markdown"]')
     ?.addEventListener("click", saveMarkdown);
+}
+
+function renderPackageNavigation(): void {
+  const workspaceButton = requiredElement<HTMLButtonElement>(
+    'button[data-package-id=""]',
+  );
+  workspaceButton.setAttribute(
+    "aria-current",
+    activePackageId === null ? "page" : "false",
+  );
+  workspaceButton.addEventListener("click", () => selectPackage(null));
+
+  const navigation = requiredElement<HTMLDivElement>(".package-navigation");
+  for (const manifest of packageHost.manifests) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = manifest.nav.label;
+    button.setAttribute(
+      "aria-current",
+      activePackageId === manifest.id ? "page" : "false",
+    );
+    button.addEventListener("click", () => selectPackage(manifest.id));
+    navigation.append(button);
+  }
+}
+
+function selectPackage(packageId: string | null): void {
+  if (activePackageId === packageId) return;
+  activePackageId = packageId;
+  if (currentView) render(currentView);
 }
 
 function renderPeople(view: WorkspaceShellView): void {
@@ -722,6 +775,10 @@ function requiredElement<T extends Element>(selector: string): T {
   if (!element) throw new Error(`Missing shell element: ${selector}`);
   return element;
 }
+
+window.addEventListener("beforeunload", () => void packageHost.dispose(), {
+  once: true,
+});
 
 void Promise.all([
   invoke<WorkspaceShellView>("workspace_view"),

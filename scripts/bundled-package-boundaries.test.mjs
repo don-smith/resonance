@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 
@@ -72,6 +72,29 @@ describe("bundled package boundaries", () => {
       checkBundledPackageBoundaries({ root }),
     ).resolves.toBeUndefined();
   });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects an import that escapes through a symlink",
+    async () => {
+      const root = await mkdtemp(resolve(tmpdir(), "resonance-boundary-"));
+      roots.push(root);
+      await packageFixture(root, "symlinked", {
+        source: 'import "./linked.js";\nexport const value = true;\n',
+      });
+      await write(
+        resolve(root, "outside.ts"),
+        "export const outside = true;\n",
+      );
+      await symlink(
+        "../../../outside.ts",
+        resolve(root, "packages/symlinked/src/linked.ts"),
+      );
+
+      await expect(checkBundledPackageBoundaries({ root })).rejects.toThrow(
+        "relative import resolves outside its package",
+      );
+    },
+  );
 
   it("rejects transport, host, escaping, capability, dependency, and CSS violations", async () => {
     const root = await mkdtemp(resolve(tmpdir(), "resonance-boundary-"));

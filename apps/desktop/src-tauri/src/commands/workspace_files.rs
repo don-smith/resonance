@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use resonance_runtime::{
     local_root_binding::{RootHealth, RootSelection},
     workspace_file_runtime::{
@@ -14,9 +16,10 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 use super::workspace::{ManagedWorkspace, ManagedWorkspaceState};
 
-const MAX_IDENTIFIER_BYTES: usize = 128;
-const MAX_NAME_BYTES: usize = 255;
-const MAX_TARGET_LOCATION_BYTES: usize = 4096;
+const MAX_IDENTIFIER_LENGTH: usize = 128;
+const MAX_NAME_LENGTH: usize = 255;
+const MAX_TARGET_LOCATION_LENGTH: usize = 4096;
+const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_ENTRIES: usize = 10_000;
 const MAX_CONFLICTS: usize = 1_000;
 const MAX_CONFLICT_ITEMS: usize = 100;
@@ -116,7 +119,7 @@ impl WorkspaceFilesRequest {
             } => {
                 valid_identifier(parent_node_id)
                     && !name.is_empty()
-                    && name.len() <= MAX_NAME_BYTES
+                    && name.chars().count() <= MAX_NAME_LENGTH
                     && markdown.len() <= MAX_MARKDOWN_BYTES
             }
             Self::ReplaceMarkdown {
@@ -232,7 +235,7 @@ impl FileEntryView {
                 .as_ref()
                 .is_none_or(|value| valid_identifier(value))
             && !self.name.is_empty()
-            && self.name.len() <= MAX_NAME_BYTES
+            && self.name.chars().count() <= MAX_NAME_LENGTH
             && self
                 .current_revision_id
                 .as_ref()
@@ -303,11 +306,10 @@ impl ConflictChoiceView {
         valid_identifier(&self.candidate_id)
             && valid_identifier(&self.node_id)
             && !self.name.is_empty()
-            && self.name.len() <= MAX_NAME_BYTES
-            && self
-                .target_location
-                .as_ref()
-                .is_none_or(|value| !value.is_empty() && value.len() <= MAX_TARGET_LOCATION_BYTES)
+            && self.name.chars().count() <= MAX_NAME_LENGTH
+            && self.target_location.as_ref().is_none_or(|value| {
+                !value.is_empty() && value.chars().count() <= MAX_TARGET_LOCATION_LENGTH
+            })
     }
 }
 
@@ -355,9 +357,9 @@ impl FilePreviewView {
                 byte_length,
             } => {
                 !mime_type.is_empty()
-                    && mime_type.len() <= MAX_NAME_BYTES
+                    && mime_type.chars().count() <= MAX_NAME_LENGTH
                     && bytes.is_empty()
-                    && *byte_length <= i64::MAX as u64
+                    && *byte_length <= MAX_SAFE_INTEGER
             }
         }
     }
@@ -793,11 +795,13 @@ fn root_error(_: WorkspaceFileRuntimeError) -> WorkspaceFilesError {
 }
 
 fn valid_identifier(value: &str) -> bool {
-    !value.is_empty() && value.len() <= MAX_IDENTIFIER_BYTES
+    !value.is_empty() && value.chars().count() <= MAX_IDENTIFIER_LENGTH
 }
 
 fn valid_identifiers(values: &[String]) -> bool {
-    values.len() <= MAX_CONFLICT_ITEMS && values.iter().all(|value| valid_identifier(value))
+    values.len() <= MAX_CONFLICT_ITEMS
+        && values.iter().all(|value| valid_identifier(value))
+        && values.iter().collect::<BTreeSet<_>>().len() == values.len()
 }
 
 #[cfg(test)]

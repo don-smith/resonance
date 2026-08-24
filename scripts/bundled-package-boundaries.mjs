@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -43,13 +43,39 @@ function importSpecifiers(source) {
   return specifiers;
 }
 
-function checkImports(packageDirectory, path, source, errors) {
+async function resolvedImportPath(path) {
+  const candidates = [
+    path,
+    path.replace(/\.js$/, ".ts"),
+    `${path}.ts`,
+    `${path}.tsx`,
+    resolve(path, "index.ts"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return await realpath(candidate);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  return null;
+}
+
+async function checkImports(
+  packageDirectory,
+  sourcePath,
+  displayPath,
+  source,
+  errors,
+) {
   for (const specifier of importSpecifiers(source)) {
     if (
       specifier === "@tauri-apps/api" ||
       specifier.startsWith("@tauri-apps/api/")
     ) {
-      errors.push(`${path}: bundled packages cannot import @tauri-apps/api`);
+      errors.push(
+        `${displayPath}: bundled packages cannot import @tauri-apps/api`,
+      );
     }
     if (
       specifier.includes("apps/desktop") ||
@@ -57,16 +83,30 @@ function checkImports(packageDirectory, path, source, errors) {
       specifier.includes("resonance-runtime") ||
       specifier === "@resonance/desktop"
     ) {
-      errors.push(`${path}: bundled packages cannot import host internals`);
+      errors.push(
+        `${displayPath}: bundled packages cannot import host internals`,
+      );
     }
     if (isAbsolute(specifier) || win32.isAbsolute(specifier)) {
-      errors.push(`${path}: bundled package imports must not be absolute`);
+      errors.push(
+        `${displayPath}: bundled package imports must not be absolute`,
+      );
     }
     if (specifier.startsWith(".")) {
-      const imported = resolve(dirname(path), specifier);
+      const imported = resolve(dirname(sourcePath), specifier);
       if (!inside(packageDirectory, imported)) {
         errors.push(
-          `${path}: relative import escapes its package: ${specifier}`,
+          `${displayPath}: relative import escapes its package: ${specifier}`,
+        );
+        continue;
+      }
+      const [realPackageDirectory, realImported] = await Promise.all([
+        realpath(packageDirectory),
+        resolvedImportPath(imported),
+      ]);
+      if (realImported && !inside(realPackageDirectory, realImported)) {
+        errors.push(
+          `${displayPath}: relative import resolves outside its package: ${specifier}`,
         );
       }
     }
@@ -168,7 +208,7 @@ export async function checkBundledPackageBoundaries({
       if (path.endsWith(".css")) {
         checkCss(manifest, displayPath, source, errors);
       } else {
-        checkImports(directory, displayPath, source, errors);
+        await checkImports(directory, path, displayPath, source, errors);
         checkCapabilities(manifest, displayPath, source, errors);
       }
     }

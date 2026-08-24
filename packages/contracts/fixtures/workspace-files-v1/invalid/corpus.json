@@ -126,6 +126,46 @@
     }
   },
   {
+    "name": "duplicate conflict identifiers",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": { "state": "unbound" },
+          "entries": [],
+          "conflicts": [
+            {
+              "recordId": "conflict",
+              "nodeId": "node",
+              "kind": "markdown-overlap",
+              "competingRevisionIds": ["revision", "revision"],
+              "resolutionCandidateIds": ["revision"],
+              "reviewableRevisionIds": ["revision"],
+              "deletionOperationId": null,
+              "treeChoices": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "unavailable preview safe integer limit",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "open-preview",
+        "preview": {
+          "kind": "unavailable",
+          "mimeType": "application/octet-stream",
+          "bytes": [],
+          "byteLength": 9007199254740992
+        }
+      }
+    }
+  },
+  {
     "name": "unsafe error text",
     "value": {
       "kind": "error",

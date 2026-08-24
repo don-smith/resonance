@@ -5,11 +5,16 @@ import {
   isWorkspaceShellView,
   peerStatus,
   workspaceViewChanged,
+  type ConflictView,
   type WorkspaceShellView,
 } from "../apps/desktop/src/workspace-view.js";
 import {
   childEntries,
+  conflictFallbackLabel,
+  conflictFallbackSelection,
   conflictLabel,
+  conflictRevisionActionLabel,
+  retainedOpenRevision,
   rootStatusMessage,
 } from "../apps/desktop/src/workspace-files-view.js";
 
@@ -85,6 +90,42 @@ describe("workspace shell view", () => {
     expect(conflictLabel("markdown-overlap")).toBe(
       "Overlapping Markdown edits",
     );
+    const deleteConflict: ConflictView = {
+      recordId: "conflict",
+      nodeId: "file",
+      kind: "delete-edit",
+      competingRevisionIds: ["edited-revision"],
+      reviewableRevisionIds: ["edited-revision"],
+      deletionOperationId: "delete-operation",
+    };
+    expect(conflictFallbackLabel(deleteConflict.kind)).toBe("Keep deletion");
+    expect(conflictFallbackSelection(deleteConflict)).toBe("delete-operation");
+    expect(
+      conflictRevisionActionLabel(deleteConflict.kind, "edited-revision"),
+    ).toBe("Keep edited file edited-r");
+    expect(conflictFallbackLabel("binary-collision")).toBe(
+      "Keep current state",
+    );
+  });
+
+  it("clears an open revision only when its node leaves the tree", () => {
+    const revision = {
+      nodeId: "file",
+      revisionId: "revision",
+      markdown: "# Roadmap\n",
+    };
+    const entries = readyView().files!.entries;
+
+    expect(retainedOpenRevision(revision, entries)).toBe(revision);
+    const newerEntries = structuredClone(entries);
+    newerEntries[0].currentRevisionId = "next-revision";
+    expect(retainedOpenRevision(revision, newerEntries)).toBe(revision);
+    expect(
+      retainedOpenRevision(
+        revision,
+        entries.filter((entry) => entry.nodeId !== revision.nodeId),
+      ),
+    ).toBeNull();
   });
 
   it("does not replace interactive UI for an identical transport view", () => {

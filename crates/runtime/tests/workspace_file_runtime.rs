@@ -265,6 +265,54 @@ fn failed_external_change_storage_is_retried_without_losing_local_bytes() {
 }
 
 #[test]
+fn restart_ingests_an_offline_deletion_before_reprojecting_authority() {
+    let application_data = tempfile::tempdir().expect("application data creates");
+    let root = application_data.path().join("workspace-root");
+    let custody = InMemoryKeyCustody::default();
+    let identity =
+        InstallationIdentity::load_or_create(&custody).expect("installation identity creates");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog opens");
+    let mut session = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    session
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let mut files = session.open_file_runtime().expect("file runtime opens");
+    files
+        .bind_root(&root, RootSelection::ConfirmedNotGitManaged)
+        .expect("root binds");
+    let plans = files
+        .tree_entries()
+        .into_iter()
+        .find(|entry| entry.name == "plans")
+        .expect("plans exists");
+    files
+        .create_markdown_file(&plans.node_id, "offline.md", "base\n")
+        .expect("file creates");
+    drop(files);
+    drop(session);
+    std::fs::remove_file(root.join("plans/offline.md")).expect("file deletes while offline");
+
+    let identity =
+        InstallationIdentity::load_or_create(&custody).expect("installation identity reloads");
+    let catalog = WorkspaceCatalog::open(application_data.path()).expect("catalog reopens");
+    let mut restarted = WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
+    restarted
+        .activate_active_workspace()
+        .expect("workspace activates");
+    let mut files = restarted.open_file_runtime().expect("file runtime reopens");
+
+    assert!(!root.join("plans/offline.md").exists());
+    assert_eq!(
+        files.poll_root_changes().expect("offline deletion ingests"),
+        1
+    );
+    assert!(!files
+        .tree_entries()
+        .iter()
+        .any(|entry| entry.name == "offline.md"));
+}
+
+#[test]
 fn rejects_non_markdown_and_stale_revision_editor_requests() {
     let application_data = tempfile::tempdir().expect("application data creates");
     let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())

@@ -88,6 +88,8 @@ pub struct ConflictView {
     pub node_id: String,
     pub kind: String,
     pub competing_revision_ids: Vec<String>,
+    pub reviewable_revision_ids: Vec<String>,
+    pub deletion_operation_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -830,6 +832,8 @@ fn conflict_view(conflict: FileConflictView) -> ConflictView {
         }
         .to_owned(),
         competing_revision_ids: conflict.competing_revision_ids,
+        reviewable_revision_ids: conflict.reviewable_revision_ids,
+        deletion_operation_id: conflict.deletion_operation_id,
     }
 }
 

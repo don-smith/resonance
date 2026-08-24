@@ -24,6 +24,8 @@ export type ConflictView = {
     | "concurrent-create"
     | "competing-move";
   competingRevisionIds: string[];
+  reviewableRevisionIds: string[];
+  deletionOperationId: string | null;
 };
 
 export type WorkspaceFilesView = {
@@ -121,7 +123,10 @@ function isConflict(value: unknown): value is ConflictView {
       "competing-move",
     ].includes(value.kind as string) &&
     Array.isArray(value.competingRevisionIds) &&
-    value.competingRevisionIds.every(isString)
+    value.competingRevisionIds.every(isString) &&
+    Array.isArray(value.reviewableRevisionIds) &&
+    value.reviewableRevisionIds.every(isString) &&
+    isNullableString(value.deletionOperationId)
   );
 }
 

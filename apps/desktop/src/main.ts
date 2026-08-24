@@ -16,7 +16,11 @@ import {
 } from "./workspace-view.js";
 import {
   childEntries,
+  conflictFallbackLabel,
+  conflictFallbackSelection,
   conflictLabel,
+  conflictRevisionActionLabel,
+  retainedOpenRevision,
   rootStatusMessage,
 } from "./workspace-files-view.js";
 import { createTemporaryMessage } from "./temporary-message.js";
@@ -177,7 +181,7 @@ function renderFiles(view: WorkspaceShellView): void {
     title.textContent = conflictLabel(conflict.kind);
     item.append(title);
     for (const revisionId of conflict.competingRevisionIds) {
-      if (conflict.kind === "markdown-overlap") {
+      if (conflict.reviewableRevisionIds.includes(revisionId)) {
         const review = document.createElement("button");
         review.type = "button";
         review.textContent = `Review ${revisionId.slice(0, 8)}`;
@@ -188,7 +192,7 @@ function renderFiles(view: WorkspaceShellView): void {
       }
       const use = document.createElement("button");
       use.type = "button";
-      use.textContent = `Use ${revisionId.slice(0, 8)}`;
+      use.textContent = conflictRevisionActionLabel(conflict.kind, revisionId);
       use.addEventListener("click", () =>
         resolveConflict(conflict.recordId, revisionId),
       );
@@ -196,15 +200,25 @@ function renderFiles(view: WorkspaceShellView): void {
     }
     const keep = document.createElement("button");
     keep.type = "button";
-    keep.textContent = "Keep current state";
+    keep.textContent = conflictFallbackLabel(conflict.kind);
+    const fallbackSelection = conflictFallbackSelection(conflict);
+    keep.disabled = conflict.kind === "delete-edit" && !fallbackSelection;
     keep.addEventListener("click", () =>
-      resolveConflict(conflict.recordId, null),
+      resolveConflict(conflict.recordId, fallbackSelection),
     );
     item.append(keep);
     conflicts.append(item);
   }
 
-  if (openRevision) mountMarkdownEditor(openRevision);
+  const retainedRevision = retainedOpenRevision(openRevision, files.entries);
+  if (openRevision && !retainedRevision) {
+    openRevision = null;
+    openRevisionReadOnly = false;
+    requiredElement<HTMLParagraphElement>(".editor-placeholder").textContent =
+      "The open Markdown file was deleted.";
+  } else if (retainedRevision) {
+    mountMarkdownEditor(retainedRevision);
+  }
 }
 
 function renderRootActions(state: RootState): void {

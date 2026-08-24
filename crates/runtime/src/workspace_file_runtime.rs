@@ -55,6 +55,8 @@ pub struct FileConflictView {
     pub node_id: String,
     pub kind: ConflictKind,
     pub competing_revision_ids: Vec<String>,
+    pub reviewable_revision_ids: Vec<String>,
+    pub deletion_operation_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -184,10 +186,30 @@ impl WorkspaceFileRuntime {
             .filter(|conflict| !conflict.resolved)
             .cloned()
             .map(|mut conflict| {
+                let deletion_operation_id = (conflict.kind == ConflictKind::DeleteEdit)
+                    .then(|| {
+                        conflict
+                            .competing_revision_ids
+                            .iter()
+                            .find(|candidate| !projection.revisions.contains_key(*candidate))
+                            .cloned()
+                    })
+                    .flatten();
                 conflict
                     .competing_revision_ids
                     .retain(|revision_id| projection.revisions.contains_key(revision_id));
-                conflict_view(conflict)
+                let reviewable_revision_ids = conflict
+                    .competing_revision_ids
+                    .iter()
+                    .filter(|revision_id| {
+                        projection
+                            .revisions
+                            .get(*revision_id)
+                            .is_some_and(|revision| revision.mime_type == "text/markdown")
+                    })
+                    .cloned()
+                    .collect();
+                conflict_view(conflict, reviewable_revision_ids, deletion_operation_id)
             })
             .collect()
     }
@@ -538,11 +560,17 @@ fn is_directory(projection: &FileTreeProjection, node_id: &str) -> bool {
     find_entry(projection, node_id).is_some_and(|entry| entry.kind == FileEntryKind::Directory)
 }
 
-fn conflict_view(conflict: ConflictRecord) -> FileConflictView {
+fn conflict_view(
+    conflict: ConflictRecord,
+    reviewable_revision_ids: Vec<String>,
+    deletion_operation_id: Option<String>,
+) -> FileConflictView {
     FileConflictView {
         record_id: conflict.record_id,
         node_id: conflict.node_id,
         kind: conflict.kind,
         competing_revision_ids: conflict.competing_revision_ids,
+        reviewable_revision_ids,
+        deletion_operation_id,
     }
 }

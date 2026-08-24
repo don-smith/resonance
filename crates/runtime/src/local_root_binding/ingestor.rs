@@ -20,6 +20,13 @@ impl FilesystemIngestor {
         }
     }
 
+    pub(crate) fn resume(acknowledged: RootSnapshot, observed: RootSnapshot) -> Self {
+        Self {
+            acknowledged,
+            last_seen: observed,
+        }
+    }
+
     pub(crate) fn observe(
         &mut self,
         snapshot: RootSnapshot,
@@ -38,7 +45,11 @@ impl FilesystemIngestor {
         let mut moved_to = BTreeSet::new();
         let removed_files = materialized
             .iter()
-            .filter(|(path, record)| !record.directory && !snapshot.contains_key(*path))
+            .filter(|(path, record)| {
+                !record.directory
+                    && !path.contains(".resonance-conflict-")
+                    && !snapshot.contains_key(*path)
+            })
             .map(|(path, record)| (path.clone(), record.clone()))
             .collect::<Vec<_>>();
         let added_files = snapshot
@@ -81,7 +92,11 @@ impl FilesystemIngestor {
 
         let existing = materialized.clone();
         for (path, record) in existing {
-            if record.directory || moved_from.contains(&path) || moved_to.contains(&path) {
+            if record.directory
+                || path.contains(".resonance-conflict-")
+                || moved_from.contains(&path)
+                || moved_to.contains(&path)
+            {
                 continue;
             }
             match snapshot.get(&path) {

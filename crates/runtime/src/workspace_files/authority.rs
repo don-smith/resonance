@@ -662,6 +662,29 @@ impl WorkspaceFileAuthority {
 
         if conflict.kind == ConflictKind::ConcurrentCreate {
             self.resolve_concurrent_create(&conflict, chosen_revision_id)?;
+        } else if conflict.kind == ConflictKind::DeleteEdit {
+            if let Some(candidate_id) = chosen_revision_id {
+                if let Some(revision) = self
+                    .revisions
+                    .get(candidate_id)
+                    .filter(|revision| revision.node_id == node_id)
+                {
+                    self.nodes
+                        .get_mut(node_id)
+                        .ok_or(AuthorityError::NotFound)?
+                        .current_revision_id = Some(revision.revision_id.clone());
+                } else {
+                    let node = self
+                        .nodes
+                        .get(node_id)
+                        .cloned()
+                        .ok_or(AuthorityError::NotFound)?;
+                    self.remove_child(node.parent_node_id.as_deref(), &node.name);
+                    let node = self.nodes.get_mut(node_id).expect("node was checked");
+                    node.tombstoned = true;
+                    node.tombstone_operation_id = Some(candidate_id.to_owned());
+                }
+            }
         } else if let Some(revision_id) = chosen_revision_id {
             let revision = self
                 .revisions

@@ -1,6 +1,7 @@
 import type {
   ConflictView,
   FileEntryView,
+  MarkdownRevisionView,
   RootState,
 } from "./workspace-view.js";
 
@@ -17,6 +18,18 @@ export function childEntries(
     });
 }
 
+export function retainedOpenRevision(
+  revision: MarkdownRevisionView | null,
+  entries: FileEntryView[],
+): MarkdownRevisionView | null {
+  if (!revision) return null;
+  return entries.some(
+    (entry) => entry.nodeId === revision.nodeId && entry.kind === "markdown",
+  )
+    ? revision
+    : null;
+}
+
 export function rootStatusMessage(state: RootState): string {
   switch (state) {
     case "unbound":
@@ -30,6 +43,26 @@ export function rootStatusMessage(state: RootState): string {
     case "unhealthy":
       return "The private workspace folder needs repair.";
   }
+}
+
+export function conflictFallbackLabel(kind: ConflictView["kind"]): string {
+  return kind === "delete-edit" ? "Keep deletion" : "Keep current state";
+}
+
+export function conflictFallbackSelection(
+  conflict: ConflictView,
+): string | null {
+  return conflict.kind === "delete-edit" ? conflict.deletionOperationId : null;
+}
+
+export function conflictRevisionActionLabel(
+  kind: ConflictView["kind"],
+  revisionId: string,
+): string {
+  const shortId = revisionId.slice(0, 8);
+  return kind === "delete-edit"
+    ? `Keep edited file ${shortId}`
+    : `Use ${shortId}`;
 }
 
 export function conflictLabel(kind: ConflictView["kind"]): string {

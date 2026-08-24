@@ -381,6 +381,147 @@ fn binary_conflict_resolution_retains_immutable_history() {
 }
 
 #[test]
+fn delete_edit_resolution_preserves_legacy_keep_and_can_choose_deletion() {
+    let member = identity();
+    let membership = membership(&member);
+    let mut authority = WorkspaceFileAuthority::new(WORKSPACE_ID);
+    let base = b"base\n";
+    let base_hash = authority.blob_store_mut().store(base).expect("base stores");
+    let file = SignedFileOperation::create_file(
+        &member,
+        WORKSPACE_ID,
+        None,
+        "plan.md",
+        base_hash.as_str(),
+        "text/markdown",
+        base.len() as u64,
+        Vec::new(),
+    )
+    .expect("file signs");
+    authority.apply(&file, &membership).expect("file applies");
+    let edited = b"edited\n";
+    let edited_hash = authority
+        .blob_store_mut()
+        .store(edited)
+        .expect("edited bytes store");
+    let edit = SignedFileOperation::replace_file_revision(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        file.operation.operation_id.clone(),
+        edited_hash.as_str(),
+        "text/markdown",
+        edited.len() as u64,
+        vec![file.operation.operation_id.clone()],
+    )
+    .expect("edit signs");
+    let delete = SignedFileOperation::tombstone_node(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        vec![file.operation.operation_id.clone()],
+    )
+    .expect("delete signs");
+    authority.apply(&edit, &membership).expect("edit applies");
+    authority
+        .apply(&delete, &membership)
+        .expect("deletion intent is preserved");
+    let conflict = authority
+        .projection()
+        .conflicts
+        .into_iter()
+        .find(|conflict| {
+            conflict.kind
+                == resonance_runtime::workspace_files::projection::ConflictKind::DeleteEdit
+        })
+        .expect("delete-edit conflict exists");
+    let legacy_keep = SignedFileOperation::resolve_conflict(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        conflict.record_id,
+        None,
+        vec![
+            edit.operation.operation_id.clone(),
+            delete.operation.operation_id.clone(),
+        ],
+    )
+    .expect("legacy keep resolution signs");
+    authority
+        .apply(&legacy_keep, &membership)
+        .expect("legacy keep resolution applies");
+    assert!(authority.projection().root.contains_key("plan.md"));
+
+    let second_edited = b"edited again\n";
+    let second_hash = authority
+        .blob_store_mut()
+        .store(second_edited)
+        .expect("second edit stores");
+    let second_edit = SignedFileOperation::replace_file_revision(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        edit.operation.operation_id.clone(),
+        second_hash.as_str(),
+        "text/markdown",
+        second_edited.len() as u64,
+        vec![legacy_keep.operation.operation_id.clone()],
+    )
+    .expect("second edit signs");
+    let second_delete = SignedFileOperation::tombstone_node(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        vec![legacy_keep.operation.operation_id.clone()],
+    )
+    .expect("second delete signs");
+    authority
+        .apply(&second_edit, &membership)
+        .expect("second edit applies");
+    authority
+        .apply(&second_delete, &membership)
+        .expect("second deletion intent is preserved");
+    let unresolved = authority
+        .projection()
+        .conflicts
+        .into_iter()
+        .filter(|candidate| !candidate.resolved)
+        .collect::<Vec<_>>();
+    assert_eq!(unresolved.len(), 1);
+    let resolution = SignedFileOperation::resolve_conflict(
+        &member,
+        WORKSPACE_ID,
+        file.operation.node_id.clone(),
+        unresolved[0].record_id.clone(),
+        Some(second_delete.operation.operation_id.clone()),
+        vec![
+            second_edit.operation.operation_id.clone(),
+            second_delete.operation.operation_id.clone(),
+        ],
+    )
+    .expect("explicit deletion resolution signs");
+    authority
+        .apply(&resolution, &membership)
+        .expect("explicit deletion resolution applies");
+
+    let projection = authority.projection();
+    assert!(!projection.root.contains_key("plan.md"));
+    assert!(projection
+        .conflicts
+        .iter()
+        .all(|conflict| conflict.resolved));
+    assert!(projection
+        .revisions
+        .contains_key(&file.operation.operation_id));
+    assert!(projection
+        .revisions
+        .contains_key(&second_edit.operation.operation_id));
+    assert!(authority
+        .applied_operation_ids()
+        .contains(&second_delete.operation.operation_id));
+}
+
+#[test]
 fn invalid_utf8_and_concurrent_create_become_visible_conflicts() {
     let member = identity();
     let membership = membership(&member);

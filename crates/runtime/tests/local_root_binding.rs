@@ -575,6 +575,20 @@ fn conflict_artifacts_materialize_and_leave_the_root_after_resolution() {
         .poll_changes()
         .expect("generated files scan")
         .is_empty());
+    fs::write(root.join("plans/new.md"), b"new\n").expect("unrelated file writes");
+    assert!(binding
+        .poll_changes()
+        .expect("first unrelated observation")
+        .is_empty());
+    let changes = binding
+        .poll_changes()
+        .expect("second unrelated observation");
+    assert_eq!(changes.len(), 1);
+    assert!(matches!(
+        &changes[0],
+        LocalChange::CreateFile { relative_path, .. } if relative_path == "plans/new.md"
+    ));
+    fs::remove_file(root.join("plans/new.md")).expect("unrelated file removes");
 
     let resolution = SignedFileOperation::resolve_conflict(
         &identity,

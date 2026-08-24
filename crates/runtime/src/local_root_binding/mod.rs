@@ -235,6 +235,11 @@ impl LocalRootBinding {
             .into_iter()
             .map(|record| (record.relative_path.clone(), record))
             .collect();
+        let expected = materialized_snapshot(&materialized, blobs)?;
+        let observed = (|| {
+            recovery::remove_interrupted_writes(&root)?;
+            watcher::snapshot(&root)
+        })();
         let mut binding = Self {
             store: store.clone(),
             root,
@@ -242,9 +247,26 @@ impl LocalRootBinding {
             materialized,
             ingestor: FilesystemIngestor::new(BTreeMap::new()),
         };
-        if let Err(error) = binding.repair(projection, blobs) {
-            if matches!(error, RootBindingError::Storage(_)) {
-                return Err(error);
+        match observed {
+            Ok(observed) if observed == expected => {
+                binding.ingestor = FilesystemIngestor::new(observed);
+                if let Err(error) = binding.repair(projection, blobs) {
+                    if matches!(error, RootBindingError::Storage(_)) {
+                        return Err(error);
+                    }
+                }
+            }
+            Ok(observed) => {
+                binding.ingestor = FilesystemIngestor::resume(expected, observed);
+                binding.set_health(RootHealth::Healthy, None)?;
+            }
+            Err(error) => {
+                let health = match error {
+                    RootBindingError::Unavailable => RootHealth::Unavailable,
+                    RootBindingError::Unwritable => RootHealth::Unwritable,
+                    _ => RootHealth::Unhealthy,
+                };
+                binding.set_health(health, Some(error.to_string()))?;
             }
         }
         Ok(Some(binding))
@@ -475,6 +497,33 @@ impl LocalRootBinding {
             .update_local_root_health(health, error.as_deref())?;
         Ok(())
     }
+}
+
+fn materialized_snapshot(
+    materialized: &BTreeMap<String, MaterializedRecord>,
+    blobs: &WorkspaceBlobStore,
+) -> Result<watcher::RootSnapshot, RootBindingError> {
+    materialized
+        .iter()
+        .filter(|(path, _)| !path.contains(".resonance-conflict-"))
+        .map(|(path, record)| {
+            let entry = if record.directory {
+                watcher::SnapshotEntry::Directory
+            } else {
+                let hash = record
+                    .content_hash
+                    .as_ref()
+                    .ok_or_else(|| RootBindingError::MissingBlob(path.clone()))?;
+                watcher::SnapshotEntry::File {
+                    hash: hash.clone(),
+                    bytes: blobs
+                        .open(&crate::workspace_files::blobs::ContentHash(hash.clone()))?
+                        .into(),
+                }
+            };
+            Ok((path.clone(), entry))
+        })
+        .collect()
 }
 
 fn mime_type(relative_path: &str) -> &'static str {

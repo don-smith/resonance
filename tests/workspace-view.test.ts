@@ -10,12 +10,17 @@ import {
   type WorkspaceShellView,
 } from "../apps/desktop/src/workspace-view.js";
 import {
+  captureMarkdownDraft,
   childEntries,
   conflictFallbackLabel,
   conflictFallbackSelection,
   conflictLabel,
   conflictRevisionActionLabel,
-  retainedOpenRevision,
+  createMarkdownEditorSession,
+  loadReviewedMarkdownRevision,
+  markdownRevisionAwareness,
+  returnToMarkdownDraft,
+  reviewMarkdownRevision,
   rootStatusMessage,
   treeConflictActionLabel,
   treeConflictPreviewLabel,
@@ -154,24 +159,117 @@ describe("workspace shell view", () => {
     ).toBe(true);
   });
 
-  it("clears an open revision only when its node leaves the tree", () => {
+  it("preserves clean and dirty editor sessions across shell updates", () => {
     const revision = {
       nodeId: "file",
       revisionId: "revision",
       markdown: "# Roadmap\n",
     };
-    const entries = readyView().files!.entries;
+    const files = readyView().files!;
+    const clean = createMarkdownEditorSession(revision, false);
 
-    expect(retainedOpenRevision(revision, entries)).toBe(revision);
-    const newerEntries = structuredClone(entries);
-    newerEntries[0].currentRevisionId = "next-revision";
-    expect(retainedOpenRevision(revision, newerEntries)).toBe(revision);
-    expect(
-      retainedOpenRevision(
-        revision,
-        entries.filter((entry) => entry.nodeId !== revision.nodeId),
+    expect(clean.draft).toBe(revision.markdown);
+    expect(markdownRevisionAwareness(clean, files)).toEqual({
+      state: "current",
+    });
+
+    const dirty = captureMarkdownDraft(clean, "# Roadmap\n\nUnsaved idea\n");
+    const unrelatedUpdate = structuredClone(files);
+    unrelatedUpdate.entries.push({
+      nodeId: "other-file",
+      parentNodeId: "plans",
+      name: "notes.md",
+      kind: "markdown",
+      currentRevisionId: "other-revision",
+      editable: true,
+    });
+
+    expect(dirty.draft).toBe("# Roadmap\n\nUnsaved idea\n");
+    expect(markdownRevisionAwareness(dirty, unrelatedUpdate)).toEqual({
+      state: "current",
+    });
+  });
+
+  it("reports newer, deleted, and conflicted authority state", () => {
+    const clean = createMarkdownEditorSession(
+      {
+        nodeId: "file",
+        revisionId: "revision",
+        markdown: "# Roadmap\n",
+      },
+      false,
+    );
+    const session = captureMarkdownDraft(clean, "# Roadmap\n\nUnsaved idea\n");
+    const newer = structuredClone(readyView().files!);
+    newer.entries[0].currentRevisionId = "next-revision";
+    const stale = {
+      state: "stale" as const,
+      currentRevisionId: "next-revision",
+    };
+    expect(markdownRevisionAwareness(clean, newer)).toEqual(stale);
+    expect(markdownRevisionAwareness(session, newer)).toEqual(stale);
+    expect(session.draft).toBe("# Roadmap\n\nUnsaved idea\n");
+
+    const deleted = structuredClone(newer);
+    deleted.entries = deleted.entries.filter(
+      (entry) => entry.nodeId !== session.loadedRevision.nodeId,
+    );
+    expect(markdownRevisionAwareness(session, deleted)).toEqual({
+      state: "deleted",
+    });
+
+    const conflicted = structuredClone(newer);
+    conflicted.conflicts.push({
+      recordId: "conflict",
+      nodeId: "file",
+      kind: "markdown-overlap",
+      competingRevisionIds: ["revision", "next-revision"],
+      resolutionCandidateIds: ["revision", "next-revision"],
+      reviewableRevisionIds: ["revision", "next-revision"],
+      deletionOperationId: null,
+      treeChoices: [],
+    });
+    expect(markdownRevisionAwareness(session, conflicted)).toEqual({
+      state: "conflicted",
+      conflictKind: "markdown-overlap",
+    });
+    expect(session.draft).toBe("# Roadmap\n\nUnsaved idea\n");
+  });
+
+  it("reviews and explicitly loads a revision without changing the draft", () => {
+    const dirty = captureMarkdownDraft(
+      createMarkdownEditorSession(
+        {
+          nodeId: "file",
+          revisionId: "revision",
+          markdown: "# Roadmap\n",
+        },
+        false,
       ),
-    ).toBeNull();
+      "# Roadmap\n\nUnsaved idea\n",
+    );
+    const reviewed = {
+      nodeId: "file",
+      revisionId: "next-revision",
+      markdown: "# Roadmap\n\nPeer edit\n",
+    };
+
+    const reviewing = reviewMarkdownRevision(dirty, reviewed);
+    expect(reviewing.mode).toBe("review");
+    expect(reviewing.draft).toBe(dirty.draft);
+    expect(reviewing.loadedRevision).toBe(dirty.loadedRevision);
+    expect(reviewing.reviewedRevision).toBe(reviewed);
+
+    const returned = returnToMarkdownDraft(reviewing);
+    expect(returned.mode).toBe("draft");
+    expect(returned.draft).toBe(dirty.draft);
+    expect(returned.loadedRevision).toBe(dirty.loadedRevision);
+
+    const loaded = loadReviewedMarkdownRevision(reviewing);
+    expect(loaded.mode).toBe("draft");
+    expect(loaded.draft).toBe(reviewed.markdown);
+    expect(loaded.loadedRevision).toBe(reviewed);
+    expect(loaded.reviewedRevision).toBeNull();
   });
 
   it("does not replace interactive UI for an identical transport view", () => {

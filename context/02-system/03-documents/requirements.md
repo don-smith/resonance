@@ -16,11 +16,11 @@ Role: owns the workspace file tree, rendered Markdown editing, revision access, 
 
 ### Editing and conflict review
 
-- **RS.SYS.DOC-R04 Rendered Markdown editing is the primary mode.** The editor opens a Markdown file by node ID and revision, renders it safely, and submits an authority-mediated replacement intent. It does not own a hidden editor-specific replication path. `refines: RS-R06`
+- **RS.SYS.DOC-R04 Rendered Markdown editing is the primary mode.** The editor opens a Markdown file by node ID and revision, renders it safely, and submits an authority-mediated replacement intent. It retains the member's draft when current authority advances, reports the newer revision before save, fetches that revision only for an explicit review, and replaces the draft and loaded base only after a separate explicit load action. A stale replacement remains rejected without clearing the draft. The editor does not own a hidden editor-specific replication path. `refines: RS-R06`
 
 - **RS.SYS.DOC-R05 Raw Markdown mode and live carets are deferred.** The first filesystem workspace release provides neither raw-mode editing nor collaborative cursor awareness.
 
-- **RS.SYS.DOC-R06 Unsafe concurrent changes remain visible.** The runtime merges only disjoint line-based Markdown changes from a common base. Overlaps, binary same-path changes, delete-versus-edit races, concurrent creates, and competing moves retain all versions or intents as deterministic sibling artifacts or notices until a member submits a resolution.
+- **RS.SYS.DOC-R06 Unsafe concurrent changes remain visible.** The runtime merges only disjoint line-based Markdown changes from a common base. Overlaps, binary same-path changes, delete-versus-edit races, concurrent creates, and competing moves retain all versions or intents as deterministic sibling artifacts or notices until a member submits a resolution. Deletion or conflict updates for an open Markdown file report the authority state without clearing its local editor draft.
 
 ### Recovery and replication
 

@@ -511,9 +511,20 @@ fn rejects_non_markdown_and_stale_revision_editor_requests() {
         .create_markdown_file(&plans.node_id, "notes.md", "one\n")
         .expect("markdown creates");
 
-    assert!(files
-        .replace_markdown_file(&created.node_id, "not-a-revision", "two\n")
-        .is_err());
+    let newer = files
+        .replace_markdown_file(&created.node_id, &created.revision_id, "two\n")
+        .expect("newer current revision creates");
+    assert!(matches!(
+        files.replace_markdown_file(&created.node_id, &created.revision_id, "stale draft\n"),
+        Err(WorkspaceFileRuntimeError::StaleRevision)
+    ));
+    assert_eq!(
+        files
+            .open_markdown_file(&newer.node_id, &newer.revision_id)
+            .expect("newer revision remains current")
+            .markdown,
+        "two\n"
+    );
     assert!(files
         .create_markdown_file(&plans.node_id, "asset.bin", "bytes")
         .is_err());

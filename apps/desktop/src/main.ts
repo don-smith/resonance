@@ -13,19 +13,26 @@ import {
   type FilePreviewView,
   type MarkdownRevisionView,
   type RootState,
+  type WorkspaceFilesView,
   type WorkspaceShellView,
   workspaceViewChanged,
 } from "./workspace-view.js";
 import {
+  captureMarkdownDraft,
   childEntries,
   conflictFallbackLabel,
   conflictFallbackSelection,
   conflictLabel,
   conflictRevisionActionLabel,
-  retainedOpenRevision,
+  createMarkdownEditorSession,
+  loadReviewedMarkdownRevision,
+  markdownRevisionAwareness,
+  returnToMarkdownDraft,
+  reviewMarkdownRevision,
   rootStatusMessage,
   treeConflictActionLabel,
   treeConflictPreviewLabel,
+  type MarkdownEditorSession,
 } from "./workspace-files-view.js";
 import { createTemporaryMessage } from "./temporary-message.js";
 
@@ -34,8 +41,7 @@ if (!app) throw new Error("Resonance shell mount point is missing.");
 const shell = app;
 let actionMessage: string | null = null;
 let currentView: WorkspaceShellView | null = null;
-let openRevision: MarkdownRevisionView | null = null;
-let openRevisionReadOnly = false;
+let markdownSession: MarkdownEditorSession | null = null;
 let markdownEditor: Editor | null = null;
 let previewedEntry: FileEntryView | null = null;
 let filePreview: FilePreviewView | null = null;
@@ -50,6 +56,7 @@ function field(label: string, name: string, type = "text"): string {
 }
 
 function render(view: WorkspaceShellView): void {
+  captureOpenMarkdownDraft();
   currentView = view;
   markdownEditor?.destroy();
   markdownEditor = null;
@@ -108,10 +115,18 @@ function render(view: WorkspaceShellView): void {
               </aside>
               <section class="editor-panel">
                 <p class="editor-placeholder">Choose a workspace entry to inspect or edit.</p>
+                <section class="editor-notice" role="status" aria-live="polite" hidden>
+                  <p></p>
+                  <button type="button" data-action="review-latest" hidden>Review latest</button>
+                </section>
                 <section class="file-preview" hidden>
                   <h3></h3><p></p><img hidden alt="" /><ul></ul>
                 </section>
                 <div id="markdown-editor" hidden></div>
+                <div class="markdown-review-actions" hidden>
+                  <button type="button" data-action="return-to-draft">Return to draft</button>
+                  <button type="button" data-action="load-reviewed">Load latest and replace draft</button>
+                </div>
                 <button type="button" data-action="save-markdown" hidden>Save revision</button>
               </section>
             </div>
@@ -249,15 +264,7 @@ function renderFiles(view: WorkspaceShellView): void {
   }
   if (previewedEntry) mountFilePreview(previewedEntry, files.entries);
 
-  const retainedRevision = retainedOpenRevision(openRevision, files.entries);
-  if (openRevision && !retainedRevision) {
-    openRevision = null;
-    openRevisionReadOnly = false;
-    requiredElement<HTMLParagraphElement>(".editor-placeholder").textContent =
-      "The open Markdown file was deleted.";
-  } else if (retainedRevision) {
-    mountMarkdownEditor(retainedRevision);
-  }
+  if (markdownSession) mountMarkdownSession(markdownSession, files);
 }
 
 function renderRootActions(state: RootState): void {
@@ -354,17 +361,69 @@ function mountFilePreview(
     : "Preview unavailable. Review this file outside Resonance.";
 }
 
-function mountMarkdownEditor(revision: MarkdownRevisionView): void {
+function captureOpenMarkdownDraft(): void {
+  if (
+    !markdownSession ||
+    !markdownEditor ||
+    markdownSession.mode !== "draft" ||
+    markdownSession.readOnly
+  ) {
+    return;
+  }
+  markdownSession = captureMarkdownDraft(
+    markdownSession,
+    markdownEditor.getMarkdown(),
+  );
+}
+
+function mountMarkdownSession(
+  session: MarkdownEditorSession,
+  files: WorkspaceFilesView,
+): void {
   const host = requiredElement<HTMLDivElement>("#markdown-editor");
   host.hidden = false;
   requiredElement<HTMLParagraphElement>(".editor-placeholder").hidden = true;
-  requiredElement<HTMLButtonElement>('[data-action="save-markdown"]').hidden =
-    openRevisionReadOnly;
+  renderMarkdownNotice(session, files);
+
+  const save = requiredElement<HTMLButtonElement>(
+    '[data-action="save-markdown"]',
+  );
+  const reviewActions = requiredElement<HTMLDivElement>(
+    ".markdown-review-actions",
+  );
+  const reviewed = session.reviewedRevision;
+  if (session.mode === "review" && reviewed) {
+    reviewActions.hidden = false;
+    requiredElement<HTMLButtonElement>(
+      '[data-action="return-to-draft"]',
+    ).addEventListener("click", returnToDraft);
+    requiredElement<HTMLButtonElement>(
+      '[data-action="load-reviewed"]',
+    ).addEventListener("click", loadReviewedRevision);
+    markdownEditor = Editor.factory({
+      el: host,
+      viewer: true,
+      initialValue: reviewed.markdown,
+      usageStatistics: false,
+    });
+    return;
+  }
+
+  save.hidden = session.readOnly;
+  if (session.readOnly) {
+    markdownEditor = Editor.factory({
+      el: host,
+      viewer: true,
+      initialValue: session.draft,
+      usageStatistics: false,
+    });
+    return;
+  }
   markdownEditor = new Editor({
     el: host,
     height: "32rem",
     initialEditType: "wysiwyg",
-    initialValue: revision.markdown,
+    initialValue: session.draft,
     hideModeSwitch: true,
     usageStatistics: false,
     toolbarItems: [
@@ -373,6 +432,44 @@ function mountMarkdownEditor(revision: MarkdownRevisionView): void {
       ["link", "quote", "code", "codeblock"],
     ],
   });
+}
+
+function renderMarkdownNotice(
+  session: MarkdownEditorSession,
+  files: WorkspaceFilesView,
+): void {
+  if (session.readOnly) return;
+  const notice = requiredElement<HTMLElement>(".editor-notice");
+  const message = requiredElement<HTMLParagraphElement>(".editor-notice p");
+  const review = requiredElement<HTMLButtonElement>(
+    '[data-action="review-latest"]',
+  );
+  const awareness = markdownRevisionAwareness(session, files);
+  if (awareness.state === "current") return;
+  notice.hidden = false;
+  if (awareness.state === "deleted") {
+    message.textContent =
+      "This file was deleted from the workspace. Your draft remains open.";
+    return;
+  }
+  if (awareness.state === "conflicted") {
+    message.textContent = `${conflictLabel(awareness.conflictKind)} now affects this file. Your draft remains open.`;
+    return;
+  }
+  if (
+    session.mode === "review" &&
+    session.reviewedRevision?.revisionId === awareness.currentRevisionId
+  ) {
+    message.textContent =
+      "You are reviewing the latest workspace revision. Your draft remains unchanged.";
+    return;
+  }
+  message.textContent =
+    "A newer workspace revision is available. Your draft remains open.";
+  review.hidden = false;
+  review.addEventListener("click", () =>
+    reviewLatestMarkdown(awareness.currentRevisionId),
+  );
 }
 
 async function submitForm(event: SubmitEvent): Promise<void> {
@@ -434,10 +531,10 @@ async function createMarkdown(values: FormData): Promise<void> {
       },
     });
     if (isMarkdownRevisionView(result)) {
+      captureOpenMarkdownDraft();
       previewedEntry = null;
       filePreview = null;
-      openRevision = result;
-      openRevisionReadOnly = false;
+      markdownSession = createMarkdownEditorSession(result, false);
       if (currentView) render(currentView);
     }
   } catch (error) {
@@ -450,10 +547,10 @@ async function previewEntry(nodeId: string): Promise<void> {
     (candidate) => candidate.nodeId === nodeId,
   );
   if (!entry) return;
-  openRevision = null;
-  openRevisionReadOnly = false;
+  captureOpenMarkdownDraft();
   previewedEntry = entry;
   if (entry.kind === "directory") {
+    markdownSession = null;
     filePreview = null;
     if (currentView) render(currentView);
     return;
@@ -471,6 +568,7 @@ async function previewEntry(nodeId: string): Promise<void> {
       },
     });
     if (isFilePreviewView(result)) {
+      markdownSession = null;
       filePreview = result;
       if (currentView) render(currentView);
     }
@@ -489,10 +587,10 @@ async function openMarkdown(
       request: { nodeId, revisionId },
     });
     if (isMarkdownRevisionView(result)) {
+      captureOpenMarkdownDraft();
       previewedEntry = null;
       filePreview = null;
-      openRevision = result;
-      openRevisionReadOnly = readOnly;
+      markdownSession = createMarkdownEditorSession(result, readOnly);
       if (currentView) render(currentView);
     }
   } catch (error) {
@@ -500,18 +598,59 @@ async function openMarkdown(
   }
 }
 
+async function reviewLatestMarkdown(revisionId: string): Promise<void> {
+  captureOpenMarkdownDraft();
+  const requestedSession = markdownSession;
+  if (!requestedSession || requestedSession.readOnly) return;
+  try {
+    const result = await invoke<MarkdownRevisionView>("open_markdown_file", {
+      request: {
+        nodeId: requestedSession.loadedRevision.nodeId,
+        revisionId,
+      },
+    });
+    if (
+      isMarkdownRevisionView(result) &&
+      markdownSession?.loadedRevision.nodeId ===
+        requestedSession.loadedRevision.nodeId &&
+      markdownSession.loadedRevision.revisionId ===
+        requestedSession.loadedRevision.revisionId
+    ) {
+      markdownSession = reviewMarkdownRevision(markdownSession, result);
+      if (currentView) render(currentView);
+    }
+  } catch (error) {
+    showActionError(error);
+  }
+}
+
+function returnToDraft(): void {
+  if (!markdownSession) return;
+  markdownSession = returnToMarkdownDraft(markdownSession);
+  if (currentView) render(currentView);
+}
+
+function loadReviewedRevision(): void {
+  if (!markdownSession) return;
+  markdownSession = loadReviewedMarkdownRevision(markdownSession);
+  if (currentView) render(currentView);
+}
+
 async function saveMarkdown(): Promise<void> {
-  if (!openRevision || !markdownEditor) return;
+  captureOpenMarkdownDraft();
+  const session = markdownSession;
+  if (!session || session.readOnly || session.mode !== "draft") return;
+  const draft = session.draft;
   try {
     const result = await invoke<MarkdownRevisionView>("replace_markdown_file", {
       request: {
-        nodeId: openRevision.nodeId,
-        baseRevisionId: openRevision.revisionId,
-        markdown: markdownEditor.getMarkdown(),
+        nodeId: session.loadedRevision.nodeId,
+        baseRevisionId: session.loadedRevision.revisionId,
+        markdown: draft,
       },
     });
     if (isMarkdownRevisionView(result)) {
-      openRevision = result;
+      markdownSession = createMarkdownEditorSession(result, false);
       showActionMessage("Markdown revision saved.");
     }
   } catch (error) {

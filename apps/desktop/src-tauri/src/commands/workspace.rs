@@ -10,6 +10,7 @@ use resonance_runtime::{
     workspace_file_runtime::{
         FileConflictChoiceKind, FileConflictChoiceView, FileConflictView, FileEntryKind,
         FilePreview, FileTreeEntry, MarkdownFileView, RootBindingStatus, WorkspaceFileRuntime,
+        WorkspaceFileRuntimeError,
     },
     workspace_files::projection::ConflictKind,
     workspace_session::{
@@ -688,9 +689,7 @@ pub async fn replace_markdown_file(
                 &request.base_revision_id,
                 &request.markdown,
             )
-            .map_err(|_| {
-                "The file changed before this edit could be saved. Reopen it and retry.".to_owned()
-            })?;
+            .map_err(markdown_replacement_error)?;
         (revision, files.take_pending_announcements())
     };
     state.inner.announce_file_changes(announcements).await;
@@ -930,6 +929,15 @@ fn markdown_revision_view(revision: MarkdownFileView) -> MarkdownRevisionView {
     }
 }
 
+fn markdown_replacement_error(error: WorkspaceFileRuntimeError) -> String {
+    match error {
+        WorkspaceFileRuntimeError::StaleRevision | WorkspaceFileRuntimeError::NotFound =>
+            "The file changed before this edit could be saved. Your draft remains open. Review the latest revision before replacing it."
+                .to_owned(),
+        _ => "Resonance could not save this Markdown revision. Your draft remains open.".to_owned(),
+    }
+}
+
 fn file_runtime_unavailable() -> String {
     "Workspace files are unavailable until membership is ready.".to_owned()
 }
@@ -1041,10 +1049,11 @@ fn unix_seconds() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        issue_message, network_delivery_issue, network_start_issue, IrohSessionAdapterError,
-        IrohTransportError, MemberView, PeerView, ReplaceMarkdownRequest, WorkspaceSessionError,
-        WorkspaceShellView, WorkspaceView,
+        issue_message, markdown_replacement_error, network_delivery_issue, network_start_issue,
+        IrohSessionAdapterError, IrohTransportError, MemberView, PeerView, ReplaceMarkdownRequest,
+        WorkspaceSessionError, WorkspaceShellView, WorkspaceView,
     };
+    use resonance_runtime::workspace_file_runtime::WorkspaceFileRuntimeError;
 
     #[test]
     fn maps_transport_start_errors_to_safe_actionable_messages() {
@@ -1068,6 +1077,23 @@ mod tests {
         );
         for forbidden in ["secret", "token", "bootstrap", "path", "iroh"] {
             assert!(!message.to_ascii_lowercase().contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn markdown_replacement_errors_keep_the_draft_recovery_path_explicit() {
+        for error in [
+            WorkspaceFileRuntimeError::StaleRevision,
+            WorkspaceFileRuntimeError::NotFound,
+        ] {
+            let message = markdown_replacement_error(error);
+            assert_eq!(
+                message,
+                "The file changed before this edit could be saved. Your draft remains open. Review the latest revision before replacing it."
+            );
+            for forbidden in ["secret", "token", "private", "path", "blob"] {
+                assert!(!message.to_ascii_lowercase().contains(forbidden));
+            }
         }
     }
 

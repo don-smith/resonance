@@ -39,7 +39,14 @@ Resonance does not place its database, keys, tokens, blob store, or watcher meta
 
 The rendered editor accepts Markdown files up to 1 MiB. Raw Markdown mode and live collaborative cursors are not available yet.
 
-If a peer changes the same file while it is open, Resonance keeps your editor on the revision you opened. A stale save fails instead of overwriting the newer revision. Reopen the file, review the current content, and apply your change again.
+If a peer or local application changes the same file while it is open, Resonance reports that a newer workspace revision is available and keeps your editor draft unchanged. Presence updates, unrelated file-tree changes, deletion, and conflict updates also leave the draft open.
+
+To inspect a newer revision without losing your work:
+
+1. Select **Review latest**. Resonance fetches and renders that revision while retaining your draft.
+2. Select **Return to draft** to continue editing the unchanged draft, or select **Load latest and replace draft** to adopt the reviewed content and revision as your new editing base.
+
+Loading is the only action that replaces both the draft and its base revision. Saving the older base still fails instead of overwriting current authority. The rejection leaves the full draft open so you can review the latest revision and decide what to carry forward.
 
 ### Use local applications
 
@@ -120,7 +127,7 @@ The first filesystem workspace release does not yet support:
 - a scaling policy for multi-gigabyte files or very large trees;
 - inline SVG preview.
 
-If a folder is rejected, choose a new empty folder outside Git management. If a Markdown save reports that the file changed, reopen it before editing again. If a conflict appears, resolve it in Resonance rather than deleting generated conflict artifacts by hand.
+If a folder is rejected, choose a new empty folder outside Git management. If a Markdown save reports that the file changed, keep the open draft, review the latest revision, and decide whether to return or replace it. If a conflict appears, resolve it in Resonance rather than deleting generated conflict artifacts by hand.
 
 ## Technical detail
 

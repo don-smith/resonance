@@ -12,6 +12,10 @@ describe("workspace shell", () => {
     expect(source).toContain("join_workspace");
     expect(source).toContain("workspace:changed");
     expect(source).toContain("isWorkspaceShellView");
+    expect(source).toContain("Review latest");
+    expect(source).toContain("Return to draft");
+    expect(source).toContain("Load latest and replace draft");
+    expect(source).toContain("captureOpenMarkdownDraft");
     expect(source).not.toContain("agent execution");
     expect(source).not.toContain("conversation");
   });

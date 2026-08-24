@@ -2259,10 +2259,26 @@
           </div>
           <aside class="ds-verdict ds-verdict--rule">
             <p class="ds-label">Stale editor protection</p>
-            <h3>A stale save fails instead of overwriting a newer revision.</h3>
+            <h3>Review a newer revision without losing your open draft.</h3>
             <p>
-              If a peer changes an open file, reopen the file, review its
-              current content, and apply your edit again.
+              If a peer or local application changes the file, Resonance reports
+              the newer workspace revision before save. Presence, file-tree,
+              deletion, and conflict updates leave the draft open.
+            </p>
+            <ol>
+              <li>
+                Select <strong>Review latest</strong> to fetch and render the
+                current revision while Resonance retains your draft.
+              </li>
+              <li>
+                Select <strong>Return to draft</strong> to continue editing, or
+                <strong>Load latest and replace draft</strong> to adopt the
+                reviewed content and revision as the new editing base.
+              </li>
+            </ol>
+            <p>
+              Loading is the only action that replaces the draft and its base. A
+              stale save still fails closed and leaves the full draft open.
             </p>
           </aside>
         </section>
@@ -2505,8 +2521,8 @@
           <footer class="ds-closing-field">
             <p class="ds-label">When something changes underneath you</p>
             <h3>
-              Reopen stale Markdown. Repair unavailable folders. Resolve
-              competing work in Resonance.
+              Keep stale drafts open. Review before replacing. Resolve competing
+              work in Resonance.
             </h3>
           </footer>
         </section>

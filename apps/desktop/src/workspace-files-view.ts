@@ -4,7 +4,22 @@ import type {
   FileEntryView,
   MarkdownRevisionView,
   RootState,
+  WorkspaceFilesView,
 } from "./workspace-view.js";
+
+export type MarkdownEditorSession = {
+  loadedRevision: MarkdownRevisionView;
+  draft: string;
+  readOnly: boolean;
+  mode: "draft" | "review";
+  reviewedRevision: MarkdownRevisionView | null;
+};
+
+export type MarkdownRevisionAwareness =
+  | { state: "current" }
+  | { state: "stale"; currentRevisionId: string }
+  | { state: "deleted" }
+  | { state: "conflicted"; conflictKind: ConflictView["kind"] };
 
 export function childEntries(
   entries: FileEntryView[],
@@ -19,16 +34,72 @@ export function childEntries(
     });
 }
 
-export function retainedOpenRevision(
-  revision: MarkdownRevisionView | null,
-  entries: FileEntryView[],
-): MarkdownRevisionView | null {
-  if (!revision) return null;
-  return entries.some(
-    (entry) => entry.nodeId === revision.nodeId && entry.kind === "markdown",
-  )
-    ? revision
-    : null;
+export function createMarkdownEditorSession(
+  revision: MarkdownRevisionView,
+  readOnly: boolean,
+): MarkdownEditorSession {
+  return {
+    loadedRevision: revision,
+    draft: revision.markdown,
+    readOnly,
+    mode: "draft",
+    reviewedRevision: null,
+  };
+}
+
+export function captureMarkdownDraft(
+  session: MarkdownEditorSession,
+  draft: string,
+): MarkdownEditorSession {
+  return { ...session, draft };
+}
+
+export function markdownRevisionAwareness(
+  session: MarkdownEditorSession,
+  files: WorkspaceFilesView,
+): MarkdownRevisionAwareness {
+  const conflict = files.conflicts.find(
+    (candidate) => candidate.nodeId === session.loadedRevision.nodeId,
+  );
+  if (conflict) {
+    return { state: "conflicted", conflictKind: conflict.kind };
+  }
+  const entry = files.entries.find(
+    (candidate) => candidate.nodeId === session.loadedRevision.nodeId,
+  );
+  if (!entry || entry.kind !== "markdown") return { state: "deleted" };
+  if (
+    entry.currentRevisionId &&
+    entry.currentRevisionId !== session.loadedRevision.revisionId
+  ) {
+    return {
+      state: "stale",
+      currentRevisionId: entry.currentRevisionId,
+    };
+  }
+  return { state: "current" };
+}
+
+export function reviewMarkdownRevision(
+  session: MarkdownEditorSession,
+  revision: MarkdownRevisionView,
+): MarkdownEditorSession {
+  if (revision.nodeId !== session.loadedRevision.nodeId) return session;
+  return { ...session, mode: "review", reviewedRevision: revision };
+}
+
+export function returnToMarkdownDraft(
+  session: MarkdownEditorSession,
+): MarkdownEditorSession {
+  return { ...session, mode: "draft" };
+}
+
+export function loadReviewedMarkdownRevision(
+  session: MarkdownEditorSession,
+): MarkdownEditorSession {
+  const revision = session.reviewedRevision;
+  if (!revision) return session;
+  return createMarkdownEditorSession(revision, session.readOnly);
 }
 
 export function rootStatusMessage(state: RootState): string {

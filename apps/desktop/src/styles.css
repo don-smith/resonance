@@ -190,6 +190,31 @@ button {
   margin-top: 0.75rem;
 }
 
+.editor-notice {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #8b6b38;
+  border-radius: 0.4rem;
+  background: #2d261f;
+}
+
+.editor-notice p {
+  margin: 0;
+  color: #ffd18a;
+  line-height: 1.5;
+}
+
+.editor-notice button,
+.markdown-review-actions button {
+  margin-top: 0.65rem;
+}
+
+.markdown-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
 .file-preview img {
   display: block;
   max-width: 100%;

@@ -21,6 +21,7 @@ function destroyable(instance: Pick<EditorCore, "destroy">): {
 
 export const toastUiEditorAdapter: MarkdownEditorAdapter = {
   editable(host: HTMLElement, revision: MarkdownRevisionView) {
+    host.classList.remove("toastui-editor-dark");
     const editor = new Editor({
       el: host,
       height: "32rem",

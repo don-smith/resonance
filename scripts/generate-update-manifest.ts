@@ -3,21 +3,36 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { readReleaseConfiguration } from "./release-configuration.mjs";
+import {
+  readReleaseConfiguration,
+  type ReleaseConfiguration,
+} from "./release-configuration.ts";
+
+export interface UpdateManifest {
+  version: string;
+  notes: string;
+  pub_date: string;
+  platforms: Record<string, { signature: string; url: string }>;
+}
 
 export function generateUpdateManifest({
   configuration,
   artifactsDirectory,
   version,
   publishedAt,
-}) {
+}: {
+  configuration: ReleaseConfiguration;
+  artifactsDirectory: string;
+  version: string;
+  publishedAt?: string;
+}): UpdateManifest {
   if (
     !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)
   ) {
     throw new Error("version must be a SemVer release string.");
   }
 
-  const platforms = {};
+  const platforms: UpdateManifest["platforms"] = {};
   for (const [target, metadata] of Object.entries(configuration.targets)) {
     const artifactPath = join(artifactsDirectory, metadata.artifact);
     const signaturePath = `${artifactPath}.sig`;
@@ -40,7 +55,7 @@ export function generateUpdateManifest({
   };
 }
 
-function assertArtifactExists(path) {
+function assertArtifactExists(path: string): void {
   try {
     if (readFileSync(path).length === 0) throw new Error("empty artifact");
   } catch {
@@ -48,7 +63,7 @@ function assertArtifactExists(path) {
   }
 }
 
-function readRequiredSignature(path) {
+function readRequiredSignature(path: string): string {
   let signature;
   try {
     signature = readFileSync(path, "utf8").trim();
@@ -61,7 +76,7 @@ function readRequiredSignature(path) {
   return signature;
 }
 
-function main() {
+function main(): void {
   const argumentsFromPackageScript = process.argv.slice(2);
   const args =
     argumentsFromPackageScript[0] === "--"
@@ -84,7 +99,7 @@ function main() {
     !values.output
   ) {
     throw new Error(
-      "Usage: generate-update-manifest.mjs --config <path> --artifacts <dir> --version <semver> --output <latest.json>",
+      "Usage: generate-update-manifest.ts --config <path> --artifacts <dir> --version <semver> --output <latest.json>",
     );
   }
 

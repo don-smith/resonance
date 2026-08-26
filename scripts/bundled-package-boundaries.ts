@@ -2,14 +2,33 @@ import { readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import type {
+  PackageManifest,
+  SemanticCapability,
+} from "../packages/contracts/src/manifest-v2.js";
+
+type BundledPackage = Readonly<{
+  directory: string;
+  manifest: PackageManifest;
+}>;
+
+type PackageJson = Readonly<{
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}>;
+
+function errorCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException).code;
+}
+
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".css"]);
 const capabilityProperties = new Map([
   ["workspaceFilesV1", "workspace-files:v1"],
 ]);
 
-async function sourceFiles(directory) {
+async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
-  const files = [];
+  const files: string[] = [];
   for (const entry of entries) {
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) {
@@ -24,7 +43,7 @@ async function sourceFiles(directory) {
   return files.sort();
 }
 
-function inside(directory, path) {
+function inside(directory: string, path: string): boolean {
   const fromDirectory = relative(directory, path);
   return (
     fromDirectory !== ".." &&
@@ -33,17 +52,18 @@ function inside(directory, path) {
   );
 }
 
-function importSpecifiers(source) {
-  const specifiers = [];
+function importSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
   const pattern =
     /(?:import|export)\s+(?:[^"'()]*?\s+from\s+)?["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
   for (const match of source.matchAll(pattern)) {
-    specifiers.push(match[1] ?? match[2]);
+    const specifier = match[1] ?? match[2];
+    if (specifier) specifiers.push(specifier);
   }
   return specifiers;
 }
 
-async function resolvedImportPath(path) {
+async function resolvedImportPath(path: string): Promise<string | null> {
   const candidates = [
     path,
     path.replace(/\.js$/, ".ts"),
@@ -55,19 +75,19 @@ async function resolvedImportPath(path) {
     try {
       return await realpath(candidate);
     } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
+      if (errorCode(error) !== "ENOENT") throw error;
     }
   }
   return null;
 }
 
 async function checkImports(
-  packageDirectory,
-  sourcePath,
-  displayPath,
-  source,
-  errors,
-) {
+  packageDirectory: string,
+  sourcePath: string,
+  displayPath: string,
+  source: string,
+  errors: string[],
+): Promise<void> {
   for (const specifier of importSpecifiers(source)) {
     if (
       specifier === "@tauri-apps/api" ||
@@ -113,13 +133,20 @@ async function checkImports(
   }
 }
 
-function checkCapabilities(manifest, path, source, errors) {
+function checkCapabilities(
+  manifest: PackageManifest,
+  path: string,
+  source: string,
+  errors: string[],
+): void {
   const declared = new Set(manifest.capabilities ?? []);
   for (const match of source.matchAll(
     /\bcapabilities\.([A-Za-z][A-Za-z0-9]*)/g,
   )) {
     const property = match[1];
-    const capability = capabilityProperties.get(property);
+    const capability = capabilityProperties.get(property) as
+      | SemanticCapability
+      | undefined;
     if (!capability) {
       errors.push(`${path}: unknown SDK capability property: ${property}`);
     } else if (!declared.has(capability)) {
@@ -128,7 +155,12 @@ function checkCapabilities(manifest, path, source, errors) {
   }
 }
 
-function checkCss(manifest, path, source, errors) {
+function checkCss(
+  manifest: PackageManifest,
+  path: string,
+  source: string,
+  errors: string[],
+): void {
   if (path.endsWith(".module.css")) return;
   const withoutComments = source.replaceAll(/\/\*[\s\S]*?\*\//g, "");
   const selectorPattern = /([^{}]+)\{/g;
@@ -152,20 +184,20 @@ function checkCss(manifest, path, source, errors) {
   }
 }
 
-async function bundledPackages(root) {
+async function bundledPackages(root: string): Promise<BundledPackage[]> {
   const packagesDirectory = resolve(root, "packages");
   const entries = await readdir(packagesDirectory, { withFileTypes: true });
-  const packages = [];
+  const packages: BundledPackage[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const directory = resolve(packagesDirectory, entry.name);
     try {
       const manifest = JSON.parse(
         await readFile(resolve(directory, "manifest.json"), "utf8"),
-      );
+      ) as PackageManifest;
       packages.push({ directory, manifest });
     } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
+      if (errorCode(error) !== "ENOENT") throw error;
     }
   }
   return packages.sort((left, right) =>
@@ -175,13 +207,15 @@ async function bundledPackages(root) {
 
 export async function checkBundledPackageBoundaries({
   root = process.cwd(),
-} = {}) {
+}: { root?: string } = {}): Promise<void> {
   const absoluteRoot = resolve(root);
-  const errors = [];
+  const errors: string[] = [];
   for (const { directory, manifest } of await bundledPackages(absoluteRoot)) {
     const packageJsonPath = resolve(directory, "package.json");
     try {
-      const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+      const packageJson = JSON.parse(
+        await readFile(packageJsonPath, "utf8"),
+      ) as PackageJson;
       const dependencies = {
         ...packageJson.dependencies,
         ...packageJson.devDependencies,
@@ -198,7 +232,7 @@ export async function checkBundledPackageBoundaries({
         }
       }
     } catch (error) {
-      if (error?.code !== "ENOENT") throw error;
+      if (errorCode(error) !== "ENOENT") throw error;
     }
 
     const sourceDirectory = resolve(directory, "src");

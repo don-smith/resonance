@@ -9,14 +9,22 @@ import {
 import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { readReleaseConfiguration } from "./release-configuration.mjs";
+import {
+  readReleaseConfiguration,
+  type ReleaseConfiguration,
+} from "./release-configuration.ts";
 
 export function collectSignedUpdateArtifacts({
   configuration,
   target,
   sourceDirectory,
   outputDirectory,
-}) {
+}: {
+  configuration: ReleaseConfiguration;
+  target: string;
+  sourceDirectory: string;
+  outputDirectory: string;
+}): { artifact: string; signature: string } {
   const artifact = configuration.targets[target]?.artifact;
   if (!artifact) {
     throw new Error(
@@ -35,7 +43,7 @@ export function collectSignedUpdateArtifacts({
   return { artifact: artifactOutput, signature: signatureOutput };
 }
 
-function findUniqueFile(directory, expectedName) {
+function findUniqueFile(directory: string, expectedName: string): string {
   if (!existsSync(directory)) {
     throw new Error(`Updater artifact directory does not exist: ${directory}`);
   }
@@ -48,7 +56,7 @@ function findUniqueFile(directory, expectedName) {
   return matches[0];
 }
 
-function findFiles(directory, expectedName) {
+function findFiles(directory: string, expectedName: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
     const path = join(directory, entry);
     if (statSync(path).isDirectory()) return findFiles(path, expectedName);
@@ -56,7 +64,7 @@ function findFiles(directory, expectedName) {
   });
 }
 
-function main() {
+function main(): void {
   const argumentsFromPackageScript = process.argv.slice(2);
   const args =
     argumentsFromPackageScript[0] === "--"
@@ -73,7 +81,7 @@ function main() {
   });
   if (!values.config || !values.target || !values.source || !values.output) {
     throw new Error(
-      "Usage: collect-signed-update-artifacts.mjs --config <path> --target <target> --source <dir> --output <dir>",
+      "Usage: collect-signed-update-artifacts.ts --config <path> --target <target> --source <dir> --output <dir>",
     );
   }
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { collectSignedUpdateArtifacts } from "../../scripts/collect-signed-update-artifacts.mjs";
+import { collectSignedUpdateArtifacts } from "../../scripts/collect-signed-update-artifacts.ts";
 
 const configuration = {
   manifestEndpoint: "https://updates.example.invalid/latest.json",

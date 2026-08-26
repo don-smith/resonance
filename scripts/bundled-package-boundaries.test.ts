@@ -4,16 +4,28 @@ import { dirname, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { checkBundledPackageBoundaries } from "./bundled-package-boundaries.mjs";
+import { checkBundledPackageBoundaries } from "./bundled-package-boundaries.ts";
 
-const roots = [];
+const roots: string[] = [];
 
-async function write(path, content) {
+type FixtureOptions = Readonly<{
+  id?: string;
+  capabilities?: string[];
+  dependencies?: Record<string, string>;
+  source?: string;
+  css?: string;
+}>;
+
+async function write(path: string, content: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content);
 }
 
-async function packageFixture(root, name, options = {}) {
+async function packageFixture(
+  root: string,
+  name: string,
+  options: FixtureOptions = {},
+): Promise<void> {
   const directory = resolve(root, "packages", name);
   const id = options.id ?? `resonance.${name}`;
   await write(

@@ -17,7 +17,9 @@ describe("package scaffold", () => {
     const output = await mkdtemp(resolve(tmpdir(), "resonance-package-"));
     try {
       await execute("node", [
-        "packages/contracts/scripts/generate.mjs",
+        "--experimental-strip-types",
+        "--no-warnings",
+        "packages/contracts/scripts/generate.ts",
         "--id",
         "resonance.generated",
         "--output",
@@ -86,7 +88,9 @@ describe("package scaffold", () => {
       );
       const output = resolve(root, "packages/generated");
       const command = [
-        "packages/contracts/scripts/generate.mjs",
+        "--experimental-strip-types",
+        "--no-warnings",
+        "packages/contracts/scripts/generate.ts",
         "--id",
         "resonance.generated",
         "--output",

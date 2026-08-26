@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,18 +10,19 @@ import {
   tauriArguments,
   viteArguments,
   writeProfileConfigurations,
-} from "./desktop-profiles-lib.mjs";
-import { loadLocalDevelopmentEnvironment } from "./local-development-environment.mjs";
+  type DesktopProfile,
+} from "./desktop-profiles-lib.ts";
+import { loadLocalDevelopmentEnvironment } from "./local-development-environment.ts";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(scriptDirectory, "..");
-const cleanupScript = resolve(scriptDirectory, "desktop-profiles-cleanup.mjs");
+const cleanupScript = resolve(scriptDirectory, "desktop-profiles-cleanup.ts");
 loadLocalDevelopmentEnvironment(root);
 const arguments_ = process.argv.slice(2);
 // pnpm keeps the forwarding separator in argv for package scripts.
 if (arguments_[0] === "--") arguments_.shift();
 
-async function main() {
+async function main(): Promise<void> {
   if (arguments_[0] === "--reset") {
     if (arguments_.length !== 2)
       throw new Error("Use desktop:profiles -- --reset <profile-name>.");
@@ -47,16 +48,20 @@ async function main() {
   });
   startCleanupSupervisor(profiles);
 
-  const children = [];
+  const children: ChildProcess[] = [];
   let stopping = false;
-  const stop = async (exitCode) => {
+  const stop = async (exitCode: number): Promise<void> => {
     if (stopping) return;
     stopping = true;
     for (const child of children) child.kill("SIGTERM");
     await removeConfigurations();
     process.exitCode = exitCode;
   };
-  const start = (command, childArguments, profile) => {
+  const start = (
+    command: string,
+    childArguments: string[],
+    profile: DesktopProfile,
+  ): void => {
     const child = spawn(command, childArguments, {
       cwd: root,
       stdio: "inherit",
@@ -80,10 +85,11 @@ async function main() {
     start("pnpm", tauriArguments(profile), profile);
 }
 
-function startCleanupSupervisor(profiles) {
+function startCleanupSupervisor(profiles: DesktopProfile[]): void {
   const cleanup = spawn(
     process.execPath,
     [
+      ...process.execArgv,
       cleanupScript,
       String(process.pid),
       ...profiles.map((profile) => profile.name),
@@ -93,7 +99,7 @@ function startCleanupSupervisor(profiles) {
   cleanup.unref();
 }
 
-main().catch((error) => {
-  console.error(error.message);
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });

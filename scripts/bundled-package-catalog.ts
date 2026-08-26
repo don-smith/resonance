@@ -14,6 +14,30 @@ import { pathToFileURL } from "node:url";
 
 import prettier from "prettier";
 
+import type { PackageManifest } from "../packages/contracts/src/manifest-v2.js";
+
+type AjvError = Readonly<{
+  instancePath: string;
+  message?: string;
+}>;
+type ManifestValidator = ((candidate: unknown) => boolean) & {
+  errors?: AjvError[] | null;
+};
+type DiscoveredPackage = Readonly<{
+  manifest: PackageManifest;
+  entryPath: string;
+}>;
+type CatalogOptions = Readonly<{
+  root?: string;
+  mode?: "write" | "check";
+  typescriptOutput?: string;
+  rustOutput?: string;
+}>;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 const requireFromContracts = createRequire(
   resolve(import.meta.dirname, "../packages/contracts/package.json"),
 );
@@ -24,7 +48,7 @@ const DEFAULT_TYPESCRIPT_OUTPUT =
 const DEFAULT_RUST_OUTPUT =
   "apps/desktop/src-tauri/generated/bundled-package-manifests.json";
 
-function normalizeManifest(manifest) {
+function normalizeManifest(manifest: PackageManifest): PackageManifest {
   return {
     manifestVersion: manifest.manifestVersion,
     source: manifest.source,
@@ -56,7 +80,7 @@ function normalizeManifest(manifest) {
   };
 }
 
-function formatAjvErrors(errors) {
+function formatAjvErrors(errors: AjvError[] | null | undefined): string {
   return (errors ?? [])
     .map(
       (error) =>
@@ -66,7 +90,7 @@ function formatAjvErrors(errors) {
     .join("; ");
 }
 
-function isInside(parent, child) {
+function isInside(parent: string, child: string): boolean {
   const pathFromParent = relative(parent, child);
   return (
     pathFromParent !== "" &&
@@ -76,7 +100,7 @@ function isInside(parent, child) {
   );
 }
 
-function typescriptImportPath(outputPath, entryPath) {
+function typescriptImportPath(outputPath: string, entryPath: string): string {
   let importPath = relative(dirname(outputPath), entryPath)
     .split(sep)
     .join("/")
@@ -87,10 +111,13 @@ function typescriptImportPath(outputPath, entryPath) {
   return importPath;
 }
 
-async function discoverPackages(root, validate) {
+async function discoverPackages(
+  root: string,
+  validate: ManifestValidator,
+): Promise<DiscoveredPackage[]> {
   const packagesDirectory = resolve(root, "packages");
   const directories = await readdir(packagesDirectory, { withFileTypes: true });
-  const discovered = [];
+  const discovered: DiscoveredPackage[] = [];
 
   for (const directory of directories) {
     if (!directory.isDirectory()) continue;
@@ -103,12 +130,12 @@ async function discoverPackages(root, validate) {
       continue;
     }
 
-    let candidate;
+    let candidate: unknown;
     try {
-      candidate = JSON.parse(await readFile(manifestPath, "utf8"));
+      candidate = JSON.parse(await readFile(manifestPath, "utf8")) as unknown;
     } catch (error) {
       throw new Error(
-        `${relative(root, manifestPath)} is not valid JSON: ${error.message}`,
+        `${relative(root, manifestPath)} is not valid JSON: ${errorMessage(error)}`,
       );
     }
 
@@ -118,7 +145,8 @@ async function discoverPackages(root, validate) {
       );
     }
 
-    const entry = candidate.content.entry;
+    const manifest = candidate as PackageManifest;
+    const entry = manifest.content.entry;
     if (
       isAbsolute(entry) ||
       win32.isAbsolute(entry) ||
@@ -126,23 +154,23 @@ async function discoverPackages(root, validate) {
       entry.split("/").includes("..")
     ) {
       throw new Error(
-        `${candidate.id} content.entry must be a package-relative path without traversal`,
+        `${manifest.id} content.entry must be a package-relative path without traversal`,
       );
     }
 
     const entryPath = resolve(packageDirectory, entry);
     if (!isInside(packageDirectory, entryPath)) {
-      throw new Error(`${candidate.id} content.entry escapes its package`);
+      throw new Error(`${manifest.id} content.entry escapes its package`);
     }
 
     let entryStats;
     try {
       entryStats = await stat(entryPath);
     } catch {
-      throw new Error(`${candidate.id} content.entry does not exist: ${entry}`);
+      throw new Error(`${manifest.id} content.entry does not exist: ${entry}`);
     }
     if (!entryStats.isFile()) {
-      throw new Error(`${candidate.id} content.entry is not a file: ${entry}`);
+      throw new Error(`${manifest.id} content.entry is not a file: ${entry}`);
     }
 
     const [realPackageDirectory, realEntryPath] = await Promise.all([
@@ -151,12 +179,12 @@ async function discoverPackages(root, validate) {
     ]);
     if (!isInside(realPackageDirectory, realEntryPath)) {
       throw new Error(
-        `${candidate.id} content.entry resolves outside its package`,
+        `${manifest.id} content.entry resolves outside its package`,
       );
     }
 
     discovered.push({
-      manifest: normalizeManifest(candidate),
+      manifest: normalizeManifest(manifest),
       entryPath,
     });
   }
@@ -175,7 +203,10 @@ async function discoverPackages(root, validate) {
   return discovered;
 }
 
-async function renderTypescriptCatalog(packages, outputPath) {
+async function renderTypescriptCatalog(
+  packages: DiscoveredPackage[],
+  outputPath: string,
+): Promise<string> {
   const entries = packages
     .map(
       ({ manifest, entryPath }) => `  {
@@ -186,11 +217,15 @@ async function renderTypescriptCatalog(packages, outputPath) {
   }`,
     )
     .join(",\n");
-  const source = `// Generated by scripts/bundled-package-catalog.mjs. Do not edit.\n\nexport const bundledPackageCatalog = [\n${entries}\n] as const;\n`;
+  const source = `// Generated by scripts/bundled-package-catalog.ts. Do not edit.\n\nexport const bundledPackageCatalog = [\n${entries}\n] as const;\n`;
   return prettier.format(source, { parser: "typescript" });
 }
 
-async function assertCurrent(path, expected, root) {
+async function assertCurrent(
+  path: string,
+  expected: string,
+  root: string,
+): Promise<void> {
   let current;
   try {
     current = await readFile(path, "utf8");
@@ -211,7 +246,7 @@ export async function generateBundledPackageCatalog({
   mode = "write",
   typescriptOutput = DEFAULT_TYPESCRIPT_OUTPUT,
   rustOutput = DEFAULT_RUST_OUTPUT,
-} = {}) {
+}: CatalogOptions = {}): Promise<PackageManifest[]> {
   if (mode !== "write" && mode !== "check") {
     throw new Error(
       `catalog mode must be "write" or "check", received ${mode}`,
@@ -227,7 +262,7 @@ export async function generateBundledPackageCatalog({
   );
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(
     schema,
-  );
+  ) as ManifestValidator;
   const typescriptOutputPath = resolve(absoluteRoot, typescriptOutput);
   const rustOutputPath = resolve(absoluteRoot, rustOutput);
   const packages = await discoverPackages(absoluteRoot, validate);
@@ -259,8 +294,8 @@ export async function generateBundledPackageCatalog({
   return packages.map(({ manifest }) => manifest);
 }
 
-function parseArguments(values) {
-  const options = {};
+function parseArguments(values: string[]): CatalogOptions {
+  const options: { root?: string; mode?: "write" | "check" } = {};
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value === "write" || value === "check") {

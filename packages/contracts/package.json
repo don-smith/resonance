@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "pnpm --dir ../.. exec vitest run packages/contracts/tests/manifest-validation.test.ts packages/contracts/tests/package-scaffold.test.ts packages/contracts/src/workspace-files-v1.test.ts",
-    "generate": "node scripts/generate.mjs"
+    "generate": "node --experimental-strip-types --no-warnings scripts/generate.ts"
   },
   "dependencies": {
     "ajv": "8.17.1"

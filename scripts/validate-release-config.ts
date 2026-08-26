@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import {
   readReleaseConfiguration,
   validateSigningSecret,
-} from "./release-configuration.mjs";
+} from "./release-configuration.ts";
 
 const argumentsFromPackageScript = process.argv.slice(2);
 const args =
@@ -21,7 +21,7 @@ const { values } = parseArgs({
 
 if (!values.config) {
   console.error(
-    "Usage: validate-release-config.mjs --config <path> [--require-signing-secret]",
+    "Usage: validate-release-config.ts --config <path> [--require-signing-secret]",
   );
   process.exitCode = 2;
 } else {
@@ -32,7 +32,8 @@ if (!values.config) {
     }
     console.log("Release configuration is provisioned and valid.");
   } catch (error) {
-    console.error(`Release configuration validation failed: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Release configuration validation failed: ${message}`);
     process.exitCode = 1;
   }
 }

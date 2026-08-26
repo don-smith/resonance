@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   profileLaunches,
   removeProfileConfigurations,
-} from "./desktop-profiles-lib.mjs";
+} from "./desktop-profiles-lib.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const [parentProcessId, ...names] = process.argv.slice(2);
@@ -20,11 +20,11 @@ if (!Number.isSafeInteger(parentPid) || parentPid <= 0) {
   await removeProfileConfigurations(profiles);
 }
 
-function processAlive(pid) {
+function processAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error.code !== "ESRCH";
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
 }

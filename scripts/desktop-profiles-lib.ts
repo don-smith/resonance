@@ -12,7 +12,21 @@ import { dirname, resolve } from "node:path";
 const PROFILE_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 const PORTS = [1421, 1422];
 
-export function validateProfileName(name) {
+export type DesktopProfile = Readonly<{
+  name: string;
+  port: number;
+  devUrl: string;
+  identifier: string;
+  bundleName: string;
+  configPath: string;
+  runner?: string;
+}>;
+
+function errorCode(error: unknown): string | undefined {
+  return (error as NodeJS.ErrnoException).code;
+}
+
+export function validateProfileName(name: unknown): string {
   if (
     typeof name !== "string" ||
     !PROFILE_PATTERN.test(name) ||
@@ -25,7 +39,10 @@ export function validateProfileName(name) {
   return name;
 }
 
-export function profileLaunches(names, root) {
+export function profileLaunches(
+  names: string[],
+  root: string,
+): DesktopProfile[] {
   if (!Array.isArray(names) || names.length !== 2) {
     throw new Error("desktop:profiles needs exactly two profile names.");
   }
@@ -55,7 +72,7 @@ export function profileLaunches(names, root) {
   });
 }
 
-export function tauriArguments(profile) {
+export function tauriArguments(profile: DesktopProfile): string[] {
   return [
     "--filter",
     "@resonance/desktop",
@@ -73,7 +90,7 @@ export function tauriArguments(profile) {
   ];
 }
 
-export function viteArguments(profile) {
+export function viteArguments(profile: DesktopProfile): string[] {
   return [
     "--filter",
     "@resonance/desktop",
@@ -87,7 +104,9 @@ export function viteArguments(profile) {
   ];
 }
 
-export async function writeProfileConfigurations(profiles) {
+export async function writeProfileConfigurations(
+  profiles: DesktopProfile[],
+): Promise<void> {
   await Promise.all(
     profiles.map(async (profile) => {
       await mkdir(dirname(profile.configPath), { recursive: true });
@@ -111,24 +130,31 @@ export async function writeProfileConfigurations(profiles) {
   );
 }
 
-export async function removeProfileConfigurations(profiles) {
+export async function removeProfileConfigurations(
+  profiles: DesktopProfile[],
+): Promise<void> {
   await Promise.all(
     profiles.map((profile) => rm(profile.configPath, { force: true })),
   );
 }
 
-export function removeProfileConfigurationsSync(profiles) {
+export function removeProfileConfigurationsSync(
+  profiles: DesktopProfile[],
+): void {
   for (const profile of profiles) rmSync(profile.configPath, { force: true });
 }
 
-async function checkedDirectory(path) {
+async function checkedDirectory(path: string): Promise<void> {
   const metadata = await lstat(path);
   if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
     throw new Error("The debug profile root is not safe to reset.");
   }
 }
 
-export async function resetProfile(name, root) {
+export async function resetProfile(
+  name: string,
+  root: string,
+): Promise<boolean> {
   validateProfileName(name);
   const resonanceRoot = resolve(root, ".resonance");
   const profilesRoot = resolve(resonanceRoot, "debug-profiles");
@@ -152,7 +178,7 @@ export async function resetProfile(name, root) {
         "The selected debug profile is active; close it before reset.",
       );
     } catch (error) {
-      if (error.code !== "ESRCH") throw error;
+      if (errorCode(error) !== "ESRCH") throw error;
       await unlink(lockPath);
     }
   }

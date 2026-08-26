@@ -13,7 +13,7 @@ await server.listen();
 server.printUrls();
 
 let closing = false;
-async function close(code) {
+async function close(code: number): Promise<void> {
   if (closing) return;
   closing = true;
   await server.close();

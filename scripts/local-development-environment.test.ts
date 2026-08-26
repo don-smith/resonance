@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { loadLocalDevelopmentEnvironment } from "./local-development-environment.mjs";
+import { loadLocalDevelopmentEnvironment } from "./local-development-environment.ts";
 
 describe("local development environment", () => {
   it("loads the ignored signing environment for every development launcher", async () => {

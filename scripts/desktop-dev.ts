@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadLocalDevelopmentEnvironment } from "./local-development-environment.mjs";
+import { loadLocalDevelopmentEnvironment } from "./local-development-environment.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 loadLocalDevelopmentEnvironment(root);

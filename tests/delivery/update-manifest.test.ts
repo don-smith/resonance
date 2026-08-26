@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 
 import { describe, expect, it } from "vitest";
 
-import { generateUpdateManifest } from "../../scripts/generate-update-manifest.mjs";
+import { generateUpdateManifest } from "../../scripts/generate-update-manifest.ts";
 
 const configuration = {
   manifestEndpoint: "https://updates.example.invalid/latest.json",

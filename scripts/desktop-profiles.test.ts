@@ -12,7 +12,7 @@ import {
   validateProfileName,
   viteArguments,
   writeProfileConfigurations,
-} from "./desktop-profiles-lib.mjs";
+} from "./desktop-profiles-lib.ts";
 
 describe("desktop profile launcher contract", () => {
   it("creates deterministic isolated development launches", async () => {

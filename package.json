@@ -8,11 +8,11 @@
     "pnpm": ">=10.14.0 <11"
   },
   "scripts": {
-    "desktop:dev": "node scripts/desktop-dev.mjs",
-    "desktop:profiles": "node scripts/desktop-profiles.mjs",
-    "packages:generate": "node scripts/bundled-package-catalog.mjs write",
-    "packages:boundaries": "node scripts/bundled-package-boundaries.mjs",
-    "packages:check": "node scripts/bundled-package-catalog.mjs check && node scripts/bundled-package-boundaries.mjs",
+    "desktop:dev": "node --experimental-strip-types --no-warnings scripts/desktop-dev.ts",
+    "desktop:profiles": "node --experimental-strip-types --no-warnings scripts/desktop-profiles.ts",
+    "packages:generate": "node --experimental-strip-types --no-warnings scripts/bundled-package-catalog.ts write",
+    "packages:boundaries": "node --experimental-strip-types --no-warnings scripts/bundled-package-boundaries.ts",
+    "packages:check": "node --experimental-strip-types --no-warnings scripts/bundled-package-catalog.ts check && node --experimental-strip-types --no-warnings scripts/bundled-package-boundaries.ts",
     "web:build": "pnpm --filter @resonance/desktop build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -22,9 +22,9 @@
     "rust:test": "cargo test --workspace",
     "rust:clippy": "cargo clippy --workspace -- -D warnings",
     "build:desktop": "pnpm --filter @resonance/desktop tauri build --debug",
-    "release:validate": "node scripts/validate-release-config.mjs",
-    "release:manifest": "node scripts/generate-update-manifest.mjs",
-    "release:collect": "node scripts/collect-signed-update-artifacts.mjs",
+    "release:validate": "node --experimental-strip-types --no-warnings scripts/validate-release-config.ts",
+    "release:manifest": "node --experimental-strip-types --no-warnings scripts/generate-update-manifest.ts",
+    "release:collect": "node --experimental-strip-types --no-warnings scripts/collect-signed-update-artifacts.ts",
     "check": "pnpm packages:check && pnpm format:check && pnpm typecheck && pnpm web:build && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
   },
   "devDependencies": {

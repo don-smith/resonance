@@ -8,7 +8,7 @@ import {
   readReleaseConfiguration,
   validateReleaseConfiguration,
   validateSigningSecret,
-} from "../../scripts/release-configuration.mjs";
+} from "../../scripts/release-configuration.ts";
 
 const validConfiguration = {
   manifestEndpoint: "https://updates.example.invalid/latest.json",

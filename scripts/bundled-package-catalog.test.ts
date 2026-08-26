@@ -4,11 +4,12 @@ import { dirname, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { generateBundledPackageCatalog } from "./bundled-package-catalog.mjs";
+import type { PackageManifest } from "../packages/contracts/src/manifest-v2.js";
+import { generateBundledPackageCatalog } from "./bundled-package-catalog.ts";
 
-const temporaryRoots = [];
+const temporaryRoots: string[] = [];
 
-async function temporaryRepository() {
+async function temporaryRepository(): Promise<string> {
   const root = await mkdtemp(resolve(tmpdir(), "resonance-catalog-"));
   temporaryRoots.push(root);
   const schemaPath = resolve(
@@ -23,7 +24,7 @@ async function temporaryRepository() {
   return root;
 }
 
-function manifest(id, entry = "src/index.ts") {
+function manifest(id: string, entry = "src/index.ts"): PackageManifest {
   return {
     manifestVersion: 2,
     source: "bundled",
@@ -37,7 +38,12 @@ function manifest(id, entry = "src/index.ts") {
   };
 }
 
-async function writePackage(root, directory, candidate, options = {}) {
+async function writePackage(
+  root: string,
+  directory: string,
+  candidate: PackageManifest,
+  options: { writeEntry?: boolean } = {},
+): Promise<void> {
   const packageDirectory = resolve(root, "packages", directory);
   await mkdir(resolve(packageDirectory, "src"), { recursive: true });
   await writeFile(

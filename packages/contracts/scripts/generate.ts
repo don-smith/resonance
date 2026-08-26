@@ -1,10 +1,10 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
-import { generateBundledPackageCatalog } from "../../../scripts/bundled-package-catalog.mjs";
+import { generateBundledPackageCatalog } from "../../../scripts/bundled-package-catalog.ts";
 
-function parseArguments(values) {
-  const argumentsByName = new Map();
+function parseArguments(values: string[]): Map<string, string> {
+  const argumentsByName = new Map<string, string>();
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (!value.startsWith("--") || !values[index + 1]) {
@@ -16,7 +16,10 @@ function parseArguments(values) {
   return argumentsByName;
 }
 
-async function templateFiles(directory, prefix = "") {
+async function templateFiles(
+  directory: string,
+  prefix = "",
+): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
   for (const entry of entries.sort((left, right) =>

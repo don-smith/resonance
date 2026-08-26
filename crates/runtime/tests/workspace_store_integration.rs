@@ -213,6 +213,37 @@ fn sqlite_rejects_impossible_operation_join_and_materialization_states() {
             [],
         )
         .is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO local_root_materialization
+             (node_id, relative_path, revision_id, content_hash)
+             VALUES ('node', 'plans/file.md', NULL, 'not-a-hash')",
+            [],
+        )
+        .is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO local_root_binding (singleton, root_path, health)
+             VALUES (1, '/tmp/plans', 'unknown')",
+            [],
+        )
+        .is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO workspace_configuration
+             (singleton, token, display_name, lifecycle, joining_inviter)
+             VALUES (1, zeroblob(32), 'Team', 'ready', zeroblob(32))",
+            [],
+        )
+        .is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO workspace_configuration
+             (singleton, token, display_name, lifecycle)
+             VALUES (1, zeroblob(32), 'Team', 'unknown')",
+            [],
+        )
+        .is_err());
     drop(store);
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }

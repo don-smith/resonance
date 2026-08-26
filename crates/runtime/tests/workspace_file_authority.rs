@@ -36,8 +36,10 @@ fn projection_names(authority: &WorkspaceFileAuthority) -> Vec<String> {
 
 fn membership(identity: &InstallationIdentity) -> MembershipProjection {
     MembershipProjection {
-        canonical_head: Some("head".to_owned()),
-        canonical_head_id: None,
+        canonical_head: Some(
+            resonance_runtime::membership_log::MembershipOperationId::parse(&"a".repeat(64))
+                .expect("head ID"),
+        ),
         members: vec![Member::new(
             identity.public_identity(),
             "Ada",
@@ -46,7 +48,6 @@ fn membership(identity: &InstallationIdentity) -> MembershipProjection {
             0,
         )],
         statuses: Default::default(),
-        statuses_by_id: Default::default(),
     }
 }
 

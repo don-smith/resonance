@@ -1,8 +1,8 @@
 use resonance_runtime::{
     identity::{InMemoryKeyCustody, InstallationIdentity},
     membership_log::{
-        MembershipLog, MembershipOperationBody, MembershipStatus, SignedMembershipOperation,
-        MEMBERSHIP_PROTOCOL_VERSION,
+        MembershipLog, MembershipOperationBody, MembershipOperationId, MembershipStatus,
+        SignedMembershipOperation, MEMBERSHIP_PROTOCOL_VERSION,
     },
 };
 
@@ -87,11 +87,17 @@ fn fails_closed_for_invalid_operations_and_keeps_a_missing_parent_pending() {
 
     assert_eq!(projection.members.len(), 1);
     assert_eq!(
-        projection.statuses[&tampered_id],
+        projection.statuses[&operation_id(&tampered_id)],
         MembershipStatus::Rejected
     );
-    assert_eq!(projection.statuses[&pending_id], MembershipStatus::Pending);
-    assert_eq!(projection.statuses[&unknown_id], MembershipStatus::Rejected);
+    assert_eq!(
+        projection.statuses[&operation_id(&pending_id)],
+        MembershipStatus::Pending
+    );
+    assert_eq!(
+        projection.statuses[&operation_id(&unknown_id)],
+        MembershipStatus::Rejected
+    );
 }
 
 #[test]
@@ -145,8 +151,14 @@ fn deterministic_replay_replaces_a_losing_branch_when_the_winner_arrives_late() 
 
     assert!(projection.contains_text(&member_id(&winner.operation.body)));
     assert!(!projection.contains_text(&member_id(&loser.operation.body)));
-    assert_eq!(projection.statuses[&winner_id], MembershipStatus::Canonical);
-    assert_eq!(projection.statuses[&loser_id], MembershipStatus::Rejected);
+    assert_eq!(
+        projection.statuses[&operation_id(&winner_id)],
+        MembershipStatus::Canonical
+    );
+    assert_eq!(
+        projection.statuses[&operation_id(&loser_id)],
+        MembershipStatus::Rejected
+    );
 }
 
 #[test]
@@ -170,13 +182,17 @@ fn rejects_wrong_workspace_and_version_without_granting_membership() {
 
     assert!(projection.members.is_empty());
     assert_eq!(
-        projection.statuses[&wrong_version_id],
+        projection.statuses[&operation_id(&wrong_version_id)],
         MembershipStatus::Rejected
     );
     assert_eq!(
-        projection.statuses[&wrong_workspace_id],
+        projection.statuses[&operation_id(&wrong_workspace_id)],
         MembershipStatus::Rejected
     );
+}
+
+fn operation_id(value: &str) -> MembershipOperationId {
+    MembershipOperationId::parse(value).expect("operation ID is valid")
 }
 
 fn member_id(body: &MembershipOperationBody) -> String {

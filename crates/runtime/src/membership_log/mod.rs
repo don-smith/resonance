@@ -143,7 +143,11 @@ impl MembershipLog {
         genesis.sort();
         let Some(mut head) = genesis.into_iter().next() else {
             mark_pending_operations(&self.operations, workspace_id, &mut statuses_by_id);
-            return projection_from_typed(None, Vec::new(), statuses_by_id);
+            return MembershipProjection {
+                canonical_head: None,
+                members: Vec::new(),
+                statuses: statuses_by_id,
+            };
         };
 
         let mut canonical = BTreeSet::new();
@@ -187,13 +191,13 @@ impl MembershipLog {
                 MembershipStatus::Canonical,
             );
         }
-        projection_from_typed(
-            Some(
+        MembershipProjection {
+            canonical_head: Some(
                 MembershipOperationId::parse(&head).expect("stored operation ID must remain valid"),
             ),
-            members.into_values().collect(),
-            statuses_by_id,
-        )
+            members: members.into_values().collect(),
+            statuses: statuses_by_id,
+        }
     }
 }
 
@@ -377,25 +381,6 @@ fn apply_addition(
         ),
     );
     counters.insert(author, operation.operation.author_counter);
-}
-
-fn projection_from_typed(
-    canonical_head_id: Option<MembershipOperationId>,
-    members: Vec<Member>,
-    statuses_by_id: BTreeMap<MembershipOperationId, MembershipStatus>,
-) -> MembershipProjection {
-    let canonical_head = canonical_head_id.as_ref().map(ToString::to_string);
-    let statuses = statuses_by_id
-        .iter()
-        .map(|(id, status)| (id.to_string(), status.clone()))
-        .collect();
-    MembershipProjection {
-        canonical_head,
-        canonical_head_id,
-        members,
-        statuses,
-        statuses_by_id,
-    }
 }
 
 fn mark_pending_operations(

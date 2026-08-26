@@ -474,7 +474,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                         "join request is not addressed to this installation",
                     ));
                 }
-                let head = projection.canonical_head_id.ok_or(
+                let head = projection.canonical_head.ok_or(
                     WorkspaceSessionError::InvalidInviteAdmission(
                         "inviter has no canonical membership authority",
                     ),
@@ -902,10 +902,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         self.active.as_ref().map_or_else(
             || MembershipProjection {
                 canonical_head: None,
-                canonical_head_id: None,
                 members: Vec::new(),
                 statuses: Default::default(),
-                statuses_by_id: Default::default(),
             },
             |active| active.log.projection(active.summary.id.as_str()),
         )

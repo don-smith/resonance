@@ -325,7 +325,8 @@ impl IrohTransport {
             if public_identity == &context.local_public_identity {
                 continue;
             }
-            let Some(endpoint_id) = decode_endpoint_id(public_identity) else {
+            let public_identity_text = public_identity.to_string();
+            let Some(endpoint_id) = decode_endpoint_id(&public_identity_text) else {
                 continue;
             };
             if let Some(info) = self.endpoint.remote_info(endpoint_id).await {
@@ -345,7 +346,7 @@ impl IrohTransport {
 
         let result = async {
             let mut target = FileRecoveryTarget::open_with_store(
-                &context.workspace_id,
+                context.workspace_id.as_str(),
                 context.membership,
                 &context.store,
             )?;

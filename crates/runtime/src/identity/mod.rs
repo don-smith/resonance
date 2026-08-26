@@ -11,12 +11,14 @@ pub trait KeyCustody {
 }
 
 /// Platform custody adapters are kept behind the identity module's seam.
-mod native;
+/// Native credential-store adapters retain the historical public namespace.
+pub mod native;
 #[cfg(feature = "debug-local-profiles")]
 pub use native::FileKeyCustody;
 pub use native::NativeKeyCustody;
 
-mod testing;
+/// Test custody is explicit while its implementation remains separate.
+pub mod testing;
 pub use testing::InMemoryKeyCustody;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -5,7 +5,7 @@ use std::fmt;
 use iroh::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 
-use crate::identity::InstallationIdentity;
+use crate::{identity::InstallationIdentity, workspace_domain::WorkspaceId};
 
 const ENVELOPE_DOMAIN: &[u8] = b"resonance.workspace-envelope.v1\0";
 pub const ENVELOPE_PROTOCOL_VERSION: u8 = 1;
@@ -101,6 +101,10 @@ impl Envelope {
         postcard::from_bytes(bytes).map_err(|_| ProtocolError::Decode)
     }
 
+    pub fn workspace_id_value(&self) -> Result<WorkspaceId, ProtocolError> {
+        WorkspaceId::parse(&self.workspace_id).map_err(|_| ProtocolError::InvalidWorkspace)
+    }
+
     pub fn verify(&self) -> Result<(), ProtocolError> {
         let unsigned = UnsignedEnvelope {
             version: self.version,
@@ -143,14 +147,7 @@ fn validate_unsigned(envelope: &UnsignedEnvelope) -> Result<(), ProtocolError> {
     if envelope.version != ENVELOPE_PROTOCOL_VERSION {
         return Err(ProtocolError::InvalidVersion);
     }
-    if envelope.workspace_id.len() != 64
-        || !envelope
-            .workspace_id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
-        return Err(ProtocolError::InvalidWorkspace);
-    }
+    WorkspaceId::parse(&envelope.workspace_id).map_err(|_| ProtocolError::InvalidWorkspace)?;
     match &envelope.body {
         EnvelopeBody::JoinRequest { display_name, .. }
             if display_name.trim().is_empty() || display_name.len() > 256 =>

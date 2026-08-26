@@ -54,7 +54,7 @@ impl DeliveryPort for FakeDeliveryPort {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActiveWorkspaceView {
     pub workspace: WorkspaceSummary,
-    pub local_public_identity: String,
+    pub local_public_identity: PublicIdentity,
     pub members: Vec<Member>,
     pub peers: Vec<KnownPeer>,
 }
@@ -146,17 +146,17 @@ struct ActiveWorkspace {
     joining_inviter: Option<[u8; 32]>,
     bootstrap: Option<String>,
     joining_display_name: Option<String>,
-    peers: BTreeMap<String, PeerState>,
+    peers: BTreeMap<PublicIdentity, PeerState>,
     file_history_recovery_needed: bool,
 }
 
 pub(crate) struct FileRecoveryContext {
-    pub workspace_id: String,
+    pub workspace_id: crate::workspace_domain::WorkspaceId,
     pub membership: MembershipProjection,
     pub store: WorkspaceStore,
     pub bootstrap: Option<String>,
-    pub member_public_identities: Vec<String>,
-    pub local_public_identity: String,
+    pub member_public_identities: Vec<PublicIdentity>,
+    pub local_public_identity: PublicIdentity,
 }
 
 #[derive(Clone)]
@@ -181,6 +181,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     #[must_use]
     pub fn local_public_identity(&self) -> String {
         self.identity.public_identity().to_string()
+    }
+
+    #[must_use]
+    pub fn local_public_identity_value(&self) -> PublicIdentity {
+        self.identity.public_identity()
     }
 
     #[must_use]
@@ -233,7 +238,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         )?;
         let creator_display_name =
             validate_display_name(creator_display_name).map_err(WorkspaceCatalogError::Domain)?;
-        let store = self.catalog.open_workspace(&summary.id)?;
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&summary.id)?;
         store.set_creation_creator_display_name(&creator_display_name)?;
         self.activate(summary)?;
         self.complete_initialization()?;
@@ -335,15 +342,15 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let active = self.active()?;
         let membership = self.projection();
         Ok(FileRecoveryContext {
-            workspace_id: active.summary.id.as_str().to_owned(),
+            workspace_id: active.summary.id.clone(),
             store: self.catalog.open_workspace(&active.summary.id)?,
             bootstrap: active.bootstrap.clone(),
             member_public_identities: membership
                 .members
                 .iter()
-                .map(|member| member.public_identity.to_string())
+                .map(|member| member.public_identity)
                 .collect(),
-            local_public_identity: self.identity.public_identity().to_string(),
+            local_public_identity: self.identity.public_identity(),
             membership,
         })
     }
@@ -379,17 +386,13 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         if !self.projection().contains(&public_identity) {
             return Ok(());
         }
-        let public_identity_text = public_identity.to_string();
         let peer = {
             let active = self.active_mut()?;
-            let state = active
-                .peers
-                .entry(public_identity_text.clone())
-                .or_insert(PeerState {
-                    last_heartbeat: 0,
-                    online: false,
-                    connection: PeerConnection::Unknown,
-                });
+            let state = active.peers.entry(public_identity).or_insert(PeerState {
+                last_heartbeat: 0,
+                online: false,
+                connection: PeerConnection::Unknown,
+            });
             if state.connection == connection {
                 return Ok(());
             }
@@ -413,14 +416,13 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             .peers
             .iter_mut()
             .filter_map(|(public_identity, state)| {
-                if members.contains_text(public_identity)
+                if members.contains(public_identity)
                     && state.online
                     && state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) < at
                 {
                     state.online = false;
                     Some(KnownPeer {
-                        public_identity: PublicIdentity::parse(public_identity)
-                            .expect("member presence identity must be valid"),
+                        public_identity: *public_identity,
                         online: false,
                         connection: state.connection.clone(),
                     })
@@ -446,7 +448,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         }
         let envelope = Envelope::decode(bytes)?;
         envelope.verify()?;
-        if envelope.workspace_id != self.active()?.summary.id.as_str() {
+        let envelope_workspace_id = envelope.workspace_id_value()?;
+        if envelope_workspace_id != self.active()?.summary.id {
             return Err(ProtocolError::InvalidWorkspace.into());
         }
         // Gossip may deliver a publisher's signed envelope back to that same
@@ -454,7 +457,6 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         if envelope.sender == *self.identity.public_identity().as_bytes() {
             return Ok(());
         }
-        let sender = public_identity_text(&envelope.sender);
         let sender_identity = PublicIdentity::from_bytes(envelope.sender);
         let projection = self.projection();
         let sender_is_member = projection.contains(&sender_identity);
@@ -472,7 +474,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                         "join request is not addressed to this installation",
                     ));
                 }
-                let head = projection.canonical_head.ok_or(
+                let head = projection.canonical_head_id.ok_or(
                     WorkspaceSessionError::InvalidInviteAdmission(
                         "inviter has no canonical membership authority",
                     ),
@@ -480,7 +482,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 let operation = SignedMembershipOperation::add_member(
                     &self.identity,
                     self.active()?.summary.id.as_str(),
-                    head,
+                    head.as_str(),
                     self.active()?
                         .log
                         .next_author_counter(self.identity.public_identity().as_bytes()),
@@ -541,7 +543,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 // reaches a pending joiner. Its early heartbeat grants no
                 // authority and is safely ignored until membership is known.
                 if sender_is_member {
-                    self.record_heartbeat(sender, sent_at)?;
+                    self.record_heartbeat(sender_identity, sent_at)?;
                 }
             }
         }
@@ -569,7 +571,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let projection = self.projection();
         let view = ActiveWorkspaceView {
             workspace: self.active()?.summary.clone(),
-            local_public_identity: self.identity.public_identity().to_string(),
+            local_public_identity: self.identity.public_identity(),
             peers: self.known_peers(&projection),
             members: projection.members,
         };
@@ -630,12 +632,12 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
 
     fn record_heartbeat(
         &mut self,
-        sender: String,
+        sender: PublicIdentity,
         sent_at: i64,
     ) -> Result<(), WorkspaceSessionError> {
         let peer = {
             let active = self.active_mut()?;
-            let state = active.peers.entry(sender.clone()).or_insert(PeerState {
+            let state = active.peers.entry(sender).or_insert(PeerState {
                 last_heartbeat: sent_at,
                 online: false,
                 connection: PeerConnection::Unknown,
@@ -646,11 +648,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             }
             state.online = true;
             KnownPeer {
-                public_identity: PublicIdentity::parse(&sender).map_err(|_| {
-                    WorkspaceSessionError::InitializationRecovery(
-                        "heartbeat sender identity is invalid",
-                    )
-                })?,
+                public_identity: sender,
                 online: true,
                 connection: state.connection.clone(),
             }
@@ -667,10 +665,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 active
                     .peers
                     .iter()
-                    .filter(|(public_identity, _)| projection.contains_text(public_identity))
+                    .filter(|(public_identity, _)| projection.contains(public_identity))
                     .map(|(public_identity, state)| KnownPeer {
-                        public_identity: PublicIdentity::parse(public_identity)
-                            .expect("member presence identity must be valid"),
+                        public_identity: *public_identity,
                         online: state.online,
                         connection: state.connection.clone(),
                     })
@@ -681,7 +678,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
 
     fn activate(&mut self, summary: WorkspaceSummary) -> Result<(), WorkspaceSessionError> {
         let recover_file_history = summary.lifecycle == WorkspaceLifecycle::Ready;
-        let store = self.catalog.open_workspace(&summary.id)?;
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&summary.id)?;
         let settings = store.private_settings()?;
         let mut log = MembershipLog::new();
         for operation in store.membership_operations()? {
@@ -705,8 +704,13 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         }
         let id = self.active()?.summary.id.clone();
         let workspace_id = id.as_str().to_owned();
-        let store = self.catalog.open_workspace(&id)?;
+        let store = self.catalog.open_workspace_for_initialization(&id)?;
         let settings = store.private_settings()?;
+        if settings.creation_stage == "ready" {
+            return Err(WorkspaceSessionError::InitializationRecovery(
+                "workspace initialization has an inconsistent durable stage",
+            ));
+        }
         let creator_display_name = settings.creation_creator_display_name.ok_or(
             WorkspaceSessionError::InitializationRecovery(
                 "workspace initialization has no durable creator display name",
@@ -721,6 +725,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 now()?,
             )?;
             self.persist_operation(genesis.encode()?)?;
+            store.set_creation_stage("membership-initialized")?;
         }
         let membership = self.projection();
         if !membership.contains(&self.identity.public_identity()) {
@@ -752,11 +757,13 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             )?;
             store.record_file_operation(&initial_directory)?;
             file_operations.push(initial_directory);
+            store.set_creation_stage("files-initialized")?;
         } else if initial_count != 1 {
             return Err(WorkspaceSessionError::InitializationRecovery(
                 "workspace initialization contains duplicate plans operations",
             ));
         }
+        store.set_creation_stage("files-initialized")?;
 
         let mut authority = WorkspaceFileAuthority::new(&workspace_id);
         authority
@@ -772,8 +779,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             ));
         }
 
-        self.catalog
-            .set_workspace_lifecycle(&id, WorkspaceLifecycle::Ready)?;
+        store.set_lifecycle(&WorkspaceLifecycle::Ready)?;
+        self.catalog.publish_workspace(&id)?;
         self.active_mut()?.summary.lifecycle = WorkspaceLifecycle::Ready;
         Ok(())
     }
@@ -800,11 +807,13 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
 
     fn persist_operation(&mut self, operation: Vec<u8>) -> Result<(), WorkspaceSessionError> {
         let signed = SignedMembershipOperation::decode(&operation)?;
-        let operation_id = signed.operation_id()?;
+        let operation_id = signed.operation_id_value()?;
         let before = self.projection();
         self.active_mut()?.log.insert(signed)?;
         let after = self.projection();
-        let store = self.catalog.open_workspace(&self.active()?.summary.id)?;
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&self.active()?.summary.id)?;
         store.record_membership_operation(&operation_id, &operation)?;
         store.replace_members(&after.members)?;
 
@@ -893,16 +902,14 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         self.active.as_ref().map_or_else(
             || MembershipProjection {
                 canonical_head: None,
+                canonical_head_id: None,
                 members: Vec::new(),
                 statuses: Default::default(),
+                statuses_by_id: Default::default(),
             },
             |active| active.log.projection(active.summary.id.as_str()),
         )
     }
-}
-
-fn public_identity_text(public_identity: &[u8; 32]) -> String {
-    crate::identity::PublicIdentity::from_bytes(*public_identity).to_string()
 }
 
 fn now() -> Result<i64, WorkspaceSessionError> {

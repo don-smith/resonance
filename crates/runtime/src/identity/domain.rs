@@ -25,7 +25,7 @@ impl fmt::Display for IdentityError {
 
 impl std::error::Error for IdentityError {}
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PublicIdentity([u8; 32]);
 
 impl PublicIdentity {

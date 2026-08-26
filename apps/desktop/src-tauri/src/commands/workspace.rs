@@ -446,7 +446,9 @@ fn shell_view(view: WorkspaceApplicationView) -> WorkspaceShellView {
         message,
         health: health_view(&view.health),
         workspace: view.workspace.as_ref().map(workspace_summary_view),
-        local_public_identity: view.local_public_identity,
+        local_public_identity: view
+            .local_public_identity
+            .map(|identity| identity.to_string()),
         members: view.members.iter().map(member_view).collect(),
         peers: view
             .peers

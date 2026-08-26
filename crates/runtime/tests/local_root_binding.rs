@@ -142,6 +142,7 @@ fn repair_relocates_a_materialized_concurrent_create_loser() {
         .expect("identity creates");
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
+        canonical_head_id: None,
         members: vec![Member::new(
             identity.public_identity(),
             "Ada",
@@ -150,6 +151,7 @@ fn repair_relocates_a_materialized_concurrent_create_loser() {
             0,
         )],
         statuses: Default::default(),
+        statuses_by_id: Default::default(),
     };
     let mut authority = WorkspaceFileAuthority::new("workspace");
     let plans =
@@ -458,6 +460,7 @@ fn recursive_directory_deletion_tombstones_children_before_parent_and_replays() 
         .expect("identity creates");
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
+        canonical_head_id: None,
         members: vec![Member::new(
             identity.public_identity(),
             "Ada",
@@ -466,6 +469,7 @@ fn recursive_directory_deletion_tombstones_children_before_parent_and_replays() 
             0,
         )],
         statuses: Default::default(),
+        statuses_by_id: Default::default(),
     };
     let mut authority = WorkspaceFileAuthority::new("workspace");
     let plans =
@@ -574,6 +578,7 @@ fn configured_and_permanent_ignores_exclude_external_input() {
         .expect("identity creates");
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
+        canonical_head_id: None,
         members: vec![Member::new(
             identity.public_identity(),
             "Ada",
@@ -582,6 +587,7 @@ fn configured_and_permanent_ignores_exclude_external_input() {
             0,
         )],
         statuses: Default::default(),
+        statuses_by_id: Default::default(),
     };
     let mut authority = WorkspaceFileAuthority::new("workspace");
     let plans =
@@ -647,6 +653,7 @@ fn stable_external_file_becomes_a_member_signed_authority_operation() {
         .expect("identity creates");
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
+        canonical_head_id: None,
         members: vec![Member::new(
             identity.public_identity(),
             "Ada",
@@ -655,6 +662,7 @@ fn stable_external_file_becomes_a_member_signed_authority_operation() {
             0,
         )],
         statuses: Default::default(),
+        statuses_by_id: Default::default(),
     };
     let mut authority = WorkspaceFileAuthority::new("workspace");
     let plans =
@@ -804,6 +812,7 @@ fn conflict_artifacts_materialize_and_leave_the_root_after_resolution() {
         .expect("identity creates");
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
+        canonical_head_id: None,
         members: vec![Member::new(
             identity.public_identity(),
             "Ada",
@@ -812,6 +821,7 @@ fn conflict_artifacts_materialize_and_leave_the_root_after_resolution() {
             0,
         )],
         statuses: Default::default(),
+        statuses_by_id: Default::default(),
     };
     let mut authority = WorkspaceFileAuthority::new("workspace");
     let plans =

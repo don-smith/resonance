@@ -16,7 +16,7 @@ use tokio::{
 };
 
 use crate::{
-    identity::{IdentityError, InstallationIdentity},
+    identity::{IdentityError, InstallationIdentity, PublicIdentity},
     iroh_transport::{IrohSessionAdapterError, IrohTransport, IrohTransportError},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{KnownPeer, Member, WorkspaceSummary},
@@ -79,7 +79,7 @@ impl WorkspaceHealth {
 pub struct WorkspaceApplicationView {
     pub revision: u64,
     pub workspace: Option<WorkspaceSummary>,
-    pub local_public_identity: Option<String>,
+    pub local_public_identity: Option<PublicIdentity>,
     pub members: Vec<Member>,
     pub peers: Vec<KnownPeer>,
     pub health: WorkspaceHealth,
@@ -90,7 +90,7 @@ pub struct WorkspaceApplication {
     transport: Option<IrohTransport>,
     pub(crate) files: Option<WorkspaceFileRuntime>,
     health: WorkspaceHealth,
-    local_public_identity: Option<String>,
+    local_public_identity: Option<PublicIdentity>,
     last_view: Option<WorkspaceApplicationView>,
     view_revision: AtomicU64,
 }
@@ -105,7 +105,7 @@ impl WorkspaceApplication {
                 Ok(catalog) => {
                     let mut session =
                         WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
-                    let local_public_identity = session.local_public_identity();
+                    let local_public_identity = session.local_public_identity_value();
                     match session.activate_active_workspace() {
                         Ok(_) => {
                             let files = session.open_file_runtime().ok();
@@ -142,12 +142,9 @@ impl WorkspaceApplication {
     pub fn view(&mut self) -> WorkspaceApplicationView {
         let (workspace, local_public_identity, members, peers) = match self.session.as_mut() {
             None => (None, None, Vec::new(), Vec::new()),
-            Some(session) if !session.has_active_workspace() => (
-                None,
-                self.local_public_identity.clone(),
-                Vec::new(),
-                Vec::new(),
-            ),
+            Some(session) if !session.has_active_workspace() => {
+                (None, self.local_public_identity, Vec::new(), Vec::new())
+            }
             Some(session) => match session.view() {
                 Ok(view) => (
                     Some(view.workspace),
@@ -155,12 +152,7 @@ impl WorkspaceApplication {
                     view.members,
                     view.peers,
                 ),
-                Err(_) => (
-                    None,
-                    self.local_public_identity.clone(),
-                    Vec::new(),
-                    Vec::new(),
-                ),
+                Err(_) => (None, self.local_public_identity, Vec::new(), Vec::new()),
             },
         };
         let mut view = WorkspaceApplicationView {

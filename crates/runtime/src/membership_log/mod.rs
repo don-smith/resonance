@@ -39,6 +39,12 @@ impl MembershipOperationId {
     }
 }
 
+impl AsRef<str> for MembershipOperationId {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl fmt::Display for MembershipOperationId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(&self.0)
@@ -119,10 +125,11 @@ impl MembershipLog {
 
     #[must_use]
     pub fn projection(&self, workspace_id: &str) -> MembershipProjection {
-        let mut statuses = self
+        let mut statuses_by_id = self
             .operations
             .keys()
-            .map(|id| (id.as_str().to_owned(), MembershipStatus::Rejected))
+            .cloned()
+            .map(|id| (id, MembershipStatus::Rejected))
             .collect::<BTreeMap<_, _>>();
         let mut members = BTreeMap::new();
         let mut counters = BTreeMap::new();
@@ -135,12 +142,8 @@ impl MembershipLog {
             .collect::<Vec<_>>();
         genesis.sort();
         let Some(mut head) = genesis.into_iter().next() else {
-            mark_pending_operations(&self.operations, workspace_id, &mut statuses);
-            return MembershipProjection {
-                canonical_head: None,
-                members: Vec::new(),
-                statuses,
-            };
+            mark_pending_operations(&self.operations, workspace_id, &mut statuses_by_id);
+            return projection_from_typed(None, Vec::new(), statuses_by_id);
         };
 
         let mut canonical = BTreeSet::new();
@@ -148,7 +151,10 @@ impl MembershipLog {
             [&MembershipOperationId::parse(&head).expect("stored operation ID must remain valid")];
         apply_addition(&mut members, &mut counters, first);
         canonical.insert(head.clone());
-        statuses.insert(head.clone(), MembershipStatus::Canonical);
+        statuses_by_id.insert(
+            MembershipOperationId::parse(&head).expect("stored operation ID must remain valid"),
+            MembershipStatus::Canonical,
+        );
 
         loop {
             let candidates = self
@@ -166,20 +172,28 @@ impl MembershipLog {
             let operation = &self.operations[&MembershipOperationId::parse(&next)
                 .expect("stored operation ID must remain valid")];
             apply_addition(&mut members, &mut counters, operation);
-            statuses.insert(next.clone(), MembershipStatus::Canonical);
+            statuses_by_id.insert(
+                MembershipOperationId::parse(&next).expect("stored operation ID must remain valid"),
+                MembershipStatus::Canonical,
+            );
             canonical.insert(next.clone());
             head = next;
         }
 
-        mark_pending_operations(&self.operations, workspace_id, &mut statuses);
+        mark_pending_operations(&self.operations, workspace_id, &mut statuses_by_id);
         for id in canonical {
-            statuses.insert(id, MembershipStatus::Canonical);
+            statuses_by_id.insert(
+                MembershipOperationId::parse(&id).expect("stored operation ID must remain valid"),
+                MembershipStatus::Canonical,
+            );
         }
-        MembershipProjection {
-            canonical_head: Some(head),
-            members: members.into_values().collect(),
-            statuses,
-        }
+        projection_from_typed(
+            Some(
+                MembershipOperationId::parse(&head).expect("stored operation ID must remain valid"),
+            ),
+            members.into_values().collect(),
+            statuses_by_id,
+        )
     }
 }
 
@@ -245,8 +259,13 @@ impl SignedMembershipOperation {
     }
 
     pub fn operation_id(&self) -> Result<String, MembershipError> {
+        Ok(self.operation_id_value()?.to_string())
+    }
+
+    pub fn operation_id_value(&self) -> Result<MembershipOperationId, MembershipError> {
         let encoded = self.encode()?;
-        Ok(blake3::hash(&encoded).to_hex().to_string())
+        let operation_id = blake3::hash(&encoded).to_hex();
+        MembershipOperationId::parse(operation_id.as_ref())
     }
 
     pub fn verify(&self) -> Result<(), MembershipError> {
@@ -360,10 +379,29 @@ fn apply_addition(
     counters.insert(author, operation.operation.author_counter);
 }
 
+fn projection_from_typed(
+    canonical_head_id: Option<MembershipOperationId>,
+    members: Vec<Member>,
+    statuses_by_id: BTreeMap<MembershipOperationId, MembershipStatus>,
+) -> MembershipProjection {
+    let canonical_head = canonical_head_id.as_ref().map(ToString::to_string);
+    let statuses = statuses_by_id
+        .iter()
+        .map(|(id, status)| (id.to_string(), status.clone()))
+        .collect();
+    MembershipProjection {
+        canonical_head,
+        canonical_head_id,
+        members,
+        statuses,
+        statuses_by_id,
+    }
+}
+
 fn mark_pending_operations(
     operations: &BTreeMap<MembershipOperationId, SignedMembershipOperation>,
     workspace_id: &str,
-    statuses: &mut BTreeMap<String, MembershipStatus>,
+    statuses: &mut BTreeMap<MembershipOperationId, MembershipStatus>,
 ) {
     for (id, operation) in operations {
         let parent = operation.operation.parent_operation_id.as_deref();
@@ -375,7 +413,7 @@ fn mark_pending_operations(
                 .map(|parent| !operations.contains_key(&parent))
                 .unwrap_or(false)
         {
-            statuses.insert(id.as_str().to_owned(), MembershipStatus::Pending);
+            statuses.insert(id.clone(), MembershipStatus::Pending);
         }
     }
 }

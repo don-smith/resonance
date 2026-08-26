@@ -319,7 +319,7 @@ impl WorkspaceFileAuthority {
         {
             return Err(AuthorityError::InvalidIdentifier);
         }
-        if !membership.contains(&public_identity_text(&operation.operation.signer)) {
+        if !membership.contains_text(&public_identity_text(&operation.operation.signer)) {
             return Err(AuthorityError::NonMember);
         }
         Ok(())

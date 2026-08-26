@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    identity::InstallationIdentity,
+    identity::{InstallationIdentity, PublicIdentity},
     invite::{validate_relay_override, Invite, InviteError},
     membership_log::{
         MembershipError, MembershipLog, MembershipOperationBody, MembershipProjection,
@@ -16,7 +16,8 @@ use crate::{
     protocol::{Envelope, EnvelopeBody, ProtocolError},
     workspace_catalog::{WorkspaceCatalog, WorkspaceCatalogError},
     workspace_domain::{
-        KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
+        display_name as validate_display_name, KnownPeer, Member, PeerConnection,
+        WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
     },
     workspace_file_runtime::{WorkspaceFileRuntime, WorkspaceFileRuntimeError},
     workspace_files::{
@@ -230,7 +231,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             relay_override,
             WorkspaceLifecycle::Initializing,
         )?;
-        let creator_display_name = creator_display_name.into();
+        let creator_display_name =
+            validate_display_name(creator_display_name).map_err(WorkspaceCatalogError::Domain)?;
         let store = self.catalog.open_workspace(&summary.id)?;
         store.set_creation_creator_display_name(&creator_display_name)?;
         self.activate(summary)?;
@@ -272,7 +274,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             invite.relay_override().map(ToOwned::to_owned),
             WorkspaceLifecycle::Joining,
         )?;
-        let display_name = display_name.into();
+        let display_name =
+            validate_display_name(display_name).map_err(WorkspaceCatalogError::Domain)?;
         let store = self.catalog.open_workspace(&summary.id)?;
         store.set_pending_join_admission(invite.inviter(), invite.bootstrap(), &display_name)?;
         self.activate(summary)?;
@@ -290,7 +293,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         if self.active()?.summary.lifecycle != WorkspaceLifecycle::Joining {
             return Ok(false);
         }
-        let display_name = display_name.into();
+        let display_name =
+            validate_display_name(display_name).map_err(WorkspaceCatalogError::Domain)?;
         self.set_pending_join_display_name(&display_name)?;
         self.send_join_request(display_name)?;
         Ok(true)
@@ -337,7 +341,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             member_public_identities: membership
                 .members
                 .iter()
-                .map(|member| member.public_identity.clone())
+                .map(|member| member.public_identity.to_string())
                 .collect(),
             local_public_identity: self.identity.public_identity().to_string(),
             membership,
@@ -371,15 +375,16 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         public_identity: [u8; 32],
         connection: PeerConnection,
     ) -> Result<(), WorkspaceSessionError> {
-        let public_identity = public_identity_text(&public_identity);
+        let public_identity = PublicIdentity::from_bytes(public_identity);
         if !self.projection().contains(&public_identity) {
             return Ok(());
         }
+        let public_identity_text = public_identity.to_string();
         let peer = {
             let active = self.active_mut()?;
             let state = active
                 .peers
-                .entry(public_identity.clone())
+                .entry(public_identity_text.clone())
                 .or_insert(PeerState {
                     last_heartbeat: 0,
                     online: false,
@@ -390,7 +395,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             }
             state.connection = connection;
             KnownPeer {
-                public_identity: public_identity.clone(),
+                public_identity,
                 online: state.online,
                 connection: state.connection.clone(),
             }
@@ -408,13 +413,14 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             .peers
             .iter_mut()
             .filter_map(|(public_identity, state)| {
-                if members.contains(public_identity)
+                if members.contains_text(public_identity)
                     && state.online
                     && state.last_heartbeat.saturating_add(HEARTBEAT_TTL_SECONDS) < at
                 {
                     state.online = false;
                     Some(KnownPeer {
-                        public_identity: public_identity.clone(),
+                        public_identity: PublicIdentity::parse(public_identity)
+                            .expect("member presence identity must be valid"),
                         online: false,
                         connection: state.connection.clone(),
                     })
@@ -449,8 +455,9 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             return Ok(());
         }
         let sender = public_identity_text(&envelope.sender);
+        let sender_identity = PublicIdentity::from_bytes(envelope.sender);
         let projection = self.projection();
-        let sender_is_member = projection.contains(&sender);
+        let sender_is_member = projection.contains(&sender_identity);
         let sender_is_inviter = self.active()?.joining_inviter == Some(envelope.sender);
 
         match envelope.body {
@@ -459,7 +466,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 display_name,
             } => {
                 if inviter != *self.identity.public_identity().as_bytes()
-                    || !projection.contains(&self.identity.public_identity().to_string())
+                    || !projection.contains(&self.identity.public_identity())
                 {
                     return Err(WorkspaceSessionError::InvalidInviteAdmission(
                         "join request is not addressed to this installation",
@@ -484,7 +491,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 let operation_bytes = operation.encode()?;
                 self.persist_operation(operation_bytes)?;
                 self.send(
-                    EnvelopeBody::MembershipSyncResponse(self.active()?.log.encoded_operations()),
+                    EnvelopeBody::MembershipSyncResponse(self.active()?.log.encoded_operations()?),
                     envelope.workspace_id,
                 )?;
             }
@@ -503,7 +510,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 // received the inviter's genesis record yet, so it cannot
                 // authorize or answer that request until admission completes.
                 if sender_is_member {
-                    let operations = self.active()?.log.encoded_operations();
+                    let operations = self.active()?.log.encoded_operations()?;
                     self.send(
                         EnvelopeBody::MembershipSyncResponse(operations),
                         envelope.workspace_id,
@@ -639,7 +646,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             }
             state.online = true;
             KnownPeer {
-                public_identity: sender,
+                public_identity: PublicIdentity::parse(&sender).map_err(|_| {
+                    WorkspaceSessionError::InitializationRecovery(
+                        "heartbeat sender identity is invalid",
+                    )
+                })?,
                 online: true,
                 connection: state.connection.clone(),
             }
@@ -656,9 +667,10 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 active
                     .peers
                     .iter()
-                    .filter(|(public_identity, _)| projection.contains(public_identity))
+                    .filter(|(public_identity, _)| projection.contains_text(public_identity))
                     .map(|(public_identity, state)| KnownPeer {
-                        public_identity: public_identity.clone(),
+                        public_identity: PublicIdentity::parse(public_identity)
+                            .expect("member presence identity must be valid"),
                         online: state.online,
                         connection: state.connection.clone(),
                     })
@@ -711,7 +723,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             self.persist_operation(genesis.encode()?)?;
         }
         let membership = self.projection();
-        if !membership.contains(&self.identity.public_identity().to_string()) {
+        if !membership.contains(&self.identity.public_identity()) {
             return Err(WorkspaceSessionError::InitializationRecovery(
                 "workspace initialization membership genesis is not owned by this installation",
             ));
@@ -802,9 +814,8 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                     .push(WorkspaceTransition::MemberJoined(member.clone()));
             }
         }
-        let local_identity = self.identity.public_identity().to_string();
         if self.active()?.summary.lifecycle == WorkspaceLifecycle::Joining
-            && after.contains(&local_identity)
+            && after.contains(&self.identity.public_identity())
         {
             let id = self.active()?.summary.id.clone();
             self.catalog

@@ -1,7 +1,5 @@
 //! Installation-key custody behind a native credential-store boundary.
 
-use std::{fmt, sync::Mutex};
-
 #[cfg(feature = "debug-local-profiles")]
 use std::{
     fs::{self, OpenOptions},
@@ -11,6 +9,10 @@ use std::{
 };
 
 use iroh::SecretKey;
+use std::sync::Mutex;
+
+mod domain;
+pub use domain::{IdentityError, PublicIdentity};
 
 const KEYCHAIN_SERVICE: &str = "dev.resonance.desktop";
 const KEYCHAIN_ACCOUNT: &str = "installation-identity";
@@ -20,64 +22,20 @@ pub trait KeyCustody {
     fn write_secret(&self, secret: &[u8]) -> Result<(), CustodyError>;
 }
 
+/// Platform custody adapters are kept behind the identity module's seam.
+pub mod native {
+    pub use super::NativeKeyCustody;
+}
+
+/// Test custody is explicitly named so production callers do not confuse it with native storage.
+pub mod testing {
+    pub use super::InMemoryKeyCustody;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CustodyError {
     Missing,
     Unavailable,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum IdentityError {
-    MalformedStoredSecret,
-    StoreUnavailable,
-}
-
-impl fmt::Display for IdentityError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MalformedStoredSecret => formatter.write_str(
-                "the installation identity in the native credential store is malformed; remove it only after recovering the installation identity",
-            ),
-            Self::StoreUnavailable => formatter.write_str(
-                "the native credential store is unavailable; unlock or repair it before using Resonance",
-            ),
-        }
-    }
-}
-
-impl std::error::Error for IdentityError {}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct PublicIdentity([u8; 32]);
-
-impl PublicIdentity {
-    #[must_use]
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
-
-impl fmt::Debug for PublicIdentity {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_tuple("PublicIdentity")
-            .field(&self.to_string())
-            .finish()
-    }
-}
-
-impl fmt::Display for PublicIdentity {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(formatter, "{byte:02x}")?;
-        }
-        Ok(())
-    }
 }
 
 /// Owns the in-memory signer without exposing its private key beyond runtime modules.
@@ -114,7 +72,7 @@ impl InstallationIdentity {
 
     #[must_use]
     pub fn public_identity(&self) -> PublicIdentity {
-        PublicIdentity(*self.secret_key.public().as_bytes())
+        PublicIdentity::from_bytes(*self.secret_key.public().as_bytes())
     }
 
     pub(crate) fn sign(&self, message: &[u8]) -> [u8; 64] {

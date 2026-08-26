@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use crate::identity::PublicIdentity;
+
 const WORKSPACE_ID_DOMAIN: &[u8] = b"resonance.workspace-id.v1\0";
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -61,10 +63,10 @@ pub struct WorkspaceSummary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Member {
-    pub public_identity: String,
+    pub public_identity: PublicIdentity,
     pub display_name: String,
     pub role: String,
-    pub added_by: String,
+    pub added_by: PublicIdentity,
     pub added_at: i64,
 }
 
@@ -77,7 +79,7 @@ pub enum PeerConnection {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KnownPeer {
-    pub public_identity: String,
+    pub public_identity: PublicIdentity,
     pub online: bool,
     pub connection: PeerConnection,
 }
@@ -85,10 +87,10 @@ pub struct KnownPeer {
 impl Member {
     #[must_use]
     pub fn new(
-        public_identity: impl Into<String>,
+        public_identity: impl Into<PublicIdentity>,
         display_name: impl Into<String>,
         role: impl Into<String>,
-        added_by: impl Into<String>,
+        added_by: impl Into<PublicIdentity>,
         added_at: i64,
     ) -> Self {
         Self {
@@ -111,6 +113,7 @@ pub struct WorkspaceSettings {
 #[derive(Debug, PartialEq, Eq)]
 pub enum WorkspaceDomainError {
     InvalidWorkspaceId,
+    InvalidDisplayName,
     InvalidLifecycle,
     RandomnessUnavailable,
 }
@@ -119,6 +122,7 @@ impl fmt::Display for WorkspaceDomainError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidWorkspaceId => formatter.write_str("invalid workspace ID"),
+            Self::InvalidDisplayName => formatter.write_str("invalid workspace display name"),
             Self::InvalidLifecycle => formatter.write_str("invalid workspace lifecycle"),
             Self::RandomnessUnavailable => formatter.write_str("secure randomness is unavailable"),
         }
@@ -126,6 +130,15 @@ impl fmt::Display for WorkspaceDomainError {
 }
 
 impl std::error::Error for WorkspaceDomainError {}
+
+pub fn display_name(value: impl Into<String>) -> Result<String, WorkspaceDomainError> {
+    let value = value.into();
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.len() > 256 {
+        return Err(WorkspaceDomainError::InvalidDisplayName);
+    }
+    Ok(trimmed.to_owned())
+}
 
 #[derive(Clone)]
 pub(crate) struct WorkspaceToken([u8; 32]);

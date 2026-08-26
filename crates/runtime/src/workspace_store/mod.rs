@@ -12,6 +12,7 @@ use std::{
 use rusqlite::{params, Connection};
 
 use crate::{
+    identity::PublicIdentity,
     local_root_binding::{MaterializedRecord, RootHealth},
     workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken},
     workspace_files::{
@@ -20,7 +21,7 @@ use crate::{
     },
 };
 
-const CURRENT_SCHEMA_VERSION: i32 = 8;
+const CURRENT_SCHEMA_VERSION: i32 = 9;
 
 #[derive(Clone)]
 pub(crate) struct PrivateWorkspaceSettings {
@@ -43,6 +44,8 @@ pub struct WorkspaceStore {
 pub enum WorkspaceStoreError {
     InvalidIdentifier(&'static str),
     WorkspaceConfigurationMissing,
+    UnsupportedLegacySchema,
+    InitializationConflict,
     Io(std::io::Error),
     Database(rusqlite::Error),
     FileOperation(FileOperationError),
@@ -58,6 +61,11 @@ impl std::fmt::Display for WorkspaceStoreError {
             Self::WorkspaceConfigurationMissing => {
                 formatter.write_str("workspace configuration has not been initialized")
             }
+            Self::UnsupportedLegacySchema => formatter.write_str(
+                "workspace schema is unsupported; export or reset this workspace before continuing",
+            ),
+            Self::InitializationConflict => formatter
+                .write_str("workspace initialization conflicts with existing durable identity"),
             Self::Io(error) => write!(formatter, "workspace storage I/O failed: {error}"),
             Self::Database(error) => write!(formatter, "workspace database failed: {error}"),
             Self::FileOperation(error) => {
@@ -131,10 +139,34 @@ impl WorkspaceStore {
             .connection
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let existing = connection
+            .query_row(
+                "SELECT token, display_name, relay_override, lifecycle
+                 FROM workspace_configuration WHERE singleton = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((stored_token, stored_name, stored_relay, stored_lifecycle)) = existing {
+            if stored_token != token.as_bytes().as_slice()
+                || stored_name != display_name
+                || stored_relay.as_deref() != relay_override
+                || stored_lifecycle != lifecycle.as_str()
+            {
+                return Err(WorkspaceStoreError::InitializationConflict);
+            }
+            return Ok(());
+        }
         connection.execute(
             "INSERT INTO workspace_configuration (singleton, token, display_name, relay_override, lifecycle)
-             VALUES (1, ?1, ?2, ?3, ?4)
-             ON CONFLICT(singleton) DO NOTHING",
+             VALUES (1, ?1, ?2, ?3, ?4)",
             params![
                 token.as_bytes().as_slice(),
                 display_name,
@@ -237,7 +269,9 @@ impl WorkspaceStore {
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         let changed = connection.execute(
-            "UPDATE workspace_configuration SET joining_inviter = NULL, joining_display_name = NULL WHERE singleton = 1",
+            "UPDATE workspace_configuration
+             SET joining_inviter = NULL, joining_display_name = NULL
+             WHERE singleton = 1",
             [],
         )?;
         if changed == 0 {
@@ -545,10 +579,10 @@ impl WorkspaceStore {
                 "INSERT INTO workspace_members (public_identity, display_name, role, added_by, added_at)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
-                    member.public_identity,
+                    member.public_identity.to_string(),
                     member.display_name,
                     member.role,
-                    member.added_by,
+                    member.added_by.to_string(),
                     member.added_at
                 ],
             )?;
@@ -568,11 +602,27 @@ impl WorkspaceStore {
         )?;
         let members = statement
             .query_map([], |row| {
+                let public_identity =
+                    PublicIdentity::parse(&row.get::<_, String>(0)?).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
+                let added_by =
+                    PublicIdentity::parse(&row.get::<_, String>(3)?).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
                 Ok(Member::new(
-                    row.get::<_, String>(0)?,
+                    public_identity,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
+                    added_by,
                     row.get::<_, i64>(4)?,
                 ))
             })?
@@ -599,11 +649,7 @@ impl WorkspaceStore {
 fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
     let mut version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version == 0 && table_exists(connection, "documents")? {
-        connection.execute_batch(
-            "ALTER TABLE documents ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0;
-             PRAGMA user_version = 1;",
-        )?;
-        version = 1;
+        return Err(WorkspaceStoreError::UnsupportedLegacySchema);
     } else if version == 0 {
         connection.execute_batch(include_str!("../../migrations/0001_document_metadata.sql"))?;
         version = 1;
@@ -645,6 +691,12 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
     if version == 7 {
         connection.execute_batch(include_str!("../../migrations/0008_local_root_binding.sql"))?;
         version = 8;
+    }
+    if version == 8 {
+        connection.execute_batch(include_str!(
+            "../../migrations/0009_workspace_invariants.sql"
+        ))?;
+        version = 9;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

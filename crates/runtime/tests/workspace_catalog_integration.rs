@@ -5,9 +5,10 @@ use std::{
 };
 
 use resonance_runtime::{
-    workspace_catalog::WorkspaceCatalog,
+    workspace_catalog::{WorkspaceCatalog, WorkspaceCatalogError},
     workspace_domain::{Member, WorkspaceId, WorkspaceLifecycle},
 };
+use rusqlite::Connection;
 
 fn temporary_directory(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -39,10 +40,10 @@ fn keeps_workspace_configuration_membership_and_file_history_isolated() {
         .expect("alpha operation saves");
     alpha_store
         .replace_members(&[Member::new(
-            "alpha-public",
+            "a".repeat(64),
             "Ada",
             "developer",
-            "alpha-public",
+            "a".repeat(64),
             1,
         )])
         .expect("alpha members save");
@@ -98,6 +99,25 @@ fn keeps_workspace_configuration_membership_and_file_history_isolated() {
     );
     assert_eq!(alpha.lifecycle, WorkspaceLifecycle::Ready);
 
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn rejects_an_unsupported_catalog_schema_before_opening() {
+    let root = temporary_directory("workspace-catalog-schema");
+    let catalog_directory = root.join(".resonance");
+    fs::create_dir_all(&catalog_directory).expect("catalog directory creates");
+    let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))
+        .expect("catalog database opens");
+    connection
+        .execute_batch("PRAGMA user_version = 99;")
+        .expect("unsupported version writes");
+    drop(connection);
+
+    assert!(matches!(
+        WorkspaceCatalog::open(&root),
+        Err(WorkspaceCatalogError::UnsupportedSchema)
+    ));
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }
 

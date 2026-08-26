@@ -35,8 +35,8 @@ fn projects_the_valid_genesis_and_contributor_addition() {
     let projection = log.projection(&workspace_id);
 
     assert_eq!(projection.members.len(), 2);
-    assert!(projection.contains(&creator.public_identity().to_string()));
-    assert!(projection.contains(&contributor.public_identity().to_string()));
+    assert!(projection.contains(&creator.public_identity()));
+    assert!(projection.contains(&contributor.public_identity()));
     assert!(projection
         .statuses
         .values()
@@ -136,15 +136,15 @@ fn deterministic_replay_replaces_a_losing_branch_when_the_winner_arrives_late() 
     log.insert(loser.clone()).expect("loser records first");
     assert!(log
         .projection(&workspace_id)
-        .contains(&member_id(&loser.operation.body)));
+        .contains_text(&member_id(&loser.operation.body)));
 
     let winner_id = winner.operation_id().expect("winner ID");
     let loser_id = loser.operation_id().expect("loser ID");
     log.insert(winner.clone()).expect("winner records late");
     let projection = log.projection(&workspace_id);
 
-    assert!(projection.contains(&member_id(&winner.operation.body)));
-    assert!(!projection.contains(&member_id(&loser.operation.body)));
+    assert!(projection.contains_text(&member_id(&winner.operation.body)));
+    assert!(!projection.contains_text(&member_id(&loser.operation.body)));
     assert_eq!(projection.statuses[&winner_id], MembershipStatus::Canonical);
     assert_eq!(projection.statuses[&loser_id], MembershipStatus::Rejected);
 }

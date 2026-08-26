@@ -92,7 +92,7 @@ fn rolls_back_a_file_operation_batch_when_any_insert_fails() {
 }
 
 #[test]
-fn migrates_a_previous_workspace_schema_to_the_filesystem_authority_marker() {
+fn rejects_an_unsupported_legacy_workspace_without_deleting_user_data() {
     let root = temporary_directory("workspace-store-migration");
     let database = workspace_database(&root, "legacy");
     fs::create_dir_all(database.parent().expect("database has parent"))
@@ -103,41 +103,22 @@ fn migrates_a_previous_workspace_schema_to_the_filesystem_authority_marker() {
         .expect("legacy fixture applies");
     drop(connection);
 
-    let store = WorkspaceStore::open(&root, "legacy").expect("legacy workspace migrates");
-    assert_eq!(
-        store.initial_root_name().expect("filesystem root reads"),
-        "plans"
-    );
+    let error = WorkspaceStore::open(&root, "legacy")
+        .expect_err("unsupported legacy workspace must be rejected");
+    assert!(matches!(
+        error,
+        resonance_runtime::workspace_store::WorkspaceStoreError::UnsupportedLegacySchema
+    ));
 
-    let connection = Connection::open(&database).expect("migrated database opens");
-    let version: i32 = connection
-        .query_row("PRAGMA user_version", [], |row| row.get(0))
-        .expect("schema version reads");
-    assert_eq!(version, 8);
-    let file_history_table_exists: bool = connection
+    let connection = Connection::open(&database).expect("legacy database remains open");
+    let title: String = connection
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_file_operations')",
+            "SELECT title FROM documents WHERE id = 'legacy-doc'",
             [],
             |row| row.get(0),
         )
-        .expect("file history table check succeeds");
-    assert!(file_history_table_exists);
-    let root_binding_table_exists: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'local_root_binding')",
-            [],
-            |row| row.get(0),
-        )
-        .expect("local root table check succeeds");
-    assert!(root_binding_table_exists);
-    let documents_table_exists: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'documents')",
-            [],
-            |row| row.get(0),
-        )
-        .expect("documents table check succeeds");
-    assert!(!documents_table_exists);
+        .expect("legacy document remains");
+    assert_eq!(title, "Legacy document");
 
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }

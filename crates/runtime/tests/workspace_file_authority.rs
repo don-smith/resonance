@@ -38,10 +38,10 @@ fn membership(identity: &InstallationIdentity) -> MembershipProjection {
     MembershipProjection {
         canonical_head: Some("head".to_owned()),
         members: vec![Member::new(
-            identity.public_identity().to_string(),
+            identity.public_identity(),
             "Ada",
             "developer",
-            "Ada",
+            identity.public_identity(),
             0,
         )],
         statuses: Default::default(),

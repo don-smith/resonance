@@ -77,13 +77,6 @@ fn restart_completes_initialization_without_duplicate_genesis_or_plans_operation
         .join(".resonance/workspaces")
         .join(created.workspace.id.as_str())
         .join("workspace.sqlite3");
-    Connection::open(directory.join(".resonance/catalog.sqlite3"))
-        .expect("catalog database opens")
-        .execute(
-            "UPDATE workspace_catalog SET lifecycle = 'initializing' WHERE workspace_id = ?1",
-            [created.workspace.id.as_str()],
-        )
-        .expect("catalog lifecycle rewinds");
     let workspace_connection =
         Connection::open(&workspace_database).expect("workspace database opens");
     workspace_connection
@@ -141,13 +134,6 @@ fn restart_resumes_after_genesis_and_creates_exactly_one_plans_operation() {
         .join(".resonance/workspaces")
         .join(created.workspace.id.as_str())
         .join("workspace.sqlite3");
-    Connection::open(directory.join(".resonance/catalog.sqlite3"))
-        .expect("catalog database opens")
-        .execute(
-            "UPDATE workspace_catalog SET lifecycle = 'initializing' WHERE workspace_id = ?1",
-            [created.workspace.id.as_str()],
-        )
-        .expect("catalog lifecycle rewinds");
     let workspace_connection =
         Connection::open(&workspace_database).expect("workspace database opens");
     workspace_connection
@@ -199,13 +185,6 @@ fn initialization_without_durable_creator_input_stays_unavailable() {
         .expect("workspace creates");
     drop(workspace);
 
-    Connection::open(directory.join(".resonance/catalog.sqlite3"))
-        .expect("catalog database opens")
-        .execute(
-            "UPDATE workspace_catalog SET lifecycle = 'initializing' WHERE workspace_id = ?1",
-            [created.workspace.id.as_str()],
-        )
-        .expect("catalog lifecycle rewinds");
     let workspace_database = directory
         .join(".resonance/workspaces")
         .join(created.workspace.id.as_str())

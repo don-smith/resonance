@@ -650,7 +650,7 @@ impl WorkspaceFileRuntime {
             self.membership
                 .members
                 .iter()
-                .map(|member| member.public_identity.clone()),
+                .map(|member| member.public_identity.to_string()),
         );
         for operation in self.store.file_operations()? {
             let operation_id = operation.operation.operation_id.clone();

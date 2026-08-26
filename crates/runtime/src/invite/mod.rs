@@ -13,6 +13,10 @@ use crate::{
 
 const INVITE_DOMAIN: &[u8] = b"resonance.invite.v1\0";
 pub const INVITE_PROTOCOL_VERSION: u8 = 1;
+pub const MAX_INVITE_ENCODED_LENGTH: usize = 8192;
+pub const MAX_INVITE_NAME_LENGTH: usize = 256;
+pub const MAX_INVITE_RELAY_LENGTH: usize = 2048;
+pub const MAX_INVITE_BOOTSTRAP_LENGTH: usize = 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct UnsignedInvite {
@@ -93,6 +97,9 @@ impl Invite {
     }
 
     pub fn decode(encoded: &str) -> Result<Self, InviteError> {
+        if encoded.len() > MAX_INVITE_ENCODED_LENGTH {
+            return Err(InviteError::Decode);
+        }
         let bytes = bs58::decode(encoded)
             .into_vec()
             .map_err(|_| InviteError::Decode)?;
@@ -162,19 +169,24 @@ fn validate(invite: &UnsignedInvite) -> Result<(), InviteError> {
     if token.workspace_id() != workspace_id {
         return Err(InviteError::InvalidWorkspace);
     }
-    if invite.workspace_name.trim().is_empty() || invite.workspace_name.len() > 256 {
+    if invite.workspace_name.trim().is_empty()
+        || invite.workspace_name.len() > MAX_INVITE_NAME_LENGTH
+    {
         return Err(InviteError::InvalidName);
     }
     if let Some(relay) = &invite.relay_override {
         validate_relay_override(relay)?;
     }
-    if invite.bootstrap.trim().is_empty() || invite.bootstrap.len() > 1024 {
+    if invite.bootstrap.trim().is_empty() || invite.bootstrap.len() > MAX_INVITE_BOOTSTRAP_LENGTH {
         return Err(InviteError::InvalidBootstrap);
     }
     Ok(())
 }
 
 pub(crate) fn validate_relay_override(relay: &str) -> Result<(), InviteError> {
+    if relay.len() > MAX_INVITE_RELAY_LENGTH {
+        return Err(InviteError::InvalidRelay);
+    }
     let relay = Url::parse(relay).map_err(|_| InviteError::InvalidRelay)?;
     if !matches!(relay.scheme(), "https" | "http") || relay.host_str().is_none() {
         return Err(InviteError::InvalidRelay);

@@ -39,8 +39,7 @@ fn preserves_an_unknown_role_without_interpreting_it_as_a_privileged_role() {
         projection
             .members
             .iter()
-            .find(|member| member.public_identity
-                == unknown_role_member.public_identity().to_string())
+            .find(|member| member.public_identity == unknown_role_member.public_identity())
             .expect("unknown-role member projects")
             .role,
         "operator"

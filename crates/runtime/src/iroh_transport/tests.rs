@@ -115,27 +115,25 @@ async fn completes_a_pending_join_over_the_default_relay() {
         .expect("join request flushes");
 
     for _ in 0..100 {
-        match tokio::time::timeout(
+        if let Ok(Err(error)) = tokio::time::timeout(
             Duration::from_millis(100),
             inviter_transport.apply_next_session_event(&mut inviter),
         )
         .await
         {
-            Ok(Err(error)) => panic!("inviter session event fails: {error}"),
-            Ok(Ok(_)) | Err(_) => {}
+            panic!("inviter session event fails: {error}");
         }
         inviter_transport
             .flush_session(&mut inviter)
             .await
             .expect("inviter flushes");
-        match tokio::time::timeout(
+        if let Ok(Err(error)) = tokio::time::timeout(
             Duration::from_millis(100),
             joiner_transport.apply_next_session_event(&mut joiner),
         )
         .await
         {
-            Ok(Err(error)) => panic!("joiner session event fails: {error}"),
-            Ok(Ok(_)) | Err(_) => {}
+            panic!("joiner session event fails: {error}");
         }
         joiner_transport
             .flush_session(&mut joiner)

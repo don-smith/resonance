@@ -56,13 +56,14 @@ impl DebugProfile {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&lock_path)
             .map_err(|_| DebugProfileError::Unavailable)?;
         lock.try_lock_exclusive()
             .map_err(|_| DebugProfileError::Active)?;
         lock.set_len(0)
             .map_err(|_| DebugProfileError::Unavailable)?;
-        write!(lock, "{}\n", std::process::id()).map_err(|_| DebugProfileError::Unavailable)?;
+        writeln!(lock, "{}", std::process::id()).map_err(|_| DebugProfileError::Unavailable)?;
         lock.sync_all()
             .map_err(|_| DebugProfileError::Unavailable)?;
 

@@ -6,11 +6,12 @@ use std::{
     sync::Mutex,
 };
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::{
     workspace_domain::{
-        WorkspaceDomainError, WorkspaceId, WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
+        display_name as validate_display_name, WorkspaceDomainError, WorkspaceId,
+        WorkspaceLifecycle, WorkspaceSummary, WorkspaceToken,
     },
     workspace_store::{WorkspaceStore, WorkspaceStoreError},
 };
@@ -22,6 +23,7 @@ pub enum WorkspaceCatalogError {
     Database(rusqlite::Error),
     Io(std::io::Error),
     LockPoisoned,
+    UnsupportedSchema,
     UnknownWorkspace,
 }
 
@@ -35,6 +37,9 @@ impl fmt::Display for WorkspaceCatalogError {
             }
             Self::Io(error) => write!(formatter, "workspace catalog I/O failed: {error}"),
             Self::LockPoisoned => formatter.write_str("workspace catalog lock was poisoned"),
+            Self::UnsupportedSchema => formatter.write_str(
+                "workspace catalog schema is unsupported; export or reset the catalog before continuing",
+            ),
             Self::UnknownWorkspace => {
                 formatter.write_str("workspace is not in this installation catalog")
             }
@@ -81,18 +86,7 @@ impl WorkspaceCatalog {
         let catalog_directory = application_data_directory.join(".resonance");
         fs::create_dir_all(&catalog_directory)?;
         let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))?;
-        connection.execute_batch(
-            "CREATE TABLE IF NOT EXISTS workspace_catalog (
-                 workspace_id TEXT PRIMARY KEY NOT NULL,
-                 display_name TEXT NOT NULL,
-                 lifecycle TEXT NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS catalog_state (
-                 singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-                 active_workspace_id TEXT NULL
-             );
-             INSERT OR IGNORE INTO catalog_state (singleton, active_workspace_id) VALUES (1, NULL);",
-        )?;
+        migrate_catalog(&connection)?;
         Ok(Self {
             application_data_directory,
             connection: Mutex::new(connection),
@@ -104,10 +98,7 @@ impl WorkspaceCatalog {
         display_name: impl Into<String>,
         relay_override: Option<String>,
     ) -> Result<WorkspaceSummary, WorkspaceCatalogError> {
-        let display_name = display_name.into();
-        if display_name.trim().is_empty() {
-            return Err(WorkspaceDomainError::InvalidWorkspaceId.into());
-        }
+        let display_name = validate_display_name(display_name)?;
         self.create_workspace_with_token(
             WorkspaceToken::generate()?,
             display_name,
@@ -123,9 +114,7 @@ impl WorkspaceCatalog {
         relay_override: Option<String>,
         lifecycle: WorkspaceLifecycle,
     ) -> Result<WorkspaceSummary, WorkspaceCatalogError> {
-        if display_name.trim().is_empty() {
-            return Err(WorkspaceDomainError::InvalidWorkspaceId.into());
-        }
+        let display_name = validate_display_name(display_name)?;
         let id = token.workspace_id();
         let store = WorkspaceStore::open(&self.application_data_directory, id.as_str())?;
         store.initialize_workspace(&token, &display_name, relay_override.as_deref(), &lifecycle)?;
@@ -136,8 +125,8 @@ impl WorkspaceCatalog {
             .map_err(|_| WorkspaceCatalogError::LockPoisoned)?;
         let transaction = connection.unchecked_transaction()?;
         transaction.execute(
-            "INSERT INTO workspace_catalog (workspace_id, display_name, lifecycle) VALUES (?1, ?2, ?3)",
-            params![id.as_str(), display_name, lifecycle.as_str()],
+            "INSERT INTO workspace_catalog (workspace_id) VALUES (?1)",
+            [id.as_str()],
         )?;
         transaction.execute(
             "UPDATE catalog_state SET active_workspace_id = ?1 WHERE singleton = 1",
@@ -158,14 +147,7 @@ impl WorkspaceCatalog {
     ) -> Result<(), WorkspaceCatalogError> {
         let store = self.open_workspace(id)?;
         store.set_lifecycle(&lifecycle)?;
-        let connection = self
-            .connection
-            .lock()
-            .map_err(|_| WorkspaceCatalogError::LockPoisoned)?;
-        connection.execute(
-            "UPDATE workspace_catalog SET lifecycle = ?1 WHERE workspace_id = ?2",
-            params![lifecycle.as_str(), id.as_str()],
-        )?;
+        // WorkspaceStore is the sole durable owner of mutable metadata.
         Ok(())
     }
 
@@ -222,27 +204,60 @@ impl WorkspaceCatalog {
             .connection
             .lock()
             .map_err(|_| WorkspaceCatalogError::LockPoisoned)?;
-        let summary = connection
+        let exists = connection
             .query_row(
-                "SELECT display_name, lifecycle FROM workspace_catalog WHERE workspace_id = ?1",
+                "SELECT 1 FROM workspace_catalog WHERE workspace_id = ?1",
                 [id.as_str()],
-                |row| {
-                    Ok(WorkspaceSummary {
-                        id: id.clone(),
-                        display_name: row.get(0)?,
-                        lifecycle: WorkspaceLifecycle::parse(&row.get::<_, String>(1)?).map_err(
-                            |error| {
-                                rusqlite::Error::FromSqlConversionFailure(
-                                    1,
-                                    rusqlite::types::Type::Text,
-                                    Box::new(error),
-                                )
-                            },
-                        )?,
-                    })
-                },
+                |_| Ok(()),
             )
             .optional()?;
-        Ok(summary)
+        drop(connection);
+        exists
+            .map(|()| {
+                let store = WorkspaceStore::open(&self.application_data_directory, id.as_str())?;
+                let settings = store.settings()?;
+                Ok(WorkspaceSummary {
+                    id: id.clone(),
+                    display_name: settings.display_name,
+                    lifecycle: settings.lifecycle,
+                })
+            })
+            .transpose()
     }
+}
+
+fn migrate_catalog(connection: &Connection) -> Result<(), WorkspaceCatalogError> {
+    let version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    match version {
+        0 => {
+            if table_has_column(connection, "workspace_catalog", "display_name")? {
+                connection.execute_batch(
+                    "ALTER TABLE workspace_catalog RENAME TO workspace_catalog_legacy;
+                     CREATE TABLE workspace_catalog (
+                       workspace_id TEXT PRIMARY KEY NOT NULL
+                         CHECK (length(workspace_id) = 64 AND workspace_id NOT GLOB '*[^0-9a-f]*')
+                     );
+                     INSERT INTO workspace_catalog (workspace_id)
+                       SELECT workspace_id FROM workspace_catalog_legacy;
+                     DROP TABLE workspace_catalog_legacy;",
+                )?;
+            }
+            connection.execute_batch(include_str!("../../migrations/catalog/0001_initial.sql"))?;
+        }
+        1 => {}
+        _ => return Err(WorkspaceCatalogError::UnsupportedSchema),
+    }
+    Ok(())
+}
+
+fn table_has_column(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<bool, WorkspaceCatalogError> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(columns.iter().any(|name| name == column))
 }

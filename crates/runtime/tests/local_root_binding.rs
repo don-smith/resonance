@@ -143,10 +143,10 @@ fn repair_relocates_a_materialized_concurrent_create_loser() {
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
         members: vec![Member::new(
-            identity.public_identity().to_string(),
+            identity.public_identity(),
             "Ada",
             "developer",
-            "Ada",
+            identity.public_identity(),
             0,
         )],
         statuses: Default::default(),
@@ -459,10 +459,10 @@ fn recursive_directory_deletion_tombstones_children_before_parent_and_replays() 
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
         members: vec![Member::new(
-            identity.public_identity().to_string(),
+            identity.public_identity(),
             "Ada",
             "developer",
-            "Ada",
+            identity.public_identity(),
             0,
         )],
         statuses: Default::default(),
@@ -575,10 +575,10 @@ fn configured_and_permanent_ignores_exclude_external_input() {
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
         members: vec![Member::new(
-            identity.public_identity().to_string(),
+            identity.public_identity(),
             "Ada",
             "developer",
-            "Ada",
+            identity.public_identity(),
             0,
         )],
         statuses: Default::default(),
@@ -648,10 +648,10 @@ fn stable_external_file_becomes_a_member_signed_authority_operation() {
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
         members: vec![Member::new(
-            identity.public_identity().to_string(),
+            identity.public_identity(),
             "Ada",
             "developer",
-            "Ada",
+            identity.public_identity(),
             0,
         )],
         statuses: Default::default(),
@@ -805,10 +805,10 @@ fn conflict_artifacts_materialize_and_leave_the_root_after_resolution() {
     let membership = MembershipProjection {
         canonical_head: Some("head".to_owned()),
         members: vec![Member::new(
-            identity.public_identity().to_string(),
+            identity.public_identity(),
             "Ada",
             "developer",
-            "Ada",
+            identity.public_identity(),
             0,
         )],
         statuses: Default::default(),

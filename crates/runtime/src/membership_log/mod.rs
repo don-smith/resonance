@@ -58,10 +58,17 @@ pub struct MembershipProjection {
 
 impl MembershipProjection {
     #[must_use]
-    pub fn contains(&self, public_identity: &str) -> bool {
+    pub fn contains(&self, public_identity: &PublicIdentity) -> bool {
         self.members
             .iter()
-            .any(|member| member.public_identity == public_identity)
+            .any(|member| member.public_identity == *public_identity)
+    }
+
+    #[must_use]
+    pub fn contains_text(&self, public_identity: &str) -> bool {
+        PublicIdentity::parse(public_identity)
+            .map(|identity| self.contains(&identity))
+            .unwrap_or(false)
     }
 }
 
@@ -126,11 +133,10 @@ impl MembershipLog {
             .saturating_add(1)
     }
 
-    #[must_use]
-    pub fn encoded_operations(&self) -> Vec<Vec<u8>> {
+    pub fn encoded_operations(&self) -> Result<Vec<Vec<u8>>, MembershipError> {
         self.operations
             .values()
-            .filter_map(|operation| operation.encode().ok())
+            .map(SignedMembershipOperation::encode)
             .collect()
     }
 
@@ -365,10 +371,10 @@ fn apply_addition(
     members.insert(
         public_identity_text(public_identity),
         Member::new(
-            public_identity_text(public_identity),
-            display_name,
-            role,
-            &author,
+            PublicIdentity::from_bytes(*public_identity),
+            display_name.clone(),
+            role.clone(),
+            PublicIdentity::from_bytes(operation.operation.author),
             *added_at,
         ),
     );

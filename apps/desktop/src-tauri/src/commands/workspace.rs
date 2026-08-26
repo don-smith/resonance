@@ -490,7 +490,7 @@ fn workspace_summary_view(workspace: &WorkspaceSummary) -> WorkspaceView {
 
 fn member_view(member: &Member) -> MemberView {
     MemberView {
-        public_identity: member.public_identity.clone(),
+        public_identity: member.public_identity.to_string(),
         display_name: member.display_name.clone(),
         role: member.role.clone(),
     }
@@ -501,9 +501,12 @@ fn peer_view(peer: &KnownPeer, members: &[Member]) -> PeerView {
         .iter()
         .find(|member| member.public_identity == peer.public_identity)
         .map(|member| member.display_name.clone())
-        .unwrap_or_else(|| peer.public_identity[..12.min(peer.public_identity.len())].to_owned());
+        .unwrap_or_else(|| {
+            let identity = peer.public_identity.to_string();
+            identity[..12.min(identity.len())].to_owned()
+        });
     PeerView {
-        public_identity: peer.public_identity.clone(),
+        public_identity: peer.public_identity.to_string(),
         display_name,
         online: peer.online,
         connection: match peer.connection {

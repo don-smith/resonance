@@ -208,7 +208,7 @@ export class WorkspaceFilesTauriAdapter implements WorkspaceFilesV1 {
     if (this.#disposed || this.#startupError) {
       throw workspaceFilesError("unavailable-capability");
     }
-    if (validateWorkspaceFilesRequest(request).diagnostics.length > 0) {
+    if (validateWorkspaceFilesRequest(request).kind === "invalid") {
       throw workspaceFilesError("invalid-request");
     }
     const sequence = ++this.#issuedSequence;
@@ -219,7 +219,7 @@ export class WorkspaceFilesTauriAdapter implements WorkspaceFilesV1 {
       throw this.#safeError(error);
     }
     const result = validateWorkspaceFilesResponse(candidate);
-    if (!("value" in result)) throw workspaceFilesError("internal");
+    if (result.kind === "invalid") throw workspaceFilesError("internal");
     if ("snapshot" in result.value) {
       if (sequence < this.#appliedSequence && this.#latestSnapshot) {
         return { ...result.value, snapshot: this.#latestSnapshot };
@@ -243,6 +243,8 @@ export class WorkspaceFilesTauriAdapter implements WorkspaceFilesV1 {
 
   #safeError(candidate: unknown): WorkspaceFilesError {
     const result = validateWorkspaceFilesError(candidate);
-    return "value" in result ? result.value : workspaceFilesError("internal");
+    return result.kind === "valid"
+      ? result.value
+      : workspaceFilesError("internal");
   }
 }

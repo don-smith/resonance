@@ -3,12 +3,20 @@
     "name": "unknown request field",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "extra": true }
+      "value": {
+        "operation": "snapshot",
+        "extra": true
+      }
     }
   },
   {
     "name": "unknown operation",
-    "value": { "kind": "request", "value": { "operation": "read-files" } }
+    "value": {
+      "kind": "request",
+      "value": {
+        "operation": "read-files"
+      }
+    }
   },
   {
     "name": "identifier limit",
@@ -40,7 +48,9 @@
       "value": {
         "operation": "snapshot",
         "snapshot": {
-          "root": { "state": "private" },
+          "root": {
+            "state": "private"
+          },
           "entries": [],
           "conflicts": []
         }
@@ -54,7 +64,9 @@
       "value": {
         "operation": "snapshot",
         "snapshot": {
-          "root": { "state": "unbound" },
+          "root": {
+            "state": "unbound"
+          },
           "entries": [
             {
               "nodeId": "node",
@@ -77,7 +89,9 @@
       "value": {
         "operation": "snapshot",
         "snapshot": {
-          "root": { "state": "unbound" },
+          "root": {
+            "state": "unbound"
+          },
           "entries": [],
           "conflicts": [
             {
@@ -132,7 +146,9 @@
       "value": {
         "operation": "snapshot",
         "snapshot": {
-          "root": { "state": "unbound" },
+          "root": {
+            "state": "unbound"
+          },
           "entries": [],
           "conflicts": [
             {
@@ -169,70 +185,373 @@
     "name": "unsafe error text",
     "value": {
       "kind": "error",
-      "value": { "code": "internal", "message": "database path failed" }
+      "value": {
+        "code": "internal",
+        "message": "database path failed"
+      }
     }
   },
   {
     "name": "path",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "path": "/private/root" }
+      "value": {
+        "operation": "snapshot",
+        "path": "/private/root"
+      }
     }
   },
   {
     "name": "token",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "token": "secret" }
+      "value": {
+        "operation": "snapshot",
+        "token": "secret"
+      }
     }
   },
   {
     "name": "private key",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "privateKey": "secret" }
+      "value": {
+        "operation": "snapshot",
+        "privateKey": "secret"
+      }
     }
   },
   {
     "name": "blob location",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "blobLocation": "private" }
+      "value": {
+        "operation": "snapshot",
+        "blobLocation": "private"
+      }
     }
   },
   {
     "name": "watcher state",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "watcherState": {} }
+      "value": {
+        "operation": "snapshot",
+        "watcherState": {}
+      }
     }
   },
   {
     "name": "persistence details",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "persistence": {} }
+      "value": {
+        "operation": "snapshot",
+        "persistence": {}
+      }
     }
   },
   {
     "name": "sql details",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "sql": "SELECT *" }
+      "value": {
+        "operation": "snapshot",
+        "sql": "SELECT *"
+      }
     }
   },
   {
     "name": "signed operation",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "signedOperation": {} }
+      "value": {
+        "operation": "snapshot",
+        "signedOperation": {}
+      }
     }
   },
   {
     "name": "iroh data",
     "value": {
       "kind": "request",
-      "value": { "operation": "snapshot", "iroh": {} }
+      "value": {
+        "operation": "snapshot",
+        "iroh": {}
+      }
+    }
+  },
+  {
+    "name": "image preview byte length mismatch",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "open-preview",
+        "preview": {
+          "kind": "image",
+          "mimeType": "image/png",
+          "bytes": [137, 80],
+          "byteLength": 1
+        }
+      }
+    }
+  },
+  {
+    "name": "duplicate snapshot node identifiers",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": {
+            "state": "unbound"
+          },
+          "entries": [
+            {
+              "nodeId": "root",
+              "parentNodeId": null,
+              "name": "root",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            },
+            {
+              "nodeId": "root",
+              "parentNodeId": "root",
+              "name": "root",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            }
+          ],
+          "conflicts": []
+        }
+      }
+    }
+  },
+  {
+    "name": "dangling snapshot parent",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": {
+            "state": "unbound"
+          },
+          "entries": [
+            {
+              "nodeId": "root",
+              "parentNodeId": null,
+              "name": "root",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            },
+            {
+              "nodeId": "child",
+              "parentNodeId": "missing",
+              "name": "child",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            }
+          ],
+          "conflicts": []
+        }
+      }
+    }
+  },
+  {
+    "name": "multiple snapshot roots",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": {
+            "state": "unbound"
+          },
+          "entries": [
+            {
+              "nodeId": "one",
+              "parentNodeId": null,
+              "name": "one",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            },
+            {
+              "nodeId": "two",
+              "parentNodeId": null,
+              "name": "two",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            }
+          ],
+          "conflicts": []
+        }
+      }
+    }
+  },
+  {
+    "name": "snapshot parent cycle",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": {
+            "state": "unbound"
+          },
+          "entries": [
+            {
+              "nodeId": "root",
+              "parentNodeId": null,
+              "name": "root",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            },
+            {
+              "nodeId": "one",
+              "parentNodeId": "two",
+              "name": "one",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            },
+            {
+              "nodeId": "two",
+              "parentNodeId": "one",
+              "name": "two",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            }
+          ],
+          "conflicts": []
+        }
+      }
+    }
+  },
+  {
+    "name": "duplicate conflict record identifiers",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": {
+            "state": "unbound"
+          },
+          "entries": [
+            {
+              "nodeId": "root",
+              "parentNodeId": null,
+              "name": "root",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            }
+          ],
+          "conflicts": [
+            {
+              "recordId": "conflict",
+              "nodeId": "root",
+              "kind": "markdown-overlap",
+              "competingRevisionIds": ["revision"],
+              "resolutionCandidateIds": ["revision"],
+              "reviewableRevisionIds": ["revision"],
+              "deletionOperationId": null,
+              "treeChoices": []
+            },
+            {
+              "recordId": "conflict",
+              "nodeId": "root",
+              "kind": "markdown-overlap",
+              "competingRevisionIds": ["revision"],
+              "resolutionCandidateIds": ["revision"],
+              "reviewableRevisionIds": ["revision"],
+              "deletionOperationId": null,
+              "treeChoices": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown conflict node",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": {
+            "state": "unbound"
+          },
+          "entries": [
+            {
+              "nodeId": "root",
+              "parentNodeId": null,
+              "name": "root",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            }
+          ],
+          "conflicts": [
+            {
+              "recordId": "conflict",
+              "nodeId": "missing",
+              "kind": "markdown-overlap",
+              "competingRevisionIds": ["revision"],
+              "resolutionCandidateIds": ["revision"],
+              "reviewableRevisionIds": ["revision"],
+              "deletionOperationId": null,
+              "treeChoices": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown resolution candidate",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "snapshot",
+        "snapshot": {
+          "root": {
+            "state": "unbound"
+          },
+          "entries": [
+            {
+              "nodeId": "root",
+              "parentNodeId": null,
+              "name": "root",
+              "kind": "directory",
+              "currentRevisionId": null,
+              "editable": true
+            }
+          ],
+          "conflicts": [
+            {
+              "recordId": "conflict",
+              "nodeId": "root",
+              "kind": "markdown-overlap",
+              "competingRevisionIds": ["revision"],
+              "resolutionCandidateIds": ["missing"],
+              "reviewableRevisionIds": ["revision"],
+              "deletionOperationId": null,
+              "treeChoices": []
+            }
+          ]
+        }
+      }
     }
   }
 ]

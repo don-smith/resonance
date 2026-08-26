@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 2,
+  "source": "bundled",
+  "id": "resonance.invalid",
+  "name": "Invalid",
+  "description": "Uses a Windows absolute entry path.",
+  "nav": { "label": "Invalid", "icon": "x" },
+  "content": { "entry": "C:\\package\\src\\index.ts" },
+  "events": { "emits": [], "consumes": [] },
+  "minRole": "viewer"
+}

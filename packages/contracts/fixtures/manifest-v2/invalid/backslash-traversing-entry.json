@@ -1,0 +1,11 @@
+{
+  "manifestVersion": 2,
+  "source": "bundled",
+  "id": "resonance.invalid",
+  "name": "Invalid",
+  "description": "Uses a backslash traversal entry path.",
+  "nav": { "label": "Invalid", "icon": "x" },
+  "content": { "entry": "src\\..\\outside.ts" },
+  "events": { "emits": [], "consumes": [] },
+  "minRole": "viewer"
+}

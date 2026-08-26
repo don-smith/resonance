@@ -1,7 +1,7 @@
 import { emit, listen } from "@tauri-apps/api/event";
 
 import {
-  PackageSdk,
+  DeclaredPackageEvents,
   packageDesignTokens,
   type PackageContext,
   type WorkspaceFilesV1,
@@ -19,7 +19,7 @@ function workspaceFilesCapability(): WorkspaceFilesV1 {
 export function createPackageContext(
   manifest: BundledPackageManifest,
 ): PackageContext {
-  const events = new PackageSdk(
+  const events = new DeclaredPackageEvents(
     {
       emit: (event) =>
         emit(event.name, {

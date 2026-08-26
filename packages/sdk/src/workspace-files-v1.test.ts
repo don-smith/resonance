@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceFilesSnapshot } from "../../contracts/src/workspace-files-v1.js";
-import { InMemoryWorkspaceFilesV1 } from "./testing/in-memory-workspace-files-v1.js";
+import { InMemoryWorkspaceFilesV1 } from "@resonance/package-sdk/testing";
 import { workspaceFilesError } from "./workspace-files-v1.js";
 
 function snapshot(): WorkspaceFilesSnapshot {
@@ -72,6 +72,41 @@ describe("in-memory workspace-files v1", () => {
     ).resolves.toMatchObject({
       kind: "image",
     });
+  });
+
+  it("validates, clones, and freezes controlled snapshots", async () => {
+    const source = snapshot();
+    const adapter = new InMemoryWorkspaceFilesV1(source);
+    (source.entries as unknown as Array<{ name: string }>)[0]!.name =
+      "changed outside";
+
+    const first = await adapter.snapshot();
+    expect(first.entries[0]?.name).toBe("plans");
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Object.isFrozen(first.entries)).toBe(true);
+    expect(() => {
+      (first.entries as unknown as Array<{ name: string }>)[0]!.name =
+        "mutated";
+    }).toThrow();
+    expect((await adapter.snapshot()).entries[0]?.name).toBe("plans");
+
+    expect(
+      () =>
+        new InMemoryWorkspaceFilesV1({
+          root: { state: "unbound" },
+          entries: [
+            {
+              nodeId: "child",
+              parentNodeId: "missing",
+              name: "child",
+              kind: "directory",
+              currentRevisionId: null,
+              editable: true,
+            },
+          ],
+          conflicts: [],
+        }),
+    ).toThrow("Invalid workspace-files test value");
   });
 
   it("provides controllable finite failures", async () => {

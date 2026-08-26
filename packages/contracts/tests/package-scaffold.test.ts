@@ -1,86 +1,18 @@
-import { execFile } from "node:child_process";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, resolve } from "node:path";
-import { promisify } from "node:util";
+import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { validateManifest } from "./index.js";
+import { validateManifest } from "../src/index.js";
+import {
+  execute,
+  filesBelow,
+  snapshotFiles,
+  write,
+} from "./support/temp-repository.js";
 
-async function fixture(path: string): Promise<unknown> {
-  return JSON.parse(
-    await readFile(
-      resolve("packages/contracts/fixtures/manifest-v2", path),
-      "utf8",
-    ),
-  ) as unknown;
-}
-
-const execute = promisify(execFile);
-
-async function write(path: string, content: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, content);
-}
-
-async function filesBelow(directory: string, prefix = ""): Promise<string[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries.sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )) {
-    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      files.push(...(await filesBelow(resolve(directory, entry.name), path)));
-    } else if (entry.isFile()) {
-      files.push(path);
-    }
-  }
-  return files;
-}
-
-async function snapshotFiles(
-  directory: string,
-): Promise<Record<string, string>> {
-  return Object.fromEntries(
-    await Promise.all(
-      (await filesBelow(directory)).map(async (path) => [
-        path,
-        await readFile(resolve(directory, path), "utf8"),
-      ]),
-    ),
-  );
-}
-
-describe("package manifest v2", () => {
-  it("accepts the shared valid conformance fixture", async () => {
-    const result = validateManifest(
-      await fixture("valid/reference-manifest.json"),
-    );
-
-    expect(result.diagnostics).toEqual([]);
-    expect("manifest" in result && result.manifest).toMatchObject({
-      manifestVersion: 2,
-      source: "bundled",
-      id: "resonance.reference",
-      content: { entry: "src/index.ts" },
-    });
-    expect("manifest" in result && result.manifest.events.emits).toContain(
-      "peer:connection",
-    );
-    expect("manifest" in result && result.manifest.capabilities).toContain(
-      "workspace-files:v1",
-    );
-  });
-
+describe("package scaffold", () => {
   it("generates a manifest that validates through the author adapter", async () => {
     const output = await mkdtemp(resolve(tmpdir(), "resonance-package-"));
     try {
@@ -96,7 +28,7 @@ describe("package manifest v2", () => {
           JSON.parse(await readFile(resolve(output, "manifest.json"), "utf8")),
         ),
       ).toMatchObject({
-        diagnostics: [],
+        kind: "valid",
         manifest: {
           manifestVersion: 2,
           source: "bundled",
@@ -170,7 +102,7 @@ describe("package manifest v2", () => {
       const manifest = JSON.parse(
         await readFile(resolve(output, "manifest.json"), "utf8"),
       );
-      expect(validateManifest(manifest).diagnostics).toEqual([]);
+      expect(validateManifest(manifest).kind).toBe("valid");
       const typescriptCatalog = await readFile(
         resolve(root, "apps/desktop/src/generated/bundled-package-catalog.ts"),
         "utf8",
@@ -208,16 +140,5 @@ describe("package manifest v2", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
-
-  it.each([
-    ["invalid/placeholder-source.json", "/source"],
-    ["invalid/unknown-permission.json", "/agent/permissions/0"],
-    ["invalid/traversing-entry.json", "/content/entry"],
-  ])("reports an actionable diagnostic for %s", async (path, expectedPath) => {
-    const result = validateManifest(await fixture(path));
-
-    expect(result.diagnostics).not.toEqual([]);
-    expect(result.diagnostics[0]?.path).toBe(expectedPath);
   });
 });

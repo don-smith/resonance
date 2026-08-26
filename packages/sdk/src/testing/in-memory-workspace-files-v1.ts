@@ -1,10 +1,56 @@
-import type {
-  WorkspaceFilesError,
-  WorkspaceFilesMarkdownRevision,
-  WorkspaceFilesPreview,
-  WorkspaceFilesSnapshot,
-  WorkspaceFilesV1Operation,
+import {
+  validateWorkspaceFilesResponse,
+  type WorkspaceFilesError,
+  type WorkspaceFilesMarkdownRevision,
+  type WorkspaceFilesPreview,
+  type WorkspaceFilesSnapshot,
+  type WorkspaceFilesV1Operation,
 } from "../../../contracts/src/workspace-files-v1.js";
+
+function immutableClone<T>(value: T): T {
+  return deepFreeze(structuredClone(value));
+}
+
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+function validateResponseValue<T>(response: object, value: T): T {
+  const result = validateWorkspaceFilesResponse(response);
+  if (result.kind === "invalid") {
+    throw new TypeError(
+      `Invalid workspace-files test value: ${result.diagnostics
+        .map(({ path, message }) => `${path} ${message}`)
+        .join(", ")}`,
+    );
+  }
+  return immutableClone(value);
+}
+
+function validatedSnapshot(
+  snapshot: WorkspaceFilesSnapshot,
+): WorkspaceFilesSnapshot {
+  return validateResponseValue({ operation: "snapshot", snapshot }, snapshot);
+}
+
+function validatedRevision(
+  revision: WorkspaceFilesMarkdownRevision,
+): WorkspaceFilesMarkdownRevision {
+  return validateResponseValue(
+    { operation: "open-markdown", revision },
+    revision,
+  );
+}
+
+function validatedPreview(
+  preview: WorkspaceFilesPreview,
+): WorkspaceFilesPreview {
+  return validateResponseValue({ operation: "open-preview", preview }, preview);
+}
 import {
   workspaceFilesError,
   type WorkspaceFilesFailureController,
@@ -26,18 +72,18 @@ export class InMemoryWorkspaceFilesV1
   #revisionSequence = 0;
 
   public constructor(snapshot: WorkspaceFilesSnapshot) {
-    this.#snapshot = snapshot;
+    this.#snapshot = validatedSnapshot(snapshot);
   }
 
   public setSnapshot(snapshot: WorkspaceFilesSnapshot): void {
-    this.#snapshot = snapshot;
+    this.#snapshot = validatedSnapshot(snapshot);
     this.#emit();
   }
 
   public setMarkdownRevision(revision: WorkspaceFilesMarkdownRevision): void {
     this.#revisions.set(
       this.#revisionKey(revision.nodeId, revision.revisionId),
-      revision,
+      validatedRevision(revision),
     );
   }
 
@@ -46,7 +92,10 @@ export class InMemoryWorkspaceFilesV1
     revisionId: string,
     preview: WorkspaceFilesPreview,
   ): void {
-    this.#previews.set(this.#revisionKey(nodeId, revisionId), preview);
+    this.#previews.set(
+      this.#revisionKey(nodeId, revisionId),
+      validatedPreview(preview),
+    );
   }
 
   public failNext(
@@ -58,7 +107,7 @@ export class InMemoryWorkspaceFilesV1
 
   public async snapshot(): Promise<WorkspaceFilesSnapshot> {
     this.#fail("snapshot");
-    return this.#snapshot;
+    return immutableClone(this.#snapshot);
   }
 
   public subscribe(listener: WorkspaceFilesSnapshotListener): () => void {
@@ -89,7 +138,7 @@ export class InMemoryWorkspaceFilesV1
     this.#fail("open-markdown");
     const revision = this.#revisions.get(this.#revisionKey(nodeId, revisionId));
     if (!revision) throw workspaceFilesError("missing-revision");
-    return revision;
+    return immutableClone(revision);
   }
 
   public async openPreview(
@@ -99,7 +148,7 @@ export class InMemoryWorkspaceFilesV1
     this.#fail("open-preview");
     const preview = this.#previews.get(this.#revisionKey(nodeId, revisionId));
     if (!preview) throw workspaceFilesError("missing-revision");
-    return preview;
+    return immutableClone(preview);
   }
 
   public async createMarkdown(
@@ -109,16 +158,16 @@ export class InMemoryWorkspaceFilesV1
   ): Promise<WorkspaceFilesMarkdownRevision> {
     this.#fail("create-markdown");
     this.#validateMarkdown(name, markdown);
-    const revision: WorkspaceFilesMarkdownRevision = {
+    const revision = validatedRevision({
       nodeId: `memory-node-${++this.#revisionSequence}`,
       revisionId: `memory-revision-${this.#revisionSequence}`,
       markdown,
-    };
+    });
     this.#revisions.set(
       this.#revisionKey(revision.nodeId, revision.revisionId),
       revision,
     );
-    this.#snapshot = {
+    this.#snapshot = validatedSnapshot({
       ...this.#snapshot,
       entries: [
         ...this.#snapshot.entries,
@@ -131,9 +180,9 @@ export class InMemoryWorkspaceFilesV1
           editable: true,
         },
       ],
-    };
+    });
     this.#emit();
-    return revision;
+    return immutableClone(revision);
   }
 
   public async replaceMarkdown(
@@ -150,25 +199,25 @@ export class InMemoryWorkspaceFilesV1
     if (entry.currentRevisionId !== baseRevisionId) {
       throw workspaceFilesError("stale-revision");
     }
-    const revision: WorkspaceFilesMarkdownRevision = {
+    const revision = validatedRevision({
       nodeId,
       revisionId: `memory-revision-${++this.#revisionSequence}`,
       markdown,
-    };
+    });
     this.#revisions.set(
       this.#revisionKey(nodeId, revision.revisionId),
       revision,
     );
-    this.#snapshot = {
+    this.#snapshot = validatedSnapshot({
       ...this.#snapshot,
       entries: this.#snapshot.entries.map((candidate) =>
         candidate.nodeId === nodeId
           ? { ...candidate, currentRevisionId: revision.revisionId }
           : candidate,
       ),
-    };
+    });
     this.#emit();
-    return revision;
+    return immutableClone(revision);
   }
 
   public async resolveConflict(
@@ -187,14 +236,14 @@ export class InMemoryWorkspaceFilesV1
     if (chosenCandidateId !== null && !candidates.has(chosenCandidateId)) {
       throw workspaceFilesError("changed-conflict-choice");
     }
-    this.#snapshot = {
+    this.#snapshot = validatedSnapshot({
       ...this.#snapshot,
       conflicts: this.#snapshot.conflicts.filter(
         (candidate) => candidate.recordId !== recordId,
       ),
-    };
+    });
     this.#emit();
-    return this.#snapshot;
+    return immutableClone(this.#snapshot);
   }
 
   async #changeRoot(
@@ -202,9 +251,9 @@ export class InMemoryWorkspaceFilesV1
     state: WorkspaceFilesSnapshot["root"]["state"],
   ): Promise<WorkspaceFilesSnapshot> {
     this.#fail(operation);
-    this.#snapshot = { ...this.#snapshot, root: { state } };
+    this.#snapshot = validatedSnapshot({ ...this.#snapshot, root: { state } });
     this.#emit();
-    return this.#snapshot;
+    return immutableClone(this.#snapshot);
   }
 
   #validateMarkdown(name: string, markdown: string): void {
@@ -224,7 +273,9 @@ export class InMemoryWorkspaceFilesV1
   }
 
   #emit(): void {
-    for (const listener of this.#listeners) listener(this.#snapshot);
+    for (const listener of this.#listeners) {
+      listener(immutableClone(this.#snapshot));
+    }
   }
 
   #revisionKey(nodeId: string, revisionId: string): string {

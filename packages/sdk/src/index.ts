@@ -1,6 +1,5 @@
 export * from "./package-lifecycle.js";
 export * from "./workspace-files-v1.js";
-export * from "./testing/in-memory-workspace-files-v1.js";
 
 import type { PackageEvent, PackageEventAccess } from "./package-lifecycle.js";
 
@@ -18,7 +17,7 @@ export type PackageEventDeclarations = Readonly<{
   consumes: readonly string[];
 }>;
 
-export class PackageSdk implements PackageEventAccess {
+export class DeclaredPackageEvents implements PackageEventAccess {
   readonly #emits: ReadonlySet<string>;
   readonly #consumes: ReadonlySet<string>;
 

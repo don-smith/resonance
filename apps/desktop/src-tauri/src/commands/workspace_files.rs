@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use resonance_runtime::{
     local_root_binding::{RootHealth, RootSelection},
@@ -191,10 +191,64 @@ pub struct WorkspaceFilesSnapshot {
 
 impl WorkspaceFilesSnapshot {
     fn validate(&self) -> bool {
-        self.entries.len() <= MAX_ENTRIES
-            && self.conflicts.len() <= MAX_CONFLICTS
-            && self.entries.iter().all(FileEntryView::validate)
-            && self.conflicts.iter().all(ConflictView::validate)
+        if self.entries.len() > MAX_ENTRIES
+            || self.conflicts.len() > MAX_CONFLICTS
+            || !self.entries.iter().all(FileEntryView::validate)
+            || !self.conflicts.iter().all(ConflictView::validate)
+        {
+            return false;
+        }
+
+        let node_ids = self
+            .entries
+            .iter()
+            .map(|entry| entry.node_id.as_str())
+            .collect::<BTreeSet<_>>();
+        if node_ids.len() != self.entries.len()
+            || (!self.entries.is_empty()
+                && self
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.parent_node_id.is_none())
+                    .count()
+                    != 1)
+        {
+            return false;
+        }
+
+        let parents = self
+            .entries
+            .iter()
+            .map(|entry| (entry.node_id.as_str(), entry.parent_node_id.as_deref()))
+            .collect::<BTreeMap<_, _>>();
+        for entry in &self.entries {
+            if entry
+                .parent_node_id
+                .as_deref()
+                .is_some_and(|parent| !node_ids.contains(parent))
+            {
+                return false;
+            }
+            let mut visited = BTreeSet::new();
+            let mut current = Some(entry.node_id.as_str());
+            while let Some(node_id) = current {
+                if !visited.insert(node_id) {
+                    return false;
+                }
+                current = parents.get(node_id).copied().flatten();
+            }
+        }
+
+        let record_ids = self
+            .conflicts
+            .iter()
+            .map(|conflict| conflict.record_id.as_str())
+            .collect::<BTreeSet<_>>();
+        record_ids.len() == self.conflicts.len()
+            && self
+                .conflicts
+                .iter()
+                .all(|conflict| conflict.validate_references(&node_ids))
     }
 }
 
@@ -278,9 +332,50 @@ impl ConflictView {
             && self.tree_choices.len() <= MAX_CONFLICT_ITEMS
             && self.tree_choices.iter().all(ConflictChoiceView::validate)
     }
+
+    fn validate_references(&self, node_ids: &BTreeSet<&str>) -> bool {
+        if self.kind != ConflictViewKind::ConcurrentCreate
+            && !node_ids.contains(self.node_id.as_str())
+        {
+            return false;
+        }
+        let tree_candidate_ids = self
+            .tree_choices
+            .iter()
+            .map(|choice| choice.candidate_id.as_str())
+            .collect::<BTreeSet<_>>();
+        if tree_candidate_ids.len() != self.tree_choices.len() {
+            return false;
+        }
+        let mut known_candidates = self
+            .competing_revision_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        known_candidates.extend(tree_candidate_ids);
+        if let Some(deletion) = self.deletion_operation_id.as_deref() {
+            known_candidates.insert(deletion);
+        }
+        let competing_revisions = self
+            .competing_revision_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>();
+        self.resolution_candidate_ids
+            .iter()
+            .all(|candidate| known_candidates.contains(candidate.as_str()))
+            && self
+                .reviewable_revision_ids
+                .iter()
+                .all(|revision| competing_revisions.contains(revision.as_str()))
+            && self.tree_choices.iter().all(|choice| {
+                choice.kind != ConflictChoiceViewKind::Move
+                    || node_ids.contains(choice.node_id.as_str())
+            })
+    }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConflictViewKind {
     MarkdownOverlap,
@@ -313,7 +408,7 @@ impl ConflictChoiceView {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConflictChoiceViewKind {
     File,

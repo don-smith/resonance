@@ -4,10 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  InMemoryWorkspaceFilesV1,
   workspaceFilesError,
   type WorkspaceFilesSnapshot,
 } from "@resonance/package-sdk";
+import { InMemoryWorkspaceFilesV1 } from "@resonance/package-sdk/testing";
 
 function snapshot(): WorkspaceFilesSnapshot {
   return {

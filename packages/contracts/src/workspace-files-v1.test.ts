@@ -29,9 +29,11 @@ describe("workspace-files v1 contract", () => {
     const corpus = await fixture<WorkspaceFilesEnvelope[]>("valid");
     for (const value of corpus) {
       expect(
-        validateWorkspaceFilesEnvelope(value).diagnostics,
+        validateWorkspaceFilesEnvelope(value),
         JSON.stringify(value),
-      ).toEqual([]);
+      ).toMatchObject({
+        kind: "valid",
+      });
     }
 
     const requests = new Set(
@@ -58,13 +60,20 @@ describe("workspace-files v1 contract", () => {
     const corpus =
       await fixture<Array<{ name: string; value: unknown }>>("invalid");
     for (const { name, value } of corpus) {
-      expect(
-        validateWorkspaceFilesEnvelope(value).diagnostics,
-        name,
-      ).not.toEqual([]);
+      expect(validateWorkspaceFilesEnvelope(value), name).toMatchObject({
+        kind: "invalid",
+      });
     }
     expect(corpus.map(({ name }) => name)).toEqual(
       expect.arrayContaining([
+        "image preview byte length mismatch",
+        "duplicate snapshot node identifiers",
+        "dangling snapshot parent",
+        "multiple snapshot roots",
+        "snapshot parent cycle",
+        "duplicate conflict record identifiers",
+        "unknown conflict node",
+        "unknown resolution candidate",
         "path",
         "token",
         "private key",
@@ -85,8 +94,8 @@ describe("workspace-files v1 contract", () => {
         parentNodeId: "plans",
         name: "large.md",
         markdown: "é".repeat(524_289),
-      }).diagnostics,
-    ).not.toEqual([]);
+      }),
+    ).toMatchObject({ kind: "invalid" });
 
     expect(
       validateWorkspaceFilesResponse({
@@ -95,7 +104,7 @@ describe("workspace-files v1 contract", () => {
           root: { state: "unbound" },
           entries: Array.from({ length: 10_001 }, (_, index) => ({
             nodeId: `node-${index}`,
-            parentNodeId: null,
+            parentNodeId: index === 0 ? null : "node-0",
             name: "entry",
             kind: "directory",
             currentRevisionId: null,
@@ -103,25 +112,52 @@ describe("workspace-files v1 contract", () => {
           })),
           conflicts: [],
         },
-      }).diagnostics,
-    ).not.toEqual([]);
+      }),
+    ).toMatchObject({ kind: "invalid" });
+  });
+
+  it("reports the exact Markdown field path", () => {
+    const request = validateWorkspaceFilesRequest({
+      operation: "create-markdown",
+      parentNodeId: "plans",
+      name: "large.md",
+      markdown: "é".repeat(524_289),
+    });
+    const response = validateWorkspaceFilesResponse({
+      operation: "open-markdown",
+      revision: {
+        nodeId: "notes",
+        revisionId: "revision",
+        markdown: "é".repeat(524_289),
+      },
+    });
+
+    expect(request).toMatchObject({
+      kind: "invalid",
+      diagnostics: [{ path: "/value/markdown" }],
+    });
+    expect(response).toMatchObject({
+      kind: "invalid",
+      diagnostics: [{ path: "/value/revision/markdown" }],
+    });
   });
 
   it("validates request, response, and error values independently", () => {
-    expect(
-      validateWorkspaceFilesRequest({ operation: "snapshot" }).diagnostics,
-    ).toEqual([]);
+    expect(validateWorkspaceFilesRequest({ operation: "snapshot" })).toEqual({
+      kind: "valid",
+      value: { operation: "snapshot" },
+    });
     expect(
       validateWorkspaceFilesResponse({
         operation: "snapshot",
         snapshot: { root: { state: "unbound" }, entries: [], conflicts: [] },
-      }).diagnostics,
-    ).toEqual([]);
+      }),
+    ).toMatchObject({ kind: "valid" });
     expect(
       validateWorkspaceFilesError({
         code: "internal",
         message: workspaceFilesErrorMessages.internal,
-      }).diagnostics,
-    ).toEqual([]);
+      }),
+    ).toMatchObject({ kind: "valid" });
   });
 });

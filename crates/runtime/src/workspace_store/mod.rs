@@ -724,3 +724,34 @@ fn validate_identifier(value: &str, kind: &'static str) -> Result<(), WorkspaceS
 }
 
 use rusqlite::OptionalExtension;
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::{WorkspaceStore, WorkspaceStoreError};
+    use crate::workspace_domain::{WorkspaceLifecycle, WorkspaceToken};
+
+    #[test]
+    fn initialization_is_idempotent_only_for_matching_configuration() {
+        let root = tempdir().expect("temporary root creates");
+        let store = WorkspaceStore::open(root.path(), "workspace").expect("store opens");
+        let token = WorkspaceToken::generate().expect("token generates");
+        store
+            .initialize_workspace(&token, "Team", None, &WorkspaceLifecycle::Ready)
+            .expect("initialization succeeds");
+        store
+            .initialize_workspace(&token, "Team", None, &WorkspaceLifecycle::Ready)
+            .expect("matching initialization is idempotent");
+        let conflict = store.initialize_workspace(
+            &WorkspaceToken::generate().expect("second token generates"),
+            "Other",
+            None,
+            &WorkspaceLifecycle::Ready,
+        );
+        assert!(matches!(
+            conflict,
+            Err(WorkspaceStoreError::InitializationConflict)
+        ));
+    }
+}

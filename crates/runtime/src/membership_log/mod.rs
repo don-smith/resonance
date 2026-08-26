@@ -16,6 +16,34 @@ use crate::{
 const MEMBERSHIP_OPERATION_DOMAIN: &[u8] = b"resonance.membership-op.v1\0";
 pub const MEMBERSHIP_PROTOCOL_VERSION: u8 = 1;
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MembershipOperationId(String);
+
+impl MembershipOperationId {
+    pub fn parse(value: &str) -> Result<Self, MembershipError> {
+        if value.len() == 64
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            Ok(Self(value.to_owned()))
+        } else {
+            Err(MembershipError::InvalidOperationId)
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for MembershipOperationId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MembershipOperation {
     pub version: u8,
@@ -97,7 +125,7 @@ impl std::error::Error for MembershipError {}
 
 #[derive(Default)]
 pub struct MembershipLog {
-    operations: BTreeMap<String, SignedMembershipOperation>,
+    operations: BTreeMap<MembershipOperationId, SignedMembershipOperation>,
 }
 
 impl MembershipLog {
@@ -116,8 +144,9 @@ impl MembershipLog {
         operation: SignedMembershipOperation,
     ) -> Result<String, MembershipError> {
         let operation_id = operation.operation_id()?;
+        let operation_id_value = MembershipOperationId::parse(&operation_id)?;
         self.operations
-            .entry(operation_id.clone())
+            .entry(operation_id_value)
             .or_insert(operation);
         Ok(operation_id)
     }
@@ -145,7 +174,7 @@ impl MembershipLog {
         let mut statuses = self
             .operations
             .keys()
-            .map(|id| (id.clone(), MembershipStatus::Rejected))
+            .map(|id| (id.as_str().to_owned(), MembershipStatus::Rejected))
             .collect::<BTreeMap<_, _>>();
         let mut members = BTreeMap::new();
         let mut counters = BTreeMap::new();
@@ -154,7 +183,7 @@ impl MembershipLog {
             .operations
             .iter()
             .filter(|(_, signed)| valid_genesis(signed, workspace_id))
-            .map(|(id, _)| id.clone())
+            .map(|(id, _)| id.as_str().to_owned())
             .collect::<Vec<_>>();
         genesis.sort();
         let Some(mut head) = genesis.into_iter().next() else {
@@ -167,7 +196,8 @@ impl MembershipLog {
         };
 
         let mut canonical = BTreeSet::new();
-        let first = &self.operations[&head];
+        let first = &self.operations
+            [&MembershipOperationId::parse(&head).expect("stored operation ID must remain valid")];
         apply_addition(&mut members, &mut counters, first);
         canonical.insert(head.clone());
         statuses.insert(head.clone(), MembershipStatus::Canonical);
@@ -180,12 +210,13 @@ impl MembershipLog {
                     signed.operation.parent_operation_id.as_deref() == Some(&head)
                 })
                 .filter(|(_, signed)| valid_child(signed, workspace_id, &members, &counters))
-                .map(|(id, _)| id.clone())
+                .map(|(id, _)| id.as_str().to_owned())
                 .collect::<Vec<_>>();
             let Some(next) = candidates.into_iter().next() else {
                 break;
             };
-            let operation = &self.operations[&next];
+            let operation = &self.operations[&MembershipOperationId::parse(&next)
+                .expect("stored operation ID must remain valid")];
             apply_addition(&mut members, &mut counters, operation);
             statuses.insert(next.clone(), MembershipStatus::Canonical);
             canonical.insert(next.clone());
@@ -382,7 +413,7 @@ fn apply_addition(
 }
 
 fn mark_pending_operations(
-    operations: &BTreeMap<String, SignedMembershipOperation>,
+    operations: &BTreeMap<MembershipOperationId, SignedMembershipOperation>,
     workspace_id: &str,
     statuses: &mut BTreeMap<String, MembershipStatus>,
 ) {
@@ -392,9 +423,11 @@ fn mark_pending_operations(
             && operation.operation.workspace_id == workspace_id
             && operation.verify().is_ok()
             && parent.is_some_and(valid_operation_id)
-            && !operations.contains_key(parent.expect("parent was checked"))
+            && MembershipOperationId::parse(parent.expect("parent was checked"))
+                .map(|parent| !operations.contains_key(&parent))
+                .unwrap_or(false)
         {
-            statuses.insert(id.clone(), MembershipStatus::Pending);
+            statuses.insert(id.as_str().to_owned(), MembershipStatus::Pending);
         }
     }
 }

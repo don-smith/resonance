@@ -49,6 +49,9 @@ importers:
       "@tauri-apps/api":
         specifier: 2.5.0
         version: 2.5.0
+      ajv:
+        specifier: 8.17.1
+        version: 8.17.1
 
   packages/contracts:
     dependencies:

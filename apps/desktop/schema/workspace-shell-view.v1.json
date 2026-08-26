@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resonance.local/schema/workspace-shell-view.v1.json",
+  "title": "Resonance workspace shell view v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "revision",
+    "state",
+    "message",
+    "workspace",
+    "localPublicIdentity",
+    "members",
+    "peers"
+  ],
+  "properties": {
+    "revision": { "type": "integer", "minimum": 1 },
+    "state": {
+      "enum": [
+        "onboarding",
+        "initializing",
+        "ready",
+        "joining",
+        "identity-error",
+        "storage-error"
+      ]
+    },
+    "message": { "type": ["string", "null"] },
+    "workspace": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "displayName", "lifecycle"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "displayName": { "type": "string", "minLength": 1 },
+            "lifecycle": {
+              "enum": ["initializing", "ready", "joining"]
+            }
+          }
+        }
+      ]
+    },
+    "localPublicIdentity": { "type": ["string", "null"] },
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["publicIdentity", "displayName", "role"],
+        "properties": {
+          "publicIdentity": { "type": "string", "minLength": 1 },
+          "displayName": { "type": "string", "minLength": 1 },
+          "role": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "peers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["publicIdentity", "displayName", "online", "connection"],
+        "properties": {
+          "publicIdentity": { "type": "string", "minLength": 1 },
+          "displayName": { "type": "string", "minLength": 1 },
+          "online": { "type": "boolean" },
+          "connection": { "enum": ["direct", "relayed", "unknown"] }
+        }
+      }
+    }
+  }
+}

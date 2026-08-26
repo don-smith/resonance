@@ -1,4 +1,11 @@
-export type WorkspaceShellView = {
+import Ajv2020 from "ajv/dist/2020.js";
+
+import { roles, type ManifestRole } from "@resonance/contracts";
+
+import workspaceShellViewSchema from "../schema/workspace-shell-view.v1.json" with { type: "json" };
+
+export type WorkspaceShellView = Readonly<{
+  revision: number;
   state:
     | "onboarding"
     | "initializing"
@@ -7,82 +14,55 @@ export type WorkspaceShellView = {
     | "identity-error"
     | "storage-error";
   message: string | null;
-  workspace: {
+  workspace: Readonly<{
     id: string;
     displayName: string;
     lifecycle: "initializing" | "ready" | "joining";
-  } | null;
+  }> | null;
   localPublicIdentity: string | null;
-  members: Array<{
-    publicIdentity: string;
-    displayName: string;
-    role: string;
-  }>;
-  peers: Array<{
-    publicIdentity: string;
-    displayName: string;
-    online: boolean;
-    connection: "direct" | "relayed" | "unknown";
-  }>;
-};
+  members: ReadonlyArray<
+    Readonly<{
+      publicIdentity: string;
+      displayName: string;
+      role: string;
+    }>
+  >;
+  peers: ReadonlyArray<
+    Readonly<{
+      publicIdentity: string;
+      displayName: string;
+      online: boolean;
+      connection: "direct" | "relayed" | "unknown";
+    }>
+  >;
+}>;
 
-function isString(value: unknown): value is string {
-  return typeof value === "string";
-}
-
-function isNullableString(value: unknown): value is string | null {
-  return value === null || isString(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function hasPrivateContractKey(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(hasPrivateContractKey);
-  if (!isRecord(value)) return false;
-  const forbidden = new Set([
-    "path",
-    "token",
-    "privateKey",
-    "blobLocation",
-    "watcherState",
-    "iroh",
-  ]);
-  return (
-    Object.keys(value).some((key) => forbidden.has(key)) ||
-    Object.values(value).some(hasPrivateContractKey)
-  );
-}
+const validate = new Ajv2020({ allErrors: true, strict: true }).compile(
+  workspaceShellViewSchema,
+);
 
 export function isWorkspaceShellView(
   value: unknown,
 ): value is WorkspaceShellView {
-  if (!isRecord(value) || hasPrivateContractKey(value)) return false;
-  return (
-    [
-      "onboarding",
-      "initializing",
-      "ready",
-      "joining",
-      "identity-error",
-      "storage-error",
-    ].includes(value.state as string) &&
-    isNullableString(value.message) &&
-    isNullableString(value.localPublicIdentity) &&
-    Array.isArray(value.members) &&
-    Array.isArray(value.peers) &&
-    !("files" in value)
-  );
+  return validate(value);
 }
 
 export function workspaceViewChanged(
   current: WorkspaceShellView | null,
   incoming: WorkspaceShellView,
 ): boolean {
-  return (
-    current === null || JSON.stringify(current) !== JSON.stringify(incoming)
-  );
+  return current === null || incoming.revision > current.revision;
+}
+
+export function localMemberRole(view: WorkspaceShellView): ManifestRole | null {
+  const identity = view.localPublicIdentity;
+  if (!identity) return null;
+  const role = view.members.find(
+    ({ publicIdentity }) => publicIdentity === identity,
+  )?.role;
+  return role && roles.includes(role as ManifestRole)
+    ? (role as ManifestRole)
+    : null;
 }
 
 export function peerStatus(peer: WorkspaceShellView["peers"][number]): string {

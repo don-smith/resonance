@@ -1,0 +1,37 @@
+[
+  {
+    "revision": 1,
+    "state": "onboarding",
+    "message": null,
+    "workspace": null,
+    "localPublicIdentity": "local-id",
+    "members": [],
+    "peers": []
+  },
+  {
+    "revision": 2,
+    "state": "ready",
+    "message": null,
+    "workspace": {
+      "id": "workspace-id",
+      "displayName": "Team Resonance",
+      "lifecycle": "ready"
+    },
+    "localPublicIdentity": "local-id",
+    "members": [
+      {
+        "publicIdentity": "local-id",
+        "displayName": "Ada",
+        "role": "developer"
+      }
+    ],
+    "peers": [
+      {
+        "publicIdentity": "peer-id",
+        "displayName": "Grace",
+        "online": true,
+        "connection": "relayed"
+      }
+    ]
+  }
+]

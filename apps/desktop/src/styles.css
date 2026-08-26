@@ -47,10 +47,14 @@ body {
 
 .navigation nav button {
   width: 100%;
-  border-color: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.4rem;
+  padding: 0.7rem 0.8rem;
   color: inherit;
   background: transparent;
+  font: inherit;
   text-align: left;
+  cursor: pointer;
 }
 
 .navigation nav button[aria-current="page"] {
@@ -71,23 +75,19 @@ body {
   text-transform: uppercase;
 }
 
-h1 {
+.shell-title {
   margin: 0;
   font-size: clamp(2rem, 5vw, 3.5rem);
 }
 
-h2 {
+.onboarding h2,
+.shell-people h2 {
   margin: 2rem 0 0.75rem;
   font-size: 1.15rem;
 }
 
-h3 {
-  margin-top: 1.5rem;
-  font-size: 1rem;
-}
-
 .message,
-.workspace li {
+.shell-people li {
   color: var(--resonance-color-muted);
   line-height: 1.5;
 }
@@ -97,21 +97,25 @@ h3 {
   color: #ffd18a;
 }
 
-form {
+.onboarding form,
+.retry-join {
   display: grid;
   gap: 0.85rem;
   max-width: 32rem;
 }
 
-label {
+.onboarding label,
+.retry-join label {
   display: grid;
   gap: 0.35rem;
   color: var(--resonance-color-muted);
 }
 
-input,
-select,
-button {
+.onboarding input,
+.onboarding button,
+.retry-join input,
+.retry-join button,
+.workspace-actions > button {
   border: 1px solid #4b4560;
   border-radius: 0.4rem;
   padding: 0.7rem 0.8rem;
@@ -120,7 +124,9 @@ button {
   font: inherit;
 }
 
-button {
+.onboarding button,
+.retry-join button,
+.workspace-actions > button {
   width: fit-content;
   cursor: pointer;
   background: #665bd5;

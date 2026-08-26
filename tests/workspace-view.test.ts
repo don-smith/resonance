@@ -1,14 +1,18 @@
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, it } from "vitest";
 
 import {
   isWorkspaceShellView,
+  localMemberRole,
   peerStatus,
   workspaceViewChanged,
   type WorkspaceShellView,
 } from "../apps/desktop/src/workspace-view.js";
 
-function readyView(): WorkspaceShellView {
+function readyView(revision = 1): WorkspaceShellView {
   return {
+    revision,
     state: "ready",
     message: null,
     workspace: {
@@ -17,7 +21,13 @@ function readyView(): WorkspaceShellView {
       lifecycle: "ready",
     },
     localPublicIdentity: "public-id",
-    members: [],
+    members: [
+      {
+        publicIdentity: "public-id",
+        displayName: "Local member",
+        role: "developer",
+      },
+    ],
     peers: [
       {
         publicIdentity: "peer-id",
@@ -30,23 +40,43 @@ function readyView(): WorkspaceShellView {
 }
 
 describe("workspace shell view", () => {
-  it("accepts package-neutral workspace and peer state", () => {
-    expect(isWorkspaceShellView(readyView())).toBe(true);
+  it("accepts every strict shared fixture", async () => {
+    const fixtures = JSON.parse(
+      await readFile(
+        "apps/desktop/schema/fixtures/workspace-shell-view.v1.valid.json",
+        "utf8",
+      ),
+    ) as unknown[];
+    expect(fixtures.every(isWorkspaceShellView)).toBe(true);
   });
 
-  it("rejects legacy file state and private values", () => {
-    expect(isWorkspaceShellView({ ...readyView(), files: {} })).toBe(false);
+  it("rejects every invalid shared fixture", async () => {
+    const fixtures = JSON.parse(
+      await readFile(
+        "apps/desktop/schema/fixtures/workspace-shell-view.v1.invalid.json",
+        "utf8",
+      ),
+    ) as Array<{ name: string; value: unknown }>;
+    for (const fixture of fixtures) {
+      expect(isWorkspaceShellView(fixture.value), fixture.name).toBe(false);
+    }
+  });
+
+  it("accepts only increasing revisions", () => {
+    expect(workspaceViewChanged(null, readyView(1))).toBe(true);
+    expect(workspaceViewChanged(readyView(2), readyView(2))).toBe(false);
+    expect(workspaceViewChanged(readyView(2), readyView(1))).toBe(false);
+    expect(workspaceViewChanged(readyView(2), readyView(3))).toBe(true);
+  });
+
+  it("finds the canonical local role and fails closed for unknown roles", () => {
+    expect(localMemberRole(readyView())).toBe("developer");
     expect(
-      isWorkspaceShellView({ ...readyView(), path: "/private/root" }),
-    ).toBe(false);
-  });
-
-  it("does not replace interactive UI for an identical transport view", () => {
-    const current = readyView();
-    const identical = structuredClone(current);
-    expect(workspaceViewChanged(current, identical)).toBe(false);
-    identical.peers[0].online = false;
-    expect(workspaceViewChanged(current, identical)).toBe(true);
+      localMemberRole({
+        ...readyView(),
+        members: [{ ...readyView().members[0]!, role: "owner" }],
+      }),
+    ).toBeNull();
   });
 
   it("renders an offline peer without a connection claim", () => {

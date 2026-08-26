@@ -149,6 +149,15 @@ mod tests {
                 .iter()
                 .any(|value| value == &format!("allow-{permission}")));
         }
-        assert_eq!(permissions.len(), commands.len() + 2);
+        for permission in [
+            "core:event:allow-emit",
+            "core:event:allow-listen",
+            "core:event:allow-unlisten",
+        ] {
+            assert!(permissions.iter().any(|value| value == permission));
+        }
+        assert!(!permissions.iter().any(|value| value == "core:default"));
+        assert!(!permissions.iter().any(|value| value == "updater:default"));
+        assert_eq!(permissions.len(), commands.len() + 3);
     }
 }

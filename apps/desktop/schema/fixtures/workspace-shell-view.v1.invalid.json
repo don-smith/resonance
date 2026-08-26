@@ -1,0 +1,84 @@
+[
+  {
+    "name": "unknown top-level field",
+    "value": {
+      "revision": 1,
+      "state": "onboarding",
+      "message": null,
+      "workspace": null,
+      "localPublicIdentity": null,
+      "members": [],
+      "peers": [],
+      "path": "/private/root"
+    }
+  },
+  {
+    "name": "unknown nested member field",
+    "value": {
+      "revision": 1,
+      "state": "ready",
+      "message": null,
+      "workspace": {
+        "id": "workspace-id",
+        "displayName": "Team",
+        "lifecycle": "ready"
+      },
+      "localPublicIdentity": "local-id",
+      "members": [
+        {
+          "publicIdentity": "local-id",
+          "displayName": "Ada",
+          "role": "developer",
+          "token": "secret"
+        }
+      ],
+      "peers": []
+    }
+  },
+  {
+    "name": "invalid peer connection",
+    "value": {
+      "revision": 2,
+      "state": "ready",
+      "message": null,
+      "workspace": {
+        "id": "workspace-id",
+        "displayName": "Team",
+        "lifecycle": "ready"
+      },
+      "localPublicIdentity": "local-id",
+      "members": [],
+      "peers": [
+        {
+          "publicIdentity": "peer-id",
+          "displayName": "Grace",
+          "online": true,
+          "connection": "private"
+        }
+      ]
+    }
+  },
+  {
+    "name": "zero revision",
+    "value": {
+      "revision": 0,
+      "state": "onboarding",
+      "message": null,
+      "workspace": null,
+      "localPublicIdentity": null,
+      "members": [],
+      "peers": []
+    }
+  },
+  {
+    "name": "missing revision",
+    "value": {
+      "state": "onboarding",
+      "message": null,
+      "workspace": null,
+      "localPublicIdentity": null,
+      "members": [],
+      "peers": []
+    }
+  }
+]

@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-shell",
-  "description": "The trusted main shell may use only registered shell commands and the shell-owned updater.",
+  "description": "The trusted main shell may use registered application commands and declared package events.",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "updater:default",
+    "core:event:allow-emit",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     "allow-bundled-package-ids",
     "allow-workspace-view",
     "allow-workspace-files-v1",

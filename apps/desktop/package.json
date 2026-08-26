@@ -11,6 +11,7 @@
   "dependencies": {
     "@resonance/contracts": "workspace:*",
     "@resonance/package-sdk": "workspace:*",
-    "@tauri-apps/api": "2.5.0"
+    "@tauri-apps/api": "2.5.0",
+    "ajv": "8.17.1"
   }
 }

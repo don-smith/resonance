@@ -1,4 +1,11 @@
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use resonance_runtime::{
     identity::InstallationIdentity,
@@ -30,6 +37,8 @@ pub(super) struct ManagedWorkspace {
     pub(super) files: Mutex<Option<WorkspaceFileRuntime>>,
     issue: Mutex<Option<WorkspaceIssue>>,
     local_public_identity: Option<String>,
+    last_view: Mutex<Option<WorkspaceShellView>>,
+    view_revision: AtomicU64,
 }
 
 #[derive(Clone, Debug)]
@@ -39,10 +48,11 @@ enum WorkspaceIssue {
     Network(String),
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkspaceShellView {
-    pub state: String,
+    pub revision: u64,
+    pub state: ShellState,
     pub message: Option<String>,
     pub workspace: Option<WorkspaceView>,
     pub local_public_identity: Option<String>,
@@ -50,29 +60,74 @@ pub struct WorkspaceShellView {
     pub peers: Vec<PeerView>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+impl WorkspaceShellView {
+    fn validate(&self) -> bool {
+        self.revision > 0
+            && self.workspace.as_ref().is_none_or(|workspace| {
+                !workspace.id.is_empty() && !workspace.display_name.is_empty()
+            })
+            && self.members.iter().all(|member| {
+                !member.public_identity.is_empty()
+                    && !member.display_name.is_empty()
+                    && !member.role.is_empty()
+            })
+            && self
+                .peers
+                .iter()
+                .all(|peer| !peer.public_identity.is_empty() && !peer.display_name.is_empty())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShellState {
+    Onboarding,
+    Initializing,
+    Ready,
+    Joining,
+    IdentityError,
+    StorageError,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkspaceView {
     pub id: String,
     pub display_name: String,
-    pub lifecycle: String,
+    pub lifecycle: WorkspaceLifecycleView,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WorkspaceLifecycleView {
+    Initializing,
+    Ready,
+    Joining,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemberView {
     pub public_identity: String,
     pub display_name: String,
     pub role: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PeerView {
     pub public_identity: String,
     pub display_name: String,
     pub online: bool,
-    pub connection: String,
+    pub connection: PeerConnectionView,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PeerConnectionView {
+    Direct,
+    Relayed,
+    Unknown,
 }
 
 #[derive(Debug, Deserialize)]
@@ -133,6 +188,8 @@ impl ManagedWorkspaceState {
                 files: Mutex::new(files),
                 issue: Mutex::new(issue),
                 local_public_identity,
+                last_view: Mutex::new(None),
+                view_revision: AtomicU64::new(0),
             }),
         }
     }
@@ -157,13 +214,31 @@ impl ManagedWorkspaceState {
 
 impl ManagedWorkspace {
     pub(super) async fn view(&self) -> WorkspaceShellView {
+        let mut view = self.compute_view().await;
+        let mut last_view = self.last_view.lock().await;
+        let changed = last_view.as_ref().is_none_or(|previous| {
+            let mut comparable = previous.clone();
+            comparable.revision = 0;
+            comparable != view
+        });
+        if changed {
+            self.view_revision.fetch_add(1, Ordering::Relaxed);
+        }
+        view.revision = self.view_revision.load(Ordering::Relaxed);
+        debug_assert!(view.validate(), "native shell view must match its contract");
+        *last_view = Some(view.clone());
+        view
+    }
+
+    async fn compute_view(&self) -> WorkspaceShellView {
         let mut session = self.session.lock().await;
         let issue = self.issue.lock().await.clone();
         let Some(session) = session.as_mut() else {
             return WorkspaceShellView {
+                revision: 0,
                 state: match issue {
-                    Some(WorkspaceIssue::Identity(_)) => "identity-error".to_owned(),
-                    _ => "storage-error".to_owned(),
+                    Some(WorkspaceIssue::Identity(_)) => ShellState::IdentityError,
+                    _ => ShellState::StorageError,
                 },
                 message: issue.map(issue_message),
                 workspace: None,
@@ -174,7 +249,8 @@ impl ManagedWorkspace {
         };
         if !session.has_active_workspace() {
             return WorkspaceShellView {
-                state: "onboarding".to_owned(),
+                revision: 0,
+                state: ShellState::Onboarding,
                 message: None,
                 workspace: None,
                 local_public_identity: self.local_public_identity.clone(),
@@ -184,10 +260,11 @@ impl ManagedWorkspace {
         }
         match session.view() {
             Ok(view) => WorkspaceShellView {
+                revision: 0,
                 state: match view.workspace.lifecycle {
-                    WorkspaceLifecycle::Initializing => "initializing".to_owned(),
-                    WorkspaceLifecycle::Ready => "ready".to_owned(),
-                    WorkspaceLifecycle::Joining => "joining".to_owned(),
+                    WorkspaceLifecycle::Initializing => ShellState::Initializing,
+                    WorkspaceLifecycle::Ready => ShellState::Ready,
+                    WorkspaceLifecycle::Joining => ShellState::Joining,
                 },
                 message: issue.and_then(|issue| match issue {
                     WorkspaceIssue::Network(_) => Some(issue_message(issue)),
@@ -203,7 +280,8 @@ impl ManagedWorkspace {
                     .collect(),
             },
             Err(_) => WorkspaceShellView {
-                state: "storage-error".to_owned(),
+                revision: 0,
+                state: ShellState::StorageError,
                 message: Some(issue_message(WorkspaceIssue::Storage)),
                 workspace: None,
                 local_public_identity: self.local_public_identity.clone(),
@@ -536,9 +614,9 @@ fn workspace_summary_view(workspace: &WorkspaceSummary) -> WorkspaceView {
         id: workspace.id.as_str().to_owned(),
         display_name: workspace.display_name.clone(),
         lifecycle: match workspace.lifecycle {
-            WorkspaceLifecycle::Initializing => "initializing".to_owned(),
-            WorkspaceLifecycle::Ready => "ready".to_owned(),
-            WorkspaceLifecycle::Joining => "joining".to_owned(),
+            WorkspaceLifecycle::Initializing => WorkspaceLifecycleView::Initializing,
+            WorkspaceLifecycle::Ready => WorkspaceLifecycleView::Ready,
+            WorkspaceLifecycle::Joining => WorkspaceLifecycleView::Joining,
         },
     }
 }
@@ -562,9 +640,9 @@ fn peer_view(peer: &KnownPeer, members: &[Member]) -> PeerView {
         display_name,
         online: peer.online,
         connection: match peer.connection {
-            PeerConnection::Direct => "direct".to_owned(),
-            PeerConnection::Relayed => "relayed".to_owned(),
-            PeerConnection::Unknown => "unknown".to_owned(),
+            PeerConnection::Direct => PeerConnectionView::Direct,
+            PeerConnection::Relayed => PeerConnectionView::Relayed,
+            PeerConnection::Unknown => PeerConnectionView::Unknown,
         },
     }
 }
@@ -637,11 +715,42 @@ fn unix_seconds() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use serde::Deserialize;
+
     use super::{
         issue_message, network_delivery_issue, network_start_issue, IrohSessionAdapterError,
-        IrohTransportError, MemberView, PeerView, WorkspaceSessionError, WorkspaceShellView,
-        WorkspaceView,
+        IrohTransportError, MemberView, PeerConnectionView, PeerView, ShellState,
+        WorkspaceLifecycleView, WorkspaceSessionError, WorkspaceShellView, WorkspaceView,
     };
+
+    const VALID_SHELL_VIEWS: &str =
+        include_str!("../../../schema/fixtures/workspace-shell-view.v1.valid.json");
+    const INVALID_SHELL_VIEWS: &str =
+        include_str!("../../../schema/fixtures/workspace-shell-view.v1.invalid.json");
+
+    #[derive(Deserialize)]
+    struct InvalidShellView {
+        name: String,
+        value: serde_json::Value,
+    }
+
+    #[test]
+    fn shares_the_strict_shell_view_fixture_corpus() {
+        let valid: Vec<WorkspaceShellView> =
+            serde_json::from_str(VALID_SHELL_VIEWS).expect("valid shell fixtures parse");
+        assert_eq!(valid.len(), 2);
+
+        let invalid: Vec<InvalidShellView> =
+            serde_json::from_str(INVALID_SHELL_VIEWS).expect("invalid shell corpus parses");
+        for fixture in invalid {
+            assert!(
+                !serde_json::from_value::<WorkspaceShellView>(fixture.value)
+                    .is_ok_and(|view| view.validate()),
+                "invalid shell fixture unexpectedly passed: {}",
+                fixture.name
+            );
+        }
+    }
 
     #[test]
     fn maps_transport_start_errors_to_safe_actionable_messages() {
@@ -671,12 +780,13 @@ mod tests {
     #[test]
     fn public_workspace_event_contains_no_secret_or_transport_fields() {
         let view = WorkspaceShellView {
-            state: "ready".to_owned(),
+            revision: 1,
+            state: ShellState::Ready,
             message: None,
             workspace: Some(WorkspaceView {
                 id: "opaque-id".to_owned(),
                 display_name: "Team".to_owned(),
-                lifecycle: "ready".to_owned(),
+                lifecycle: WorkspaceLifecycleView::Ready,
             }),
             local_public_identity: Some("public-id".to_owned()),
             members: vec![MemberView {
@@ -688,10 +798,11 @@ mod tests {
                 public_identity: "member-id".to_owned(),
                 display_name: "Ada".to_owned(),
                 online: true,
-                connection: "direct".to_owned(),
+                connection: PeerConnectionView::Direct,
             }],
         };
 
+        assert!(view.validate());
         let payload = serde_json::to_string(&view).expect("view serializes");
         assert!(!payload.contains("\"files\""));
         for forbidden in ["secret", "token", "private", "bootstrap", "path", "iroh"] {

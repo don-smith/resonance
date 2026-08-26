@@ -73,6 +73,7 @@ function entry(
       name: id,
       nav: { label: id, icon: "box" },
       events: { emits: [], consumes: [] },
+      minRole: "viewer" as const,
     },
     load: async () => ({ mount }),
   } as const;
@@ -111,9 +112,9 @@ describe("package host", () => {
       createContext: ({ id }) => context(id),
     });
 
-    await host.activate("resonance.alpha");
-    await host.activate("resonance.beta");
-    await host.activate("resonance.alpha");
+    await host.activate("resonance.alpha", "viewer");
+    await host.activate("resonance.beta", "viewer");
+    await host.activate("resonance.alpha", "viewer");
 
     expect(log).toEqual([
       "alpha:mount",
@@ -163,9 +164,9 @@ describe("package host", () => {
       createContext: ({ id }) => context(id),
     });
 
-    const alphaTransition = host.activate("resonance.alpha");
+    const alphaTransition = host.activate("resonance.alpha", "viewer");
     await Promise.resolve();
-    const betaTransition = host.activate("resonance.beta");
+    const betaTransition = host.activate("resonance.beta", "viewer");
     resolveAlpha?.({
       mount: () => ({
         activate: alphaActivate,
@@ -196,6 +197,7 @@ describe("package host", () => {
             name: "Broken package",
             nav: { label: "Broken", icon: "x" },
             events: { emits: [], consumes: [] },
+            minRole: "viewer",
           },
           load: async () => {
             throw new Error("private import detail");
@@ -213,8 +215,8 @@ describe("package host", () => {
       onError: (error) => errors.push(error),
     });
 
-    await host.activate("resonance.broken");
-    await host.activate("resonance.activation");
+    await host.activate("resonance.broken", "viewer");
+    await host.activate("resonance.activation", "viewer");
 
     expect(shell.children[0]).toBe(onboarding);
     expect(onboarding.textContent).toBe("Create a workspace");
@@ -225,6 +227,73 @@ describe("package host", () => {
     );
     expect(root.children[1]?.children[0]?.getAttribute("role")).toBe("alert");
     expect(errors).toHaveLength(2);
+  });
+
+  it("filters manifests and rejects activation below minRole", async () => {
+    const developerLoad = vi.fn(async () => ({
+      mount: () => lifecycle([], "developer"),
+    }));
+    const host = new PackageHost({
+      root: element(),
+      catalog: [
+        entry("resonance.viewer", () => lifecycle([], "viewer")),
+        {
+          ...entry("resonance.developer", () => lifecycle([], "developer")),
+          manifest: {
+            ...entry("resonance.developer", () => lifecycle([], "developer"))
+              .manifest,
+            minRole: "developer" as const,
+          },
+          load: developerLoad,
+        },
+      ],
+      createContext: ({ id }) => context(id),
+    });
+
+    expect(host.manifestsForRole("viewer").map(({ id }) => id)).toEqual([
+      "resonance.viewer",
+    ]);
+    await expect(
+      host.activate("resonance.developer", "viewer"),
+    ).rejects.toThrow("unavailable for the active role");
+    expect(developerLoad).not.toHaveBeenCalled();
+  });
+
+  it("contains reporter failures and recovers the transition queue", async () => {
+    const activated = vi.fn();
+    const root = element();
+    const host = new PackageHost({
+      root,
+      catalog: [
+        {
+          ...entry("resonance.broken", () => lifecycle([], "broken")),
+          load: async () => {
+            throw new Error("load failed");
+          },
+        },
+        entry("resonance.healthy", () => ({
+          activate: activated,
+          deactivate: vi.fn(),
+          dispose: vi.fn(),
+        })),
+      ],
+      createContext: ({ id }) => context(id),
+      onError: () => {
+        throw new Error("reporter failed");
+      },
+    });
+
+    await expect(
+      host.activate("resonance.broken", "viewer"),
+    ).resolves.toBeUndefined();
+    const mountRoot = root as unknown as FakeElement;
+    expect(mountRoot.children[0]?.children[0]?.getAttribute("role")).toBe(
+      "alert",
+    );
+    await expect(
+      host.activate("resonance.healthy", "viewer"),
+    ).resolves.toBeUndefined();
+    expect(activated).toHaveBeenCalledOnce();
   });
 
   it("cleans a partial mount and successful instances exactly once", async () => {
@@ -245,8 +314,8 @@ describe("package host", () => {
       createContext: ({ id }) => context(id),
     });
 
-    await host.activate("resonance.partial");
-    await host.activate("resonance.complete");
+    await host.activate("resonance.partial", "viewer");
+    await host.activate("resonance.complete", "viewer");
     await host.dispose();
     await host.dispose();
 

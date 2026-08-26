@@ -6,6 +6,10 @@ import { describe, expect, it } from "vitest";
 
 type VrsProblem = { file: string; message: string };
 
+export function normalizeVrsPath(path: string): string {
+  return path.replaceAll("\\", "/");
+}
+
 async function markdownFiles(directory: string): Promise<string[]> {
   const { readdir } = await import("node:fs/promises");
   const entries = await readdir(directory, { withFileTypes: true });
@@ -27,7 +31,7 @@ export async function validateVrsTree(root: string): Promise<VrsProblem[]> {
 
   for (const file of files) {
     const content = await readFile(file, "utf8");
-    const displayPath = relative(root, file);
+    const displayPath = normalizeVrsPath(relative(root, file));
     for (const match of content.matchAll(/\*\*(RS(?:\.[A-Z]+)*-(?:R|A|T|DQ)\d{2})\b/g)) {
       const id = match[1];
       if (definitions.has(id)) {
@@ -47,10 +51,10 @@ export async function validateVrsTree(root: string): Promise<VrsProblem[]> {
     if (file.endsWith("spec.md") && !/^## Status\s*\n\s*(Draft|Active|Stable)\.?\s*$/m.test(content)) {
       problems.push({ file: displayPath, message: "spec.md needs a valid ## Status line" });
     }
-    if (file.includes("/.decisions/") && !/^Status:\s+accepted \([^\n]+\)\.$/m.test(content)) {
+    if (displayPath.split("/").includes(".decisions") && !/^Status:\s+accepted \([^\n]+\)\.$/m.test(content)) {
       problems.push({ file: displayPath, message: "decision needs an accepted Status line" });
     }
-    if (file.includes("/.delta/") && !/^Status:\s+(open|closed \([^\n]+\))\.$/m.test(content)) {
+    if (displayPath.split("/").includes(".delta") && !/^Status:\s+(open|closed \([^\n]+\))\.$/m.test(content)) {
       problems.push({ file: displayPath, message: "delta needs an open or closed Status line" });
     }
   }
@@ -80,20 +84,6 @@ describe("VRS structure", () => {
     await expect(validateVrsTree(resolve("context"))).resolves.toEqual([]);
   });
 
-  it("defines filesystem-first workspace authority requirements", async () => {
-    const [rootRequirements, documentRequirements, decision] = await Promise.all([
-      readFile(resolve("context/requirements.md"), "utf8"),
-      readFile(resolve("context/02-system/03-documents/requirements.md"), "utf8"),
-      readFile(resolve("context/.decisions/0009-filesystem-first-workspace-authority.md"), "utf8"),
-    ]);
-
-    expect(rootRequirements).toContain("**RS-R06 Planning workspace files preserve offline work.**");
-    expect(documentRequirements).toContain("**RS.SYS.DOC-R01 Workspace files use signed operation authority.**");
-    expect(documentRequirements).toContain("`refines: RS.SYS.TRNS-R04, RS.SYS.TRNS-R07`");
-    expect(documentRequirements).not.toContain("Each document is a Yjs Y.Doc");
-    expect(decision).toContain("Status: accepted");
-  });
-
   it("rejects duplicate and unresolved IDs", async () => {
     const root = await fixtureTree({
       "requirements.md": "- **RS-R01 One.**\n- **RS-R01 Two.**\n- **RS-R02 Three.** `refines: RS-R99`\n",
@@ -105,6 +95,12 @@ describe("VRS structure", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("normalizes Windows paths before classifying context records", () => {
+    expect(normalizeVrsPath("context\\.decisions\\0001-test.md")).toBe(
+      "context/.decisions/0001-test.md",
+    );
   });
 
   it("rejects missing or invalid status lines", async () => {

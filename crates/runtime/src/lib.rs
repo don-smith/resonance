@@ -21,19 +21,3 @@ pub mod workspace_file_transport;
 pub mod workspace_files;
 pub mod workspace_session;
 pub mod workspace_store;
-
-/// Returns the runtime label used by the desktop bootstrap.
-#[must_use]
-pub const fn runtime_name() -> &'static str {
-    "resonance-runtime"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::runtime_name;
-
-    #[test]
-    fn identifies_the_runtime_boundary() {
-        assert_eq!(runtime_name(), "resonance-runtime");
-    }
-}

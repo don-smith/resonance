@@ -3,12 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10.14.0 <11"
+  },
   "scripts": {
     "desktop:dev": "node scripts/desktop-dev.mjs",
     "desktop:profiles": "node scripts/desktop-profiles.mjs",
     "packages:generate": "node scripts/bundled-package-catalog.mjs write",
     "packages:boundaries": "node scripts/bundled-package-boundaries.mjs",
     "packages:check": "node scripts/bundled-package-catalog.mjs check && node scripts/bundled-package-boundaries.mjs",
+    "web:build": "pnpm --filter @resonance/desktop build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -20,11 +25,12 @@
     "release:validate": "node scripts/validate-release-config.mjs",
     "release:manifest": "node scripts/generate-update-manifest.mjs",
     "release:collect": "node scripts/collect-signed-update-artifacts.mjs",
-    "check": "pnpm packages:check && pnpm format:check && pnpm typecheck && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
+    "check": "pnpm packages:check && pnpm format:check && pnpm typecheck && pnpm web:build && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.8.4",
     "@types/node": "22.15.3",
+    "parse5": "8.0.1",
     "prettier": "3.5.3",
     "typescript": "5.8.3",
     "vite": "6.3.5",

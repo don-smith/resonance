@@ -22,7 +22,6 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
-            let _runtime_name = resonance_runtime::runtime_name();
             if let Some(configuration) =
                 release_configuration::load_for_current_run(app).map_err(std::io::Error::other)?
             {

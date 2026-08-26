@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "pnpm --dir ../.. exec vitest run packages/contracts/src/manifest.test.ts",
+    "test": "pnpm --dir ../.. exec vitest run packages/contracts/src/manifest.test.ts packages/contracts/src/workspace-files-v1.test.ts",
     "generate": "node scripts/generate.mjs"
   },
   "dependencies": {

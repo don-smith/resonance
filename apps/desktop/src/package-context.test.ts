@@ -6,6 +6,7 @@ import type {
 } from "@resonance/package-sdk";
 import { PackageMountError } from "@resonance/package-sdk";
 
+import { bundledPackageCatalog } from "./generated/bundled-package-catalog.js";
 import {
   createPackageContext,
   disposePackageContexts,
@@ -66,6 +67,18 @@ describe("package context authority", () => {
         workspaceFiles: files,
       }),
     ).toThrow("documents:read");
+  });
+
+  it("can create the context declared by the bundled reference package", () => {
+    const reference = bundledPackageCatalog.find(
+      ({ manifest }) => manifest.id === "resonance.reference",
+    );
+    if (!reference) throw new Error("reference package is missing");
+
+    expect(
+      createPackageContext(reference.manifest, { events: eventTransport() })
+        .package.id,
+    ).toBe("resonance.reference");
   });
 
   it("does not make disposal depend on how many contexts were created", async () => {

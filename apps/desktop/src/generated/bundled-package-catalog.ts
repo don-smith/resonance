@@ -20,7 +20,6 @@ export const bundledPackageCatalog = [
         consumes: ["workspace:member-added"],
       },
       minRole: "viewer",
-      capabilities: ["documents:read", "telemetry:write"],
       agent: {
         systemPrompt: "prompts/reference.md",
         permissions: ["read", "suggest-edits"],

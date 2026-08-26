@@ -10,6 +10,14 @@ export const semanticCapabilities = [
   "telemetry:write",
   "workspace-files:v1",
 ] as const;
+export const semanticCapabilityProperties = {
+  "documents:read": "documentsRead",
+  "documents:write": "documentsWrite",
+  "workspace:read": "workspaceRead",
+  "repository:read": "repositoryRead",
+  "telemetry:write": "telemetryWrite",
+  "workspace-files:v1": "workspaceFilesV1",
+} as const;
 export const semanticAgentPermissions = [
   "read",
   "suggest-edits",

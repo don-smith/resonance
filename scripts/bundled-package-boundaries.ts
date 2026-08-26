@@ -14,7 +14,11 @@ import { pathToFileURL } from "node:url";
 import postcss from "postcss";
 import ts from "typescript";
 
-import type { PackageManifest, SemanticCapability } from "@resonance/contracts";
+import {
+  semanticCapabilityProperties,
+  type PackageManifest,
+  type SemanticCapability,
+} from "@resonance/contracts";
 
 type BundledPackage = Readonly<{
   directory: string;
@@ -33,9 +37,12 @@ type ImportReference = Readonly<{
 }>;
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".css"]);
-const capabilityProperties = new Map<string, SemanticCapability>([
-  ["workspaceFilesV1", "workspace-files:v1"],
-]);
+const capabilityProperties = new Map<string, SemanticCapability>(
+  Object.entries(semanticCapabilityProperties).map(([capability, property]) => [
+    property,
+    capability as SemanticCapability,
+  ]),
+);
 const nodeBuiltins = new Set([
   ...builtinModules,
   ...builtinModules.map((name) => `node:${name}`),

@@ -133,6 +133,28 @@ describe("workspace-files Tauri adapter", () => {
     );
   });
 
+  it("freezes snapshots and isolates subscriber failures", async () => {
+    const fake = transport();
+    const errors: unknown[] = [];
+    const adapter = new WorkspaceFilesTauriAdapter(fake.value, {
+      onSubscriberError: (error) => errors.push(error),
+    });
+    const received: WorkspaceFilesSnapshot[] = [];
+    adapter.subscribe(() => {
+      throw new Error("subscriber failed");
+    });
+    adapter.subscribe((value) => received.push(value));
+    await adapter.snapshot();
+
+    expect(received).toHaveLength(1);
+    expect(Object.isFrozen(received[0])).toBe(true);
+    expect(Object.isFrozen(received[0]?.root)).toBe(true);
+    expect(errors).toHaveLength(1);
+    const latest: WorkspaceFilesSnapshot[] = [];
+    adapter.subscribe((value) => latest.push(value));
+    expect(latest[0]).toBe(received[0]);
+  });
+
   it("rejects unchecked responses and cleans up once", async () => {
     const fake = transport(async () => ({ path: "/private/root" }));
     const adapter = new WorkspaceFilesTauriAdapter(fake.value);

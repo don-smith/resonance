@@ -22,6 +22,17 @@ const TYPESCRIPT_OUTPUT =
   "packages/contracts/src/manifest-vocabulary.generated.ts";
 const RUST_OUTPUT = "crates/runtime/src/packages/manifest_generated.rs";
 
+function capabilityProperty(value: string): string {
+  const parts = value.split(/[^A-Za-z0-9]+/).filter(Boolean);
+  return parts
+    .map((part, index) =>
+      index === 0
+        ? part.charAt(0).toLowerCase() + part.slice(1)
+        : part.charAt(0).toUpperCase() + part.slice(1),
+    )
+    .join("");
+}
+
 function rustVariant(value: string): string {
   return value
     .split(/[^A-Za-z0-9]+/)
@@ -62,6 +73,14 @@ async function renderBindings(root: string): Promise<{
 export const manifestSchemaSha256 = ${JSON.stringify(schemaSha256)};
 export const roles = ${JSON.stringify(roles)} as const;
 export const semanticCapabilities = ${JSON.stringify(capabilities)} as const;
+export const semanticCapabilityProperties = ${JSON.stringify(
+      Object.fromEntries(
+        capabilities.map((capability) => [
+          capability,
+          capabilityProperty(capability),
+        ]),
+      ),
+    )} as const;
 export const semanticAgentPermissions = ${JSON.stringify(permissions)} as const;
 `,
     { parser: "typescript" },

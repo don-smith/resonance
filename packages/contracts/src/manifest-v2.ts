@@ -6,6 +6,7 @@ import {
   roles,
   semanticAgentPermissions,
   semanticCapabilities,
+  semanticCapabilityProperties,
 } from "./manifest-vocabulary.generated.ts";
 
 export {
@@ -13,6 +14,7 @@ export {
   roles,
   semanticAgentPermissions,
   semanticCapabilities,
+  semanticCapabilityProperties,
 };
 
 export type ManifestRole = (typeof roles)[number];

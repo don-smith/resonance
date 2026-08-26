@@ -6,18 +6,7 @@ import {
   type WorkspaceFilesSnapshot,
   type WorkspaceFilesV1Operation,
 } from "@resonance/contracts";
-
-function immutableClone<T>(value: T): T {
-  return deepFreeze(structuredClone(value));
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) deepFreeze(child);
-    Object.freeze(value);
-  }
-  return value;
-}
+import { immutableClone } from "../immutable.js";
 
 function validateResponseValue<T>(response: object, value: T): T {
   const result = validateWorkspaceFilesResponse(response);
@@ -273,8 +262,13 @@ export class InMemoryWorkspaceFilesV1
   }
 
   #emit(): void {
+    const snapshot = immutableClone(this.#snapshot);
     for (const listener of this.#listeners) {
-      listener(immutableClone(this.#snapshot));
+      try {
+        listener(snapshot);
+      } catch {
+        // A broken test subscriber must not hide delivery from the others.
+      }
     }
   }
 

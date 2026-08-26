@@ -1,3 +1,7 @@
+import {
+  semanticCapabilityProperties,
+  type SemanticCapability,
+} from "@resonance/contracts";
 import type { WorkspaceFilesV1 } from "./workspace-files-v1.js";
 
 export type PackageIdentity = Readonly<{
@@ -31,13 +35,24 @@ export const packageDesignTokens = Object.freeze({
 
 export type PackageDesignTokens = typeof packageDesignTokens;
 
-export type PackageContext = Readonly<{
+type CapabilityProvider<C extends SemanticCapability> =
+  C extends "workspace-files:v1" ? WorkspaceFilesV1 : never;
+
+export type PackageCapabilities<
+  C extends readonly SemanticCapability[] = readonly SemanticCapability[],
+> = Readonly<
+  Partial<{
+    [K in C[number] as (typeof semanticCapabilityProperties)[K]]: CapabilityProvider<K>;
+  }>
+>;
+
+export type PackageContext<
+  C extends readonly SemanticCapability[] = readonly SemanticCapability[],
+> = Readonly<{
   package: PackageIdentity;
   events: PackageEventAccess;
   designTokens: PackageDesignTokens;
-  capabilities: Readonly<{
-    workspaceFilesV1?: WorkspaceFilesV1;
-  }>;
+  capabilities: PackageCapabilities<C>;
 }>;
 
 export type PackageInstance = {
@@ -46,10 +61,12 @@ export type PackageInstance = {
   dispose(): void | Promise<void>;
 };
 
-export type PackageContentModule = {
+export type PackageContentModule<
+  C extends readonly SemanticCapability[] = readonly SemanticCapability[],
+> = {
   mount(
     root: HTMLElement,
-    context: PackageContext,
+    context: PackageContext<C>,
   ): PackageInstance | Promise<PackageInstance>;
 };
 

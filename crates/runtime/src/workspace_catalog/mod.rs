@@ -87,10 +87,55 @@ impl WorkspaceCatalog {
         fs::create_dir_all(&catalog_directory)?;
         let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))?;
         migrate_catalog(&connection)?;
-        Ok(Self {
+        let catalog = Self {
             application_data_directory,
             connection: Mutex::new(connection),
-        })
+        };
+        catalog.recover_workspace_references()?;
+        Ok(catalog)
+    }
+
+    fn recover_workspace_references(&self) -> Result<(), WorkspaceCatalogError> {
+        let workspaces_directory = self
+            .application_data_directory
+            .join(".resonance")
+            .join("workspaces");
+        let Ok(entries) = fs::read_dir(workspaces_directory) else {
+            return Ok(());
+        };
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            let Some(workspace_id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Ok(workspace_id) = WorkspaceId::parse(&workspace_id) else {
+                continue;
+            };
+            let store =
+                WorkspaceStore::open(&self.application_data_directory, workspace_id.as_str())?;
+            match store.settings() {
+                Ok(_) => {}
+                Err(WorkspaceStoreError::WorkspaceConfigurationMissing) => continue,
+                Err(error) => return Err(error.into()),
+            }
+            let connection = self
+                .connection
+                .lock()
+                .map_err(|_| WorkspaceCatalogError::LockPoisoned)?;
+            connection.execute(
+                "INSERT OR IGNORE INTO workspace_catalog (workspace_id) VALUES (?1)",
+                [workspace_id.as_str()],
+            )?;
+            connection.execute(
+                "UPDATE catalog_state SET active_workspace_id = ?1
+                 WHERE singleton = 1 AND active_workspace_id IS NULL",
+                [workspace_id.as_str()],
+            )?;
+        }
+        Ok(())
     }
 
     pub fn create_workspace(

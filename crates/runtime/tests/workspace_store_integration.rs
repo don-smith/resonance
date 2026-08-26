@@ -122,3 +122,20 @@ fn rejects_an_unsupported_legacy_workspace_without_deleting_user_data() {
 
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }
+
+#[test]
+fn sqlite_rejects_impossible_workspace_member_values() {
+    let root = temporary_directory("workspace-store-invariants");
+    let store = WorkspaceStore::open(&root, "invariants").expect("store opens");
+    let database = workspace_database(&root, "invariants");
+    let connection = Connection::open(database).expect("database opens");
+    let error = connection.execute(
+        "INSERT INTO workspace_members
+         (public_identity, display_name, role, added_by, added_at)
+         VALUES (?1, 'Ada', 'owner', ?1, 1)",
+        [&"a".repeat(64)],
+    );
+    assert!(error.is_err());
+    drop(store);
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}

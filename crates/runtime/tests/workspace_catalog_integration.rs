@@ -122,6 +122,39 @@ fn rejects_an_unsupported_catalog_schema_before_opening() {
 }
 
 #[test]
+fn recovers_a_durable_workspace_store_missing_its_catalog_reference() {
+    let root = temporary_directory("workspace-catalog-recovery");
+    let catalog = WorkspaceCatalog::open(&root).expect("catalog opens");
+    let created = catalog
+        .create_workspace("Recoverable", None)
+        .expect("workspace creates");
+    drop(catalog);
+
+    let connection =
+        Connection::open(root.join(".resonance/catalog.sqlite3")).expect("catalog database opens");
+    connection
+        .execute(
+            "DELETE FROM workspace_catalog WHERE workspace_id = ?1",
+            [created.id.as_str()],
+        )
+        .expect("catalog reference removal succeeds");
+    connection
+        .execute(
+            "UPDATE catalog_state SET active_workspace_id = NULL WHERE singleton = 1",
+            [],
+        )
+        .expect("active workspace clears");
+    drop(connection);
+
+    let reopened = WorkspaceCatalog::open(&root).expect("catalog recovers");
+    assert_eq!(
+        reopened.active_workspace().expect("active reads"),
+        Some(created)
+    );
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
 fn rejects_an_unknown_catalog_record_instead_of_opening_a_composed_path() {
     let root = temporary_directory("workspace-catalog-record");
     let catalog = WorkspaceCatalog::open(&root).expect("catalog opens");

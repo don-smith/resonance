@@ -10,7 +10,8 @@ CREATE TABLE workspace_configuration (
   joining_inviter BLOB NULL CHECK (joining_inviter IS NULL OR length(joining_inviter) = 32),
   bootstrap TEXT NULL CHECK (bootstrap IS NULL OR length(bootstrap) <= 1024),
   joining_display_name TEXT NULL CHECK (joining_display_name IS NULL OR (length(trim(joining_display_name)) > 0 AND length(joining_display_name) <= 256)),
-  creation_creator_display_name TEXT NULL CHECK (creation_creator_display_name IS NULL OR (length(trim(creation_creator_display_name)) > 0 AND length(creation_creator_display_name) <= 256))
+  creation_creator_display_name TEXT NULL CHECK (creation_creator_display_name IS NULL OR (length(trim(creation_creator_display_name)) > 0 AND length(creation_creator_display_name) <= 256)),
+  CHECK (joining_inviter IS NULL OR (joining_display_name IS NOT NULL AND bootstrap IS NOT NULL))
 );
 INSERT INTO workspace_configuration
   SELECT singleton, token, display_name, relay_override, lifecycle,

@@ -66,18 +66,13 @@ Design uncertainties that need resolution before or during implementation. Each 
 
 ---
 
-## OQ-05 — Read-only repo content for non-developers
+## OQ-05 — Read-only repo content without a local clone
 
-**Blocks:** `02-system/06-repos/` spec, Phase 5 implementation
+**Status:** Resolved (2026-08-25, Don Smith).
 
-**Question:** How do non-developer team members (who have no local repository clone) access repository content — documentation, architecture, backlog?
+**Decision:** Resonance does not distribute repository files, snapshots, or repository-derived read-only views to devices without a local clone. Repository content remains Git-only. A repository package operates only where its repository is registered locally.
 
-**Options:**
-- A: Non-developers receive repo content via Iroh blob transfer from developer peers who have a local clone. No git required.
-- B: Non-developers do a read-only git clone of a specific branch. Familiar, handles large repos better, but requires git knowledge and credentials for private repos.
-- C: Repo packages export a read-only snapshot (a JSON blob or static HTML) that is replicated via the planning document channel. Lossy but simple.
-
-**Resolution path:** Decide at Phase 5 kickoff. Option A is preferred for non-developer UX; Option B is the fallback if blob transfer over Iroh proves too slow for large repos.
+**Rationale:** Repository synchronization is already solved by Git. Adding peer-provided repository views would create another distribution mechanism and blur the accepted separation between repository data, workspace files, and conversations. Members without a clone use workspace files and conversations for shared team context.
 
 ---
 

@@ -24,6 +24,7 @@ context/
 ├── requirements.md        # RS-R*, RS-A*, RS-T* root requirements
 ├── spec.md                # This file — context structure and conventions
 ├── ontology.md            # Canonical terminology
+├── roadmap.md             # Expected major-work sequence and status
 ├── open-questions.md      # Design uncertainties not yet resolved
 ├── .decisions/            # NNNN-slug.md — accepted architectural decisions
 ├── .delta/                # DELTA-NNN-slug.md — known debt and divergence
@@ -104,6 +105,10 @@ Draft | Active | Stable.
 ```
 
 A `spec.md` in Draft status may change without notice. Active means it is implemented and tested. Stable means it has been in production use without breaking changes for at least one release cycle.
+
+### roadmap.md
+
+The roadmap records the expected order and status of major work. It explains why one workstream precedes another without replacing requirements, specifications, decisions, deltas, or workstream execution artifacts. Update it when a major workstream starts, closes, changes order, or changes direction.
 
 ### .decisions/NNNN-slug.md
 

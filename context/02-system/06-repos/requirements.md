@@ -26,4 +26,4 @@ Role: owns repository registration, git watching, repository event emission, mul
 
 - **RS.SYS.REPO-R07 Repository files are never written by the sync layer.** The transport and document subsystems do not write to registered repository paths. The only mechanism for writing to a repository is through an explicit, user-initiated Tauri command (e.g., "save document edit for commit"). `refines: RS-R05`
 
-- **RS.SYS.REPO-R08 Repository content is not replicated to non-developer peers via the sync layer.** If a non-developer peer needs to see repository content (documentation, architecture), the repo package must explicitly export that content into a planning document or present it through a read-only view fetched from a developer peer. `refines: RS-R05`
+- **RS.SYS.REPO-R08 Repository content requires a local clone.** Resonance does not replicate repository files, snapshots, or repository-derived read-only views to devices without a registered local clone. Repository packages operate only against local clones through bounded runtime operations. Members without a clone use workspace files and conversations for shared team context. `refines: RS-R05`

@@ -1,9 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use resonance_runtime::{
     identity::{IdentityError, InstallationIdentity},
     invite::Invite,
-    workspace_application::{WorkspaceApplication, WorkspaceApplicationView, WorkspaceHealth},
+    workspace_application::{
+        WorkspaceApplication, WorkspaceApplicationUpdate, WorkspaceApplicationView,
+        WorkspaceHealth, WorkspaceLifecycleHandle,
+    },
     workspace_domain::{KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary},
     workspace_session::WorkspaceTransition,
 };
@@ -11,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_DISPLAY_NAME_LENGTH: usize = 255;
 const MAX_INVITE_LENGTH: usize = 16_384;
 const MAX_RELAY_LENGTH: usize = 4_096;
@@ -22,7 +24,8 @@ pub struct ManagedWorkspaceState {
 
 pub(super) struct ManagedWorkspace {
     app: AppHandle,
-    pub(super) application: Mutex<WorkspaceApplication>,
+    pub(super) application: Arc<Mutex<WorkspaceApplication>>,
+    lifecycle: Mutex<Option<WorkspaceLifecycleHandle>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -191,6 +194,10 @@ fn valid_text(value: &str, max_length: usize) -> bool {
 }
 
 impl ManagedWorkspaceState {
+    pub(crate) async fn shutdown(&self) {
+        self.inner.shutdown().await;
+    }
+
     pub fn initialize(
         app: AppHandle,
         identity: Result<InstallationIdentity, IdentityError>,
@@ -199,28 +206,33 @@ impl ManagedWorkspaceState {
         Self {
             inner: Arc::new(ManagedWorkspace {
                 app,
-                application: Mutex::new(WorkspaceApplication::initialize(
+                application: Arc::new(Mutex::new(WorkspaceApplication::initialize(
                     identity,
                     application_data,
-                )),
+                ))),
+                lifecycle: Mutex::new(None),
             }),
         }
     }
 
     pub fn start_lifecycle(&self) {
         let workspace = Arc::clone(&self.inner);
-        tauri::async_runtime::spawn(async move {
-            workspace.restart_transport().await;
-            workspace.emit_view().await;
-            let mut last_heartbeat = tokio::time::Instant::now();
-            loop {
-                workspace.poll_transport().await;
-                workspace.poll_files().await;
-                if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
-                    workspace.send_heartbeat_and_expire().await;
-                    last_heartbeat = tokio::time::Instant::now();
+        let application = Arc::clone(&workspace.application);
+        let weak_workspace = Arc::downgrade(&workspace);
+        let on_update = Arc::new(move |update: WorkspaceApplicationUpdate| {
+            let Some(workspace) = weak_workspace.upgrade() else {
+                return;
+            };
+            tauri::async_runtime::spawn(async move {
+                match update {
+                    WorkspaceApplicationUpdate::View => workspace.emit_view().await,
+                    WorkspaceApplicationUpdate::Files => workspace.emit_files_changed(),
                 }
-            }
+            });
+        });
+        let lifecycle = WorkspaceApplication::spawn_lifecycle(application, on_update);
+        tauri::async_runtime::spawn(async move {
+            *workspace.lifecycle.lock().await = Some(lifecycle);
         });
     }
 }
@@ -280,28 +292,11 @@ impl ManagedWorkspace {
         application.restart_transport().await;
     }
 
-    async fn poll_transport(&self) {
-        let mut application = self.application.lock().await;
-        if application.poll_transport().await {
-            drop(application);
-            self.emit_files_changed();
-            self.emit_view().await;
-        }
-    }
-
-    async fn poll_files(&self) {
-        let mut application = self.application.lock().await;
-        if application.poll_files().await {
-            drop(application);
-            self.emit_files_changed();
-        }
-    }
-
-    async fn send_heartbeat_and_expire(&self) {
-        let mut application = self.application.lock().await;
-        if application.send_heartbeat_and_expire().await {
-            drop(application);
-            self.emit_view().await;
+    pub(super) async fn shutdown(&self) {
+        if let Some(mut lifecycle) = self.lifecycle.lock().await.take() {
+            lifecycle.stop().await;
+        } else {
+            self.application.lock().await.shutdown_transport().await;
         }
     }
 
@@ -422,24 +417,29 @@ pub async fn retry_workspace_join(
 }
 
 fn shell_view(view: WorkspaceApplicationView) -> WorkspaceShellView {
-    let state = match (&view.health, view.workspace.as_ref()) {
-        (WorkspaceHealth::IdentityError(_), _) => ShellState::IdentityError,
-        (WorkspaceHealth::StorageError, _) => ShellState::StorageError,
-        (_, None) => ShellState::Onboarding,
-        (_, Some(workspace)) => match workspace.lifecycle {
+    let state = if view.health.identity.is_some() {
+        ShellState::IdentityError
+    } else if view.health.storage_unavailable {
+        ShellState::StorageError
+    } else if let Some(workspace) = view.workspace.as_ref() {
+        match workspace.lifecycle {
             WorkspaceLifecycle::Initializing => ShellState::Initializing,
             WorkspaceLifecycle::Ready => ShellState::Ready,
             WorkspaceLifecycle::Joining => ShellState::Joining,
-        },
-    };
-    let message = match &view.health {
-        WorkspaceHealth::IdentityError(message) => Some(message.clone()),
-        WorkspaceHealth::StorageError => {
-            Some("Resonance cannot open its local workspace data.".to_owned())
         }
-        WorkspaceHealth::NetworkError(message) => Some(message.clone()),
-        WorkspaceHealth::Healthy => None,
+    } else {
+        ShellState::Onboarding
     };
+    let message = view
+        .health
+        .identity
+        .clone()
+        .or_else(|| {
+            view.health
+                .storage_unavailable
+                .then_some("Resonance cannot open its local workspace data.".to_owned())
+        })
+        .or_else(|| view.health.network.clone());
     WorkspaceShellView {
         revision: view.revision,
         state,
@@ -457,26 +457,21 @@ fn shell_view(view: WorkspaceApplicationView) -> WorkspaceShellView {
 }
 
 fn health_view(health: &WorkspaceHealth) -> ShellHealthView {
-    match health {
-        WorkspaceHealth::Healthy => ShellHealthView {
-            identity: HealthState::Healthy,
-            storage: HealthState::Healthy,
-            network: HealthState::Healthy,
+    ShellHealthView {
+        identity: if health.identity.is_some() {
+            HealthState::Unavailable
+        } else {
+            HealthState::Healthy
         },
-        WorkspaceHealth::IdentityError(_) => ShellHealthView {
-            identity: HealthState::Unavailable,
-            storage: HealthState::Healthy,
-            network: HealthState::Offline,
+        storage: if health.storage_unavailable {
+            HealthState::Unavailable
+        } else {
+            HealthState::Healthy
         },
-        WorkspaceHealth::StorageError => ShellHealthView {
-            identity: HealthState::Healthy,
-            storage: HealthState::Unavailable,
-            network: HealthState::Offline,
-        },
-        WorkspaceHealth::NetworkError(_) => ShellHealthView {
-            identity: HealthState::Healthy,
-            storage: HealthState::Healthy,
-            network: HealthState::Offline,
+        network: if health.network.is_some() {
+            HealthState::Offline
+        } else {
+            HealthState::Healthy
         },
     }
 }

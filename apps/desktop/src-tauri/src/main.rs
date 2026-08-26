@@ -18,7 +18,7 @@ fn main() {
     let profile_name =
         startup::profile_argument_from_environment().expect("invalid Resonance startup argument");
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
@@ -57,8 +57,18 @@ fn main() {
             debug_assert!(!commands::APPLICATION_COMMANDS.is_empty());
             commands::application_handler!()
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Resonance");
+        .build(tauri::generate_context!())
+        .expect("error while building Resonance");
+
+    app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+            if let Some(state) =
+                app_handle.try_state::<commands::workspace::ManagedWorkspaceState>()
+            {
+                tauri::async_runtime::block_on(state.shutdown());
+            }
+        }
+    });
 }
 
 struct WorkspaceStartup {

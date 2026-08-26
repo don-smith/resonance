@@ -27,7 +27,8 @@ pub mod workspace_store;
 pub mod desktop {
     pub use crate::identity::{IdentityError, InstallationIdentity};
     pub use crate::workspace_application::{
-        WorkspaceApplication, WorkspaceApplicationView, WorkspaceHealth,
+        WorkspaceApplication, WorkspaceApplicationUpdate, WorkspaceApplicationView,
+        WorkspaceHealth, WorkspaceLifecycleHandle,
     };
     pub use crate::workspace_domain::{
         KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary,

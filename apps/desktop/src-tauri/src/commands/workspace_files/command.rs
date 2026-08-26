@@ -1,28 +1,32 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::errors::{
+    conflict_error, mutation_error, revision_error, root_error, unavailable, valid_identifier,
+    valid_identifiers,
+};
+
+use super::super::workspace::{ManagedWorkspace, ManagedWorkspaceState};
+use super::dialogs::choose_confirmed_root;
 use resonance_runtime::{
     local_root_binding::{RootHealth, RootSelection},
     workspace_file_runtime::{
         FileConflictChoiceKind, FileConflictChoiceView, FileConflictView, FileEntryKind,
         FilePreview, FileTreeEntry, MarkdownFileView, RootBindingStatus, WorkspaceFileRuntime,
-        WorkspaceFileRuntimeError, MAX_IMAGE_PREVIEW_BYTES, MAX_MARKDOWN_BYTES,
+        MAX_IMAGE_PREVIEW_BYTES, MAX_MARKDOWN_BYTES,
     },
     workspace_files::projection::ConflictKind,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, State};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
-use super::workspace::{ManagedWorkspace, ManagedWorkspaceState};
-
-const MAX_IDENTIFIER_LENGTH: usize = 128;
+pub(super) const MAX_IDENTIFIER_LENGTH: usize = 128;
 const MAX_NAME_LENGTH: usize = 255;
 const MAX_TARGET_LOCATION_LENGTH: usize = 4096;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_ENTRIES: usize = 10_000;
 const MAX_CONFLICTS: usize = 1_000;
-const MAX_CONFLICT_ITEMS: usize = 100;
+pub(super) const MAX_CONFLICT_ITEMS: usize = 100;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(
@@ -498,7 +502,7 @@ pub struct WorkspaceFilesError {
 }
 
 impl WorkspaceFilesError {
-    fn new(code: WorkspaceFilesErrorCode) -> Self {
+    pub(super) fn new(code: WorkspaceFilesErrorCode) -> Self {
         Self {
             code,
             message: code.message().to_owned(),
@@ -700,9 +704,7 @@ async fn dispatch(
                     let files = files.ok_or_else(unavailable)?;
                     files
                         .resolve_conflict(&record_id, chosen_candidate_id)
-                        .map_err(|_| {
-                            WorkspaceFilesError::new(WorkspaceFilesErrorCode::ChangedConflictChoice)
-                        })?;
+                        .map_err(conflict_error)?;
                     Ok::<_, WorkspaceFilesError>(files.take_pending_announcements())
                 })
                 .await?;
@@ -726,29 +728,6 @@ async fn snapshot(
                 .ok_or_else(unavailable)
         })
         .await
-}
-
-fn choose_confirmed_root(
-    app: &AppHandle,
-) -> Result<Option<std::path::PathBuf>, WorkspaceFilesError> {
-    let Some(root) = app.dialog().file().blocking_pick_folder() else {
-        return Ok(None);
-    };
-    let confirmed = app
-        .dialog()
-        .message("Use this folder only if it is new or empty and is not managed by Git.")
-        .title("Confirm workspace folder")
-        .buttons(MessageDialogButtons::OkCancelCustom(
-            "Use folder".to_owned(),
-            "Cancel".to_owned(),
-        ))
-        .blocking_show();
-    if !confirmed {
-        return Ok(None);
-    }
-    root.into_path()
-        .map(Some)
-        .map_err(|_| WorkspaceFilesError::new(WorkspaceFilesErrorCode::UnusableRoot))
 }
 
 pub(super) fn workspace_files_view(files: &WorkspaceFileRuntime) -> WorkspaceFilesView {
@@ -860,63 +839,15 @@ fn markdown_revision_view(revision: MarkdownFileView) -> MarkdownRevisionView {
     }
 }
 
-fn unavailable() -> WorkspaceFilesError {
-    WorkspaceFilesError::new(WorkspaceFilesErrorCode::UnavailableCapability)
-}
-
-fn revision_error(error: WorkspaceFileRuntimeError) -> WorkspaceFilesError {
-    match error {
-        WorkspaceFileRuntimeError::NotFound | WorkspaceFileRuntimeError::NotMarkdown => {
-            WorkspaceFilesError::new(WorkspaceFilesErrorCode::MissingRevision)
-        }
-        WorkspaceFileRuntimeError::TooLarge => {
-            WorkspaceFilesError::new(WorkspaceFilesErrorCode::SizeLimit)
-        }
-        _ => WorkspaceFilesError::new(WorkspaceFilesErrorCode::Internal),
-    }
-}
-
-fn mutation_error(error: WorkspaceFileRuntimeError) -> WorkspaceFilesError {
-    match error {
-        WorkspaceFileRuntimeError::NotFound | WorkspaceFileRuntimeError::NotMarkdown => {
-            WorkspaceFilesError::new(WorkspaceFilesErrorCode::MissingRevision)
-        }
-        WorkspaceFileRuntimeError::StaleRevision => {
-            WorkspaceFilesError::new(WorkspaceFilesErrorCode::StaleRevision)
-        }
-        WorkspaceFileRuntimeError::InvalidName => {
-            WorkspaceFilesError::new(WorkspaceFilesErrorCode::InvalidMarkdownName)
-        }
-        WorkspaceFileRuntimeError::TooLarge => {
-            WorkspaceFilesError::new(WorkspaceFilesErrorCode::SizeLimit)
-        }
-        _ => WorkspaceFilesError::new(WorkspaceFilesErrorCode::Internal),
-    }
-}
-
-fn root_error(_: WorkspaceFileRuntimeError) -> WorkspaceFilesError {
-    WorkspaceFilesError::new(WorkspaceFilesErrorCode::UnusableRoot)
-}
-
-fn valid_identifier(value: &str) -> bool {
-    !value.is_empty() && value.chars().count() <= MAX_IDENTIFIER_LENGTH
-}
-
-fn valid_identifiers(values: &[String]) -> bool {
-    values.len() <= MAX_CONFLICT_ITEMS
-        && values.iter().all(|value| valid_identifier(value))
-        && values.iter().collect::<BTreeSet<_>>().len() == values.len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const VALID_CORPUS: &str = include_str!(
-        "../../../../../packages/contracts/fixtures/workspace-files-v1/valid/corpus.json"
+        "../../../../../../packages/contracts/fixtures/workspace-files-v1/valid/corpus.json"
     );
     const INVALID_CORPUS: &str = include_str!(
-        "../../../../../packages/contracts/fixtures/workspace-files-v1/invalid/corpus.json"
+        "../../../../../../packages/contracts/fixtures/workspace-files-v1/invalid/corpus.json"
     );
 
     #[derive(Deserialize)]

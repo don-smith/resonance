@@ -9,7 +9,11 @@ use std::{
     time::Duration,
 };
 
-use tokio::time;
+use tokio::{
+    sync::{oneshot, Mutex},
+    task::JoinHandle,
+    time,
+};
 
 use crate::{
     identity::{IdentityError, InstallationIdentity},
@@ -24,13 +28,51 @@ use crate::{
 
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 pub const TRANSPORT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WorkspaceHealth {
-    Healthy,
-    IdentityError(String),
-    StorageError,
-    NetworkError(String),
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkspaceApplicationUpdate {
+    View,
+    Files,
+}
+
+pub struct WorkspaceLifecycleHandle {
+    cancel: Option<oneshot::Sender<()>>,
+    task: Option<JoinHandle<()>>,
+}
+
+impl WorkspaceLifecycleHandle {
+    pub async fn stop(&mut self) {
+        if let Some(cancel) = self.cancel.take() {
+            let _ = cancel.send(());
+        }
+        if let Some(task) = self.task.take() {
+            let _ = task.await;
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkspaceHealth {
+    pub identity: Option<String>,
+    pub storage_unavailable: bool,
+    pub network: Option<String>,
+}
+
+impl WorkspaceHealth {
+    fn identity_error(message: String) -> Self {
+        Self {
+            identity: Some(message),
+            ..Self::default()
+        }
+    }
+
+    fn storage_error() -> Self {
+        Self {
+            storage_unavailable: true,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,19 +113,19 @@ impl WorkspaceApplication {
                                 Some(session),
                                 files,
                                 Some(local_public_identity),
-                                WorkspaceHealth::Healthy,
+                                WorkspaceHealth::default(),
                             )
                         }
-                        Err(_) => (None, None, None, WorkspaceHealth::StorageError),
+                        Err(_) => (None, None, None, WorkspaceHealth::storage_error()),
                     }
                 }
-                Err(_) => (None, None, None, WorkspaceHealth::StorageError),
+                Err(_) => (None, None, None, WorkspaceHealth::storage_error()),
             },
             Err(error) => (
                 None,
                 None,
                 None,
-                WorkspaceHealth::IdentityError(error.to_string()),
+                WorkspaceHealth::identity_error(error.to_string()),
             ),
         };
         Self {
@@ -165,7 +207,7 @@ impl WorkspaceApplication {
             relay_override,
         )?;
         self.refresh_file_runtime()?;
-        self.health = WorkspaceHealth::Healthy;
+        self.health = WorkspaceHealth::default();
         Ok(())
     }
 
@@ -219,19 +261,18 @@ impl WorkspaceApplication {
                     }
                 }
                 if let Err(error) = active.flush_session(session).await {
-                    self.health = network_delivery_health(error);
+                    self.health.network = Some(network_delivery_message(error));
                 } else {
-                    self.health = WorkspaceHealth::Healthy;
+                    self.health.network = None;
                 }
                 self.transport = Some(active);
             }
-            Err(error) => self.health = network_start_health(error),
+            Err(error) => self.health.network = Some(network_start_message(error)),
         }
     }
 
     pub async fn poll_transport(&mut self) -> bool {
         let Some(transport) = self.transport.as_mut() else {
-            time::sleep(Duration::from_secs(1)).await;
             return false;
         };
         let Some(session) = self.session.as_mut() else {
@@ -246,13 +287,13 @@ impl WorkspaceApplication {
             Ok(Ok(view_changed)) => {
                 let mut changed = view_changed;
                 if let Err(error) = transport.flush_session(session).await {
-                    self.health = network_delivery_health(error);
+                    self.health.network = Some(network_delivery_message(error));
                     changed = true;
                 }
                 match transport.recover_file_history(session).await {
                     Ok(recovered) => changed |= recovered,
                     Err(error) => {
-                        self.health = network_delivery_health(error);
+                        self.health.network = Some(network_delivery_message(error));
                         changed = true;
                     }
                 }
@@ -263,9 +304,63 @@ impl WorkspaceApplication {
             }
             Err(_) => false,
             Ok(Err(error)) => {
-                self.health = network_delivery_health(error);
+                self.health.network = Some(network_delivery_message(error));
+                self.transport.take();
                 true
             }
+        }
+    }
+
+    pub fn spawn_lifecycle(
+        application: std::sync::Arc<Mutex<Self>>,
+        on_update: std::sync::Arc<dyn Fn(WorkspaceApplicationUpdate) + Send + Sync>,
+    ) -> WorkspaceLifecycleHandle {
+        let (cancel, mut cancellation) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            {
+                let mut application = application.lock().await;
+                application.restart_transport().await;
+            }
+            on_update(WorkspaceApplicationUpdate::View);
+            let mut last_heartbeat = time::Instant::now();
+            loop {
+                if application.lock().await.transport.is_none() {
+                    {
+                        let mut application = application.lock().await;
+                        application.restart_transport().await;
+                    }
+                    on_update(WorkspaceApplicationUpdate::View);
+                    tokio::select! {
+                        _ = &mut cancellation => break,
+                        _ = time::sleep(RETRY_BACKOFF) => continue,
+                    }
+                }
+
+                let transport_changed = application.lock().await.poll_transport().await;
+                let files_changed = application.lock().await.poll_files().await;
+                if transport_changed {
+                    on_update(WorkspaceApplicationUpdate::View);
+                    on_update(WorkspaceApplicationUpdate::Files);
+                }
+                if files_changed {
+                    on_update(WorkspaceApplicationUpdate::Files);
+                }
+                if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
+                    if application.lock().await.send_heartbeat_and_expire().await {
+                        on_update(WorkspaceApplicationUpdate::View);
+                    }
+                    last_heartbeat = time::Instant::now();
+                }
+                tokio::select! {
+                    _ = &mut cancellation => break,
+                    _ = time::sleep(Duration::from_millis(10)) => {}
+                }
+            }
+            application.lock().await.shutdown_transport().await;
+        });
+        WorkspaceLifecycleHandle {
+            cancel: Some(cancel),
+            task: Some(task),
         }
     }
 
@@ -274,7 +369,7 @@ impl WorkspaceApplication {
             return;
         };
         if session.announce_file_history(operation_ids).is_err() {
-            self.health = WorkspaceHealth::StorageError;
+            self.health.storage_unavailable = true;
             return;
         }
         if let Some(transport) = self.transport.as_ref() {
@@ -284,7 +379,7 @@ impl WorkspaceApplication {
                 }
             }
             if let Err(error) = transport.flush_session(session).await {
-                self.health = network_delivery_health(error);
+                self.health.network = Some(network_delivery_message(error));
             }
         }
     }
@@ -311,13 +406,13 @@ impl WorkspaceApplication {
         let mut changed = match session.expire_presence(now) {
             Ok(changed) => changed,
             Err(_) => {
-                self.health = WorkspaceHealth::StorageError;
+                self.health.storage_unavailable = true;
                 true
             }
         };
         if let Some(transport) = self.transport.as_ref() {
             if let Err(error) = transport.send_session_heartbeat(session).await {
-                self.health = network_delivery_health(error);
+                self.health.network = Some(network_delivery_message(error));
                 changed = true;
             }
         }
@@ -328,6 +423,10 @@ impl WorkspaceApplication {
         if let Some(mut transport) = self.transport.take() {
             let _ = transport.shutdown().await;
         }
+    }
+
+    pub fn transport_active(&self) -> bool {
+        self.transport.is_some()
     }
 
     pub fn bootstrap_hint_available(&self) -> bool {
@@ -350,13 +449,16 @@ impl WorkspaceApplication {
     }
     pub fn network_error(&self) -> Option<&str> {
         match &self.health {
-            WorkspaceHealth::NetworkError(message) => Some(message),
+            WorkspaceHealth {
+                network: Some(message),
+                ..
+            } => Some(message),
             _ => None,
         }
     }
 }
 
-fn network_start_health(error: IrohSessionAdapterError) -> WorkspaceHealth {
+fn network_start_message(error: IrohSessionAdapterError) -> String {
     let message = match error {
         IrohSessionAdapterError::Transport(IrohTransportError::Bootstrap) => {
             "The invite's peer address is invalid."
@@ -366,10 +468,10 @@ fn network_start_health(error: IrohSessionAdapterError) -> WorkspaceHealth {
         }
         _ => "Peer networking could not start for this workspace.",
     };
-    WorkspaceHealth::NetworkError(message.to_owned())
+    message.to_owned()
 }
 
-fn network_delivery_health(error: IrohSessionAdapterError) -> WorkspaceHealth {
+fn network_delivery_message(error: IrohSessionAdapterError) -> String {
     let message = match error {
         IrohSessionAdapterError::Transport(IrohTransportError::BroadcastClosed) => {
             "Peer networking closed the workspace channel before it could send a message."
@@ -381,9 +483,7 @@ fn network_delivery_health(error: IrohSessionAdapterError) -> WorkspaceHealth {
             "Peer networking could not receive workspace traffic."
         }
         IrohSessionAdapterError::Session(WorkspaceSessionError::InvalidInviteAdmission(reason)) => {
-            return WorkspaceHealth::NetworkError(format!(
-                "Peer networking rejected this message: {reason}."
-            ))
+            return format!("Peer networking rejected this message: {reason}.")
         }
         IrohSessionAdapterError::Session(WorkspaceSessionError::Protocol(_)) => {
             "Peer networking received an invalid workspace message."
@@ -391,7 +491,7 @@ fn network_delivery_health(error: IrohSessionAdapterError) -> WorkspaceHealth {
         IrohSessionAdapterError::Session(_) => "Peer networking could not apply workspace state.",
         _ => "Peer networking is offline. Local workspace data is still available.",
     };
-    WorkspaceHealth::NetworkError(message.to_owned())
+    message.to_owned()
 }
 
 fn unix_seconds() -> i64 {
@@ -403,7 +503,17 @@ fn unix_seconds() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkspaceApplication, WorkspaceHealth};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use tokio::{
+        sync::Mutex,
+        time::{sleep, Duration},
+    };
+
+    use super::{WorkspaceApplication, WorkspaceApplicationUpdate, WorkspaceHealth};
     use crate::identity::{InMemoryKeyCustody, InstallationIdentity};
 
     #[test]
@@ -414,7 +524,7 @@ mod tests {
         let mut application = WorkspaceApplication::initialize(Ok(identity), directory.path());
         let view = application.view();
         assert_eq!(view.workspace, None);
-        assert_eq!(view.health, WorkspaceHealth::Healthy);
+        assert_eq!(view.health, WorkspaceHealth::default());
     }
 
     #[test]
@@ -426,7 +536,32 @@ mod tests {
         );
         assert!(matches!(
             application.view().health,
-            WorkspaceHealth::IdentityError(_)
+            WorkspaceHealth {
+                identity: Some(_),
+                ..
+            }
         ));
+    }
+
+    #[tokio::test]
+    async fn lifecycle_handle_stops_polling_and_shuts_down_cleanly() {
+        let directory = tempfile::tempdir().expect("directory creates");
+        let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+            .expect("identity creates");
+        let application = Arc::new(Mutex::new(WorkspaceApplication::initialize(
+            Ok(identity),
+            directory.path(),
+        )));
+        let updates = Arc::new(AtomicUsize::new(0));
+        let callback_updates = Arc::clone(&updates);
+        let callback = Arc::new(move |_: WorkspaceApplicationUpdate| {
+            callback_updates.fetch_add(1, Ordering::Relaxed);
+        });
+        let mut lifecycle =
+            WorkspaceApplication::spawn_lifecycle(Arc::clone(&application), callback);
+        sleep(Duration::from_millis(20)).await;
+        lifecycle.stop().await;
+        assert!(updates.load(Ordering::Relaxed) >= 1);
+        assert!(!application.lock().await.transport_active());
     }
 }

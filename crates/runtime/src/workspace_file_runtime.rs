@@ -96,6 +96,7 @@ pub enum WorkspaceFileRuntimeError {
     NotFound,
     NotMarkdown,
     StaleRevision,
+    ChangedConflictChoice,
     InvalidName,
     TooLarge,
 }
@@ -112,6 +113,9 @@ impl std::fmt::Display for WorkspaceFileRuntimeError {
             Self::NotMarkdown => formatter.write_str("workspace file is not editable Markdown"),
             Self::StaleRevision => {
                 formatter.write_str("workspace file revision is no longer current")
+            }
+            Self::ChangedConflictChoice => {
+                formatter.write_str("workspace conflict choice is no longer available")
             }
             Self::InvalidName => formatter.write_str("Markdown file name must end in .md"),
             Self::TooLarge => formatter.write_str("Markdown file exceeds the editor byte limit"),
@@ -582,7 +586,7 @@ impl WorkspaceFileRuntime {
             .as_ref()
             .is_some_and(|revision_id| !conflict.competing_revision_ids.contains(revision_id))
         {
-            return Err(WorkspaceFileRuntimeError::NotFound);
+            return Err(WorkspaceFileRuntimeError::ChangedConflictChoice);
         }
         let operation = SignedFileOperation::resolve_conflict(
             &self.identity,

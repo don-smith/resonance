@@ -5,16 +5,17 @@ use std::{
     fmt,
 };
 
-use iroh::{PublicKey, Signature};
-use serde::{Deserialize, Serialize};
-
 use crate::{
     identity::{InstallationIdentity, PublicIdentity},
     workspace_domain::Member,
 };
+use iroh::{PublicKey, Signature};
 
 const MEMBERSHIP_OPERATION_DOMAIN: &[u8] = b"resonance.membership-op.v1\0";
 pub const MEMBERSHIP_PROTOCOL_VERSION: u8 = 1;
+
+mod operation;
+pub use operation::{MembershipOperation, MembershipOperationBody, SignedMembershipOperation};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MembershipOperationId(String);
@@ -44,61 +45,8 @@ impl fmt::Display for MembershipOperationId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MembershipOperation {
-    pub version: u8,
-    pub workspace_id: String,
-    pub parent_operation_id: Option<String>,
-    pub author: [u8; 32],
-    pub author_counter: u64,
-    pub body: MembershipOperationBody,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MembershipOperationBody {
-    AddMember {
-        public_identity: [u8; 32],
-        display_name: String,
-        role: String,
-        added_at: i64,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SignedMembershipOperation {
-    pub operation: MembershipOperation,
-    pub signature: Vec<u8>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum MembershipStatus {
-    Canonical,
-    Pending,
-    Rejected,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MembershipProjection {
-    pub canonical_head: Option<String>,
-    pub members: Vec<Member>,
-    pub statuses: BTreeMap<String, MembershipStatus>,
-}
-
-impl MembershipProjection {
-    #[must_use]
-    pub fn contains(&self, public_identity: &PublicIdentity) -> bool {
-        self.members
-            .iter()
-            .any(|member| member.public_identity == *public_identity)
-    }
-
-    #[must_use]
-    pub fn contains_text(&self, public_identity: &str) -> bool {
-        PublicIdentity::parse(public_identity)
-            .map(|identity| self.contains(&identity))
-            .unwrap_or(false)
-    }
-}
+mod projection;
+pub use projection::{MembershipProjection, MembershipStatus};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MembershipError {

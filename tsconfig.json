@@ -10,7 +10,10 @@
     "paths": {
       "@resonance/contracts": ["packages/contracts/src/index.ts"],
       "@resonance/package-sdk": ["packages/sdk/src/index.ts"],
-      "@resonance/package-sdk/testing": ["packages/sdk/src/testing/index.ts"]
+      "@resonance/package-sdk/testing": ["packages/sdk/src/testing/index.ts"],
+      "@toast-ui/editor": [
+        "packages/workspace-files/node_modules/@toast-ui/editor/types/index.d.ts"
+      ]
     },
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,

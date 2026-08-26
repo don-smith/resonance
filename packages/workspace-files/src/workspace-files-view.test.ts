@@ -207,12 +207,19 @@ describe("workspace-files view model", () => {
       markdown: "peer\n",
     };
     const reviewing = reviewMarkdownRevision(dirty, latest);
+    expect(reviewing.kind).toBe("review");
     expect(reviewing.draft).toBe("draft\n");
-    expect(returnToMarkdownDraft(reviewing).draft).toBe("draft\n");
-    expect(loadReviewedMarkdownRevision(reviewing)).toMatchObject({
+    expect(returnToMarkdownDraft(reviewing)).toEqual({
+      kind: "draft",
+      loadedRevision: dirty.loadedRevision,
+      draft: "draft\n",
+      readOnly: false,
+    });
+    expect(loadReviewedMarkdownRevision(reviewing)).toEqual({
+      kind: "draft",
       draft: "peer\n",
       loadedRevision: latest,
-      reviewedRevision: null,
+      readOnly: false,
     });
   });
 });

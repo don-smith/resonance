@@ -11,6 +11,7 @@ export type {
 } from "@resonance/contracts";
 
 import {
+  validateWorkspaceFilesError,
   workspaceFilesErrorMessages,
   type WorkspaceFilesError,
   type WorkspaceFilesMarkdownRevision,
@@ -61,6 +62,12 @@ export function workspaceFilesError(
     code,
     message: workspaceFilesErrorMessages[code],
   } as WorkspaceFilesError;
+}
+
+export function isWorkspaceFilesError(
+  candidate: unknown,
+): candidate is WorkspaceFilesError {
+  return validateWorkspaceFilesError(candidate).kind === "valid";
 }
 
 export type WorkspaceFilesFailureController = {

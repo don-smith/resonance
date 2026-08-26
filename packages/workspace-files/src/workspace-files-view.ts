@@ -7,13 +7,18 @@ import type {
   WorkspaceFilesView,
 } from "./workspace-files-types.js";
 
-export type MarkdownEditorSession = {
+type MarkdownEditorSessionBase = {
   loadedRevision: MarkdownRevisionView;
   draft: string;
   readOnly: boolean;
-  mode: "draft" | "review";
-  reviewedRevision: MarkdownRevisionView | null;
 };
+
+export type MarkdownEditorSession =
+  | (MarkdownEditorSessionBase & { kind: "draft" })
+  | (MarkdownEditorSessionBase & {
+      kind: "review";
+      reviewedRevision: MarkdownRevisionView;
+    });
 
 export type MarkdownRevisionAwareness =
   | { state: "current" }
@@ -42,8 +47,7 @@ export function createMarkdownEditorSession(
     loadedRevision: revision,
     draft: revision.markdown,
     readOnly,
-    mode: "draft",
-    reviewedRevision: null,
+    kind: "draft",
   };
 }
 
@@ -85,21 +89,28 @@ export function reviewMarkdownRevision(
   revision: MarkdownRevisionView,
 ): MarkdownEditorSession {
   if (revision.nodeId !== session.loadedRevision.nodeId) return session;
-  return { ...session, mode: "review", reviewedRevision: revision };
+  return { ...session, kind: "review", reviewedRevision: revision };
 }
 
 export function returnToMarkdownDraft(
   session: MarkdownEditorSession,
 ): MarkdownEditorSession {
-  return { ...session, mode: "draft" };
+  return {
+    loadedRevision: session.loadedRevision,
+    draft: session.draft,
+    readOnly: session.readOnly,
+    kind: "draft",
+  };
 }
 
 export function loadReviewedMarkdownRevision(
   session: MarkdownEditorSession,
 ): MarkdownEditorSession {
-  const revision = session.reviewedRevision;
-  if (!revision) return session;
-  return createMarkdownEditorSession(revision, session.readOnly);
+  if (session.kind !== "review") return session;
+  return createMarkdownEditorSession(
+    session.reviewedRevision,
+    session.readOnly,
+  );
 }
 
 export function rootStatusMessage(state: RootState): string {

@@ -2,6 +2,7 @@ import {
   captureMarkdownDraft,
   type MarkdownEditorSession,
 } from "./workspace-files-view.js";
+import type { MarkdownRevisionView } from "./workspace-files-types.js";
 
 export type EditableMarkdownInstance = {
   destroy(): void;
@@ -15,6 +16,11 @@ export type MarkdownViewerInstance = {
 export type MarkdownMountOwner = {
   nodeId: string;
   revisionId: string;
+};
+
+export type MarkdownEditorAdapter = {
+  editable(host: HTMLElement, revision: MarkdownRevisionView): MountedMarkdown;
+  viewer(host: HTMLElement, markdown: string): MountedMarkdown;
 };
 
 export type MountedMarkdown =

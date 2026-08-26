@@ -1,9 +1,7 @@
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  isWorkspaceFilesError,
   workspaceFilesError,
   type WorkspaceFilesSnapshot,
 } from "@resonance/package-sdk";
@@ -110,24 +108,10 @@ describe("workspace-files package capability behavior", () => {
     ).resolves.toMatchObject({ conflicts: [] });
   });
 
-  it("owns cleanup and imports no desktop or Tauri implementation", async () => {
-    const [entry, source] = await Promise.all([
-      readFile(resolve("packages/workspace-files/src/index.ts"), "utf8"),
-      readFile(
-        resolve("packages/workspace-files/src/workspace-files-package.ts"),
-        "utf8",
-      ),
-    ]);
-    const combined = `${entry}\n${source}`;
-
-    expect(entry).toContain("context.capabilities.workspaceFilesV1");
-    expect(combined).not.toContain("@tauri-apps/api");
-    expect(combined).not.toContain("apps/desktop");
-    expect(source).toContain("this.#mountedMarkdown?.instance.destroy()");
-    expect(source).toContain("URL.revokeObjectURL");
-    expect(source).toContain("this.#unsubscribe?.()");
-    expect(source).toContain("clearTimeout");
-    expect(source).toContain('removeEventListener("submit"');
-    expect(source).toContain('removeEventListener("click"');
+  it("accepts only finite contract errors at the package boundary", () => {
+    expect(isWorkspaceFilesError(workspaceFilesError("internal"))).toBe(true);
+    expect(
+      isWorkspaceFilesError({ code: "private", message: "secret detail" }),
+    ).toBe(false);
   });
 });

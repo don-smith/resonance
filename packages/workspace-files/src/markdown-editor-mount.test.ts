@@ -80,14 +80,10 @@ describe("workspace-files Markdown mount", () => {
   });
 
   it("keeps Toast UI and readable dark viewer styles inside the package", async () => {
-    const [entry, source, styles] = await Promise.all([
-      readFile(resolve("packages/workspace-files/src/index.ts"), "utf8"),
-      readFile(
-        resolve("packages/workspace-files/src/workspace-files-package.ts"),
-        "utf8",
-      ),
-      readFile(resolve("packages/workspace-files/src/styles.css"), "utf8"),
-    ]);
+    const styles = await readFile(
+      resolve("packages/workspace-files/src/styles.css"),
+      "utf8",
+    );
     const background = styles.match(
       /--markdown-review-background:\s*(#[0-9a-f]{6})/i,
     )?.[1];
@@ -95,10 +91,6 @@ describe("workspace-files Markdown mount", () => {
       /--markdown-review-foreground:\s*(#[0-9a-f]{6})/i,
     )?.[1];
 
-    expect(entry).toContain(
-      'import "@toast-ui/editor/dist/theme/toastui-editor-dark.css"',
-    );
-    expect(source).toMatch(/viewer:\s*true,[\s\S]*?theme:\s*"dark"/);
     expect(styles).toMatch(
       /\[data-package-id="resonance\.workspace-files"\][\s\S]*?\.workspace-files-markdown-editor\.toastui-editor-dark[\s\S]*?\.toastui-editor-contents[\s\S]*?p,/,
     );

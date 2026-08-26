@@ -36,7 +36,7 @@ fn keeps_workspace_configuration_membership_and_file_history_isolated() {
         .expect("alpha store opens");
     let beta_store = catalog.open_workspace(&beta.id).expect("beta store opens");
     alpha_store
-        .record_membership_operation("alpha-genesis", b"alpha operation")
+        .record_membership_operation("a".repeat(64), b"alpha operation")
         .expect("alpha operation saves");
     alpha_store
         .replace_members(&[Member::new(
@@ -159,7 +159,63 @@ fn upgrades_the_unversioned_catalog_without_retaining_duplicate_metadata() {
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("catalog version reads");
     assert!(!has_display_name);
-    assert_eq!(version, 1);
+    assert_eq!(version, 2);
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn upgrades_the_supported_catalog_v1_fixture_in_order() {
+    let root = temporary_directory("workspace-catalog-v1-fixture");
+    let catalog_directory = root.join(".resonance");
+    fs::create_dir_all(&catalog_directory).expect("catalog directory creates");
+    let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))
+        .expect("catalog database opens");
+    connection
+        .execute_batch(include_str!("fixtures/legacy_catalog_v1.sql"))
+        .expect("v1 fixture applies");
+    drop(connection);
+
+    WorkspaceCatalog::open(&root).expect("supported catalog upgrades");
+    let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))
+        .expect("upgraded catalog opens");
+    let version: i32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("catalog version reads");
+    let publication_state: String = connection
+        .query_row(
+            "SELECT publication_state FROM workspace_catalog",
+            [],
+            |row| row.get(0),
+        )
+        .expect("publication state reads");
+    assert_eq!(version, 2);
+    assert_eq!(publication_state, "published");
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn rolls_back_a_catalog_rebuild_when_legacy_data_is_not_supported() {
+    let root = temporary_directory("workspace-catalog-rollback");
+    let catalog_directory = root.join(".resonance");
+    fs::create_dir_all(&catalog_directory).expect("catalog directory creates");
+    let database = catalog_directory.join("catalog.sqlite3");
+    let connection = Connection::open(&database).expect("catalog database opens");
+    connection
+        .execute_batch(
+            "CREATE TABLE workspace_catalog (workspace_id TEXT, display_name TEXT);
+             INSERT INTO workspace_catalog VALUES ('not-an-id', 'Keep me');",
+        )
+        .expect("legacy data writes");
+    drop(connection);
+
+    assert!(WorkspaceCatalog::open(&root).is_err());
+    let connection = Connection::open(database).expect("catalog database remains open");
+    let preserved: String = connection
+        .query_row("SELECT display_name FROM workspace_catalog", [], |row| {
+            row.get(0)
+        })
+        .expect("legacy data remains");
+    assert_eq!(preserved, "Keep me");
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }
 

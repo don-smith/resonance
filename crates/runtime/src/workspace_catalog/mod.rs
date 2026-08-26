@@ -85,8 +85,8 @@ impl WorkspaceCatalog {
         let application_data_directory = application_data_directory.as_ref().to_path_buf();
         let catalog_directory = application_data_directory.join(".resonance");
         fs::create_dir_all(&catalog_directory)?;
-        let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))?;
-        migrate_catalog(&connection)?;
+        let mut connection = Connection::open(catalog_directory.join("catalog.sqlite3"))?;
+        migrate_catalog(&mut connection)?;
         let catalog = Self {
             application_data_directory,
             connection: Mutex::new(connection),
@@ -163,14 +163,47 @@ impl WorkspaceCatalog {
         let id = token.workspace_id();
         let store = WorkspaceStore::open(&self.application_data_directory, id.as_str())?;
         store.initialize_workspace(&token, &display_name, relay_override.as_deref(), &lifecycle)?;
+        if lifecycle == WorkspaceLifecycle::Initializing {
+            return Ok(WorkspaceSummary {
+                id,
+                display_name,
+                lifecycle,
+            });
+        }
+        if lifecycle == WorkspaceLifecycle::Ready {
+            store.set_creation_stage("files-initialized")?;
+            self.publish_workspace(&id)?;
+        } else {
+            self.publish_workspace_reference(&id)?;
+        }
+        Ok(WorkspaceSummary {
+            id,
+            display_name,
+            lifecycle,
+        })
+    }
 
+    pub(crate) fn publish_workspace(&self, id: &WorkspaceId) -> Result<(), WorkspaceCatalogError> {
+        let store = WorkspaceStore::open(&self.application_data_directory, id.as_str())?;
+        let settings = store.settings()?;
+        if settings.lifecycle != WorkspaceLifecycle::Ready {
+            return Err(WorkspaceCatalogError::Store(
+                WorkspaceStoreError::InitializationConflict,
+            ));
+        }
+        self.publish_workspace_reference(id)?;
+        store.set_creation_stage("published")?;
+        Ok(())
+    }
+
+    fn publish_workspace_reference(&self, id: &WorkspaceId) -> Result<(), WorkspaceCatalogError> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| WorkspaceCatalogError::LockPoisoned)?;
         let transaction = connection.unchecked_transaction()?;
         transaction.execute(
-            "INSERT INTO workspace_catalog (workspace_id) VALUES (?1)",
+            "INSERT OR IGNORE INTO workspace_catalog (workspace_id) VALUES (?1)",
             [id.as_str()],
         )?;
         transaction.execute(
@@ -178,11 +211,17 @@ impl WorkspaceCatalog {
             [id.as_str()],
         )?;
         transaction.commit()?;
-        Ok(WorkspaceSummary {
-            id,
-            display_name,
-            lifecycle,
-        })
+        Ok(())
+    }
+
+    pub(crate) fn open_workspace_for_initialization(
+        &self,
+        id: &WorkspaceId,
+    ) -> Result<WorkspaceStore, WorkspaceCatalogError> {
+        Ok(WorkspaceStore::open(
+            &self.application_data_directory,
+            id.as_str(),
+        )?)
     }
 
     pub(crate) fn set_workspace_lifecycle(
@@ -271,7 +310,22 @@ impl WorkspaceCatalog {
     }
 }
 
-fn migrate_catalog(connection: &Connection) -> Result<(), WorkspaceCatalogError> {
+fn migrate_catalog(connection: &mut Connection) -> Result<(), WorkspaceCatalogError> {
+    connection.execute_batch("BEGIN IMMEDIATE")?;
+    let result = migrate_catalog_steps(connection);
+    match result {
+        Ok(()) => {
+            connection.execute_batch("COMMIT")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+fn migrate_catalog_steps(connection: &Connection) -> Result<(), WorkspaceCatalogError> {
     let version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     match version {
         0 => {
@@ -289,8 +343,18 @@ fn migrate_catalog(connection: &Connection) -> Result<(), WorkspaceCatalogError>
             }
             connection.execute_batch(include_str!("../../migrations/catalog/0001_initial.sql"))?;
         }
-        1 => {}
+        1 | 2 => {}
         _ => return Err(WorkspaceCatalogError::UnsupportedSchema),
+    }
+    let version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version == 1 {
+        connection.execute_batch(include_str!(
+            "../../migrations/catalog/0002_publication_state.sql"
+        ))?;
+    }
+    let version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version != 2 {
+        return Err(WorkspaceCatalogError::UnsupportedSchema);
     }
     Ok(())
 }

@@ -124,6 +124,125 @@ fn rejects_an_unsupported_legacy_workspace_without_deleting_user_data() {
 }
 
 #[test]
+fn upgrades_the_supported_workspace_v8_fixture_transactionally() {
+    let root = temporary_directory("workspace-store-v8-fixture");
+    let database = workspace_database(&root, "legacy-v8");
+    fs::create_dir_all(database.parent().expect("database has parent"))
+        .expect("workspace directory creates");
+    let connection = Connection::open(&database).expect("legacy database opens");
+    connection
+        .execute_batch(include_str!("fixtures/legacy_workspace_v8.sql"))
+        .expect("v8 fixture applies");
+    drop(connection);
+
+    let store = WorkspaceStore::open(&root, "legacy-v8").expect("supported workspace upgrades");
+    assert_eq!(
+        store.settings().expect("settings read").display_name,
+        "Legacy workspace"
+    );
+    let connection = Connection::open(database).expect("upgraded database opens");
+    let version: i32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("workspace version reads");
+    assert_eq!(version, 10);
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn rolls_back_workspace_migration_when_legacy_rows_violate_new_invariants() {
+    let root = temporary_directory("workspace-store-rollback");
+    let database = workspace_database(&root, "legacy-invalid");
+    fs::create_dir_all(database.parent().expect("database has parent"))
+        .expect("workspace directory creates");
+    let connection = Connection::open(&database).expect("legacy database opens");
+    connection
+        .execute_batch(include_str!("fixtures/legacy_workspace_v8.sql"))
+        .expect("v8 fixture applies");
+    connection
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             INSERT INTO local_root_materialization
+               (node_id, relative_path, revision_id, content_hash)
+               VALUES ('node', 'plans/file.md', 'revision', NULL);",
+        )
+        .expect("invalid legacy row writes");
+    drop(connection);
+
+    assert!(WorkspaceStore::open(&root, "legacy-invalid").is_err());
+    let connection = Connection::open(database).expect("legacy database remains open");
+    let version: i32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("workspace version reads");
+    let rows: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM local_root_materialization",
+            [],
+            |row| row.get(0),
+        )
+        .expect("legacy rows remain");
+    assert_eq!(version, 8);
+    assert_eq!(rows, 1);
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn sqlite_rejects_impossible_operation_join_and_materialization_states() {
+    let root = temporary_directory("workspace-store-all-invariants");
+    let store = WorkspaceStore::open(&root, "invariants").expect("store opens");
+    let database = workspace_database(&root, "invariants");
+    let connection = Connection::open(database).expect("database opens");
+    assert!(connection
+        .execute(
+            "INSERT INTO membership_operations (operation_id, signed_operation)
+             VALUES ('short', X'01')",
+            [],
+        )
+        .is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO workspace_file_operations (operation_id, signed_operation)
+             VALUES ('short', X'01')",
+            [],
+        )
+        .is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO local_root_materialization
+             (node_id, relative_path, revision_id, content_hash)
+             VALUES ('node', 'plans/file.md', 'revision', NULL)",
+            [],
+        )
+        .is_err());
+    drop(store);
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn typed_store_reads_report_corrupt_persisted_values() {
+    let root = temporary_directory("workspace-store-corruption");
+    let store = WorkspaceStore::open(&root, "corrupt").expect("store opens");
+    let database = workspace_database(&root, "corrupt");
+    let connection = Connection::open(database).expect("database opens");
+    connection
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             INSERT INTO workspace_configuration
+               (singleton, token, display_name, lifecycle)
+               VALUES (1, zeroblob(32), 'Corrupt', 'impossible');",
+        )
+        .expect("corrupt row writes");
+    assert!(matches!(
+        store.settings(),
+        Err(
+            resonance_runtime::workspace_store::WorkspaceStoreError::CorruptPersistedValue(
+                "lifecycle"
+            )
+        )
+    ));
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
 fn sqlite_rejects_impossible_workspace_member_values() {
     let root = temporary_directory("workspace-store-invariants");
     let store = WorkspaceStore::open(&root, "invariants").expect("store opens");

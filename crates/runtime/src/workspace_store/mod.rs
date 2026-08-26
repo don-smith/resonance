@@ -14,6 +14,7 @@ use rusqlite::{params, Connection};
 use crate::{
     identity::PublicIdentity,
     local_root_binding::{MaterializedRecord, RootHealth},
+    membership_log::MembershipOperationId,
     workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken},
     workspace_files::{
         blobs::{BlobError, WorkspaceBlobStore},
@@ -21,7 +22,7 @@ use crate::{
     },
 };
 
-const CURRENT_SCHEMA_VERSION: i32 = 9;
+const CURRENT_SCHEMA_VERSION: i32 = 10;
 
 #[derive(Clone)]
 pub(crate) struct PrivateWorkspaceSettings {
@@ -32,6 +33,7 @@ pub(crate) struct PrivateWorkspaceSettings {
     pub bootstrap: Option<String>,
     pub joining_display_name: Option<String>,
     pub creation_creator_display_name: Option<String>,
+    pub creation_stage: String,
 }
 
 #[derive(Clone, Debug)]
@@ -46,10 +48,12 @@ pub enum WorkspaceStoreError {
     WorkspaceConfigurationMissing,
     UnsupportedLegacySchema,
     InitializationConflict,
+    CorruptPersistedValue(&'static str),
     Io(std::io::Error),
     Database(rusqlite::Error),
     FileOperation(FileOperationError),
     FileOperationConflict,
+    MembershipOperationConflict,
     Blob(BlobError),
     LockPoisoned,
 }
@@ -66,6 +70,9 @@ impl std::fmt::Display for WorkspaceStoreError {
             ),
             Self::InitializationConflict => formatter
                 .write_str("workspace initialization conflicts with existing durable identity"),
+            Self::CorruptPersistedValue(field) => {
+                write!(formatter, "workspace storage contains an invalid {field}")
+            }
             Self::Io(error) => write!(formatter, "workspace storage I/O failed: {error}"),
             Self::Database(error) => write!(formatter, "workspace database failed: {error}"),
             Self::FileOperation(error) => {
@@ -73,6 +80,9 @@ impl std::fmt::Display for WorkspaceStoreError {
             }
             Self::FileOperationConflict => {
                 formatter.write_str("workspace file operation ID has conflicting durable bytes")
+            }
+            Self::MembershipOperationConflict => {
+                formatter.write_str("membership operation ID has conflicting durable bytes")
             }
             Self::Blob(error) => write!(formatter, "workspace blob storage failed: {error}"),
             Self::LockPoisoned => formatter.write_str("workspace store lock was poisoned"),
@@ -120,8 +130,8 @@ impl WorkspaceStore {
             .join(workspace_id);
         std::fs::create_dir_all(&directory)?;
 
-        let connection = Connection::open(directory.join("workspace.sqlite3"))?;
-        migrate(&connection)?;
+        let mut connection = Connection::open(directory.join("workspace.sqlite3"))?;
+        migrate(&mut connection)?;
         Ok(Self {
             private_directory: directory,
             connection: Arc::new(Mutex::new(connection)),
@@ -185,7 +195,7 @@ impl WorkspaceStore {
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
         connection
             .query_row(
-                "SELECT token, display_name, relay_override, joining_inviter, bootstrap, joining_display_name, creation_creator_display_name FROM workspace_configuration WHERE singleton = 1",
+                "SELECT token, display_name, relay_override, joining_inviter, bootstrap, joining_display_name, creation_creator_display_name, creation_stage FROM workspace_configuration WHERE singleton = 1",
                 [],
                 |row| {
                     let token: Vec<u8> = row.get(0)?;
@@ -216,6 +226,7 @@ impl WorkspaceStore {
                         bootstrap: row.get(4)?,
                         joining_display_name: row.get(5)?,
                         creation_creator_display_name: row.get(6)?,
+                        creation_stage: row.get(7)?,
                     })
                 },
             )
@@ -234,6 +245,26 @@ impl WorkspaceStore {
         let changed = connection.execute(
             "UPDATE workspace_configuration SET creation_creator_display_name = ?1 WHERE singleton = 1",
             [display_name],
+        )?;
+        if changed == 0 {
+            Err(WorkspaceStoreError::WorkspaceConfigurationMissing)
+        } else {
+            connection.execute(
+                "UPDATE workspace_configuration SET creation_stage = 'creator-recorded' WHERE singleton = 1",
+                [],
+            )?;
+            Ok(())
+        }
+    }
+
+    pub(crate) fn set_creation_stage(&self, stage: &str) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let changed = connection.execute(
+            "UPDATE workspace_configuration SET creation_stage = ?1 WHERE singleton = 1",
+            [stage],
         )?;
         if changed == 0 {
             Err(WorkspaceStoreError::WorkspaceConfigurationMissing)
@@ -305,44 +336,59 @@ impl WorkspaceStore {
             .connection
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
-        connection
+        let row = connection
             .query_row(
                 "SELECT display_name, relay_override, lifecycle FROM workspace_configuration WHERE singleton = 1",
                 [],
                 |row| {
-                    Ok(WorkspaceSettings {
-                        display_name: row.get(0)?,
-                        relay_override: row.get(1)?,
-                        lifecycle: WorkspaceLifecycle::parse(&row.get::<_, String>(2)?).map_err(
-                            |error| {
-                                rusqlite::Error::FromSqlConversionFailure(
-                                    2,
-                                    rusqlite::types::Type::Text,
-                                    Box::new(error),
-                                )
-                            },
-                        )?,
-                    })
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
                 },
             )
-            .optional()?
-            .ok_or(WorkspaceStoreError::WorkspaceConfigurationMissing)
+            .optional()?;
+        let Some((display_name, relay_override, lifecycle)) = row else {
+            return Err(WorkspaceStoreError::WorkspaceConfigurationMissing);
+        };
+        if display_name.trim().is_empty() || display_name.len() > 256 {
+            return Err(WorkspaceStoreError::CorruptPersistedValue("display name"));
+        }
+        let lifecycle = WorkspaceLifecycle::parse(&lifecycle)
+            .map_err(|_| WorkspaceStoreError::CorruptPersistedValue("lifecycle"))?;
+        Ok(WorkspaceSettings {
+            display_name,
+            relay_override,
+            lifecycle,
+        })
     }
 
     pub fn record_membership_operation(
         &self,
-        operation_id: &str,
+        operation_id: impl AsRef<str>,
         signed_operation: &[u8],
     ) -> Result<(), WorkspaceStoreError> {
-        validate_identifier(operation_id, "membership operation")?;
+        let operation_id = MembershipOperationId::parse(operation_id.as_ref())
+            .map_err(|_| WorkspaceStoreError::InvalidIdentifier("membership operation"))?;
         let connection = self
             .connection
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
-        connection.execute(
+        let inserted = connection.execute(
             "INSERT OR IGNORE INTO membership_operations (operation_id, signed_operation) VALUES (?1, ?2)",
-            params![operation_id, signed_operation],
+            params![operation_id.as_str(), signed_operation],
         )?;
+        if inserted == 0 {
+            let existing = connection.query_row(
+                "SELECT signed_operation FROM membership_operations WHERE operation_id = ?1",
+                [operation_id.as_str()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )?;
+            if existing != signed_operation {
+                return Err(WorkspaceStoreError::MembershipOperationConflict);
+            }
+        }
         Ok(())
     }
 
@@ -554,6 +600,30 @@ impl WorkspaceStore {
         Ok(())
     }
 
+    pub fn typed_membership_operation_ids(
+        &self,
+    ) -> Result<Vec<MembershipOperationId>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection
+            .prepare("SELECT operation_id FROM membership_operations ORDER BY operation_id")?;
+        let result = statement
+            .query_map([], |row| {
+                let value: String = row.get(0)?;
+                MembershipOperationId::parse(&value).map_err(|_| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        "invalid membership operation ID".into(),
+                    )
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>();
+        result.map_err(WorkspaceStoreError::Database)
+    }
+
     pub fn membership_operation_ids(&self) -> Result<Vec<String>, WorkspaceStoreError> {
         let connection = self
             .connection
@@ -600,34 +670,44 @@ impl WorkspaceStore {
             "SELECT public_identity, display_name, role, added_by, added_at
              FROM workspace_members ORDER BY public_identity",
         )?;
-        let members = statement
+        let rows = statement
             .query_map([], |row| {
-                let public_identity =
-                    PublicIdentity::parse(&row.get::<_, String>(0)?).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            0,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                let added_by =
-                    PublicIdentity::parse(&row.get::<_, String>(3)?).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            3,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                Ok(Member::new(
-                    public_identity,
+                Ok((
+                    row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    added_by,
+                    row.get::<_, String>(3)?,
                     row.get::<_, i64>(4)?,
                 ))
             })?
-            .collect::<Result<Vec<Member>, _>>()?;
-        Ok(members)
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(
+                |(public_identity, display_name, role, added_by, added_at)| {
+                    let public_identity =
+                        PublicIdentity::parse(&public_identity).map_err(|_| {
+                            WorkspaceStoreError::CorruptPersistedValue("member identity")
+                        })?;
+                    let added_by = PublicIdentity::parse(&added_by)
+                        .map_err(|_| WorkspaceStoreError::CorruptPersistedValue("member author"))?;
+                    if display_name.trim().is_empty() || display_name.len() > 256 {
+                        return Err(WorkspaceStoreError::CorruptPersistedValue(
+                            "member display name",
+                        ));
+                    }
+                    if !matches!(role.as_str(), "viewer" | "contributor" | "developer") {
+                        return Err(WorkspaceStoreError::CorruptPersistedValue("member role"));
+                    }
+                    Ok(Member::new(
+                        public_identity,
+                        display_name,
+                        role,
+                        added_by,
+                        added_at,
+                    ))
+                },
+            )
+            .collect()
     }
 
     /// Returns the initial shared directory recorded by the private file-history schema.
@@ -646,7 +726,22 @@ impl WorkspaceStore {
     }
 }
 
-fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
+fn migrate(connection: &mut Connection) -> Result<(), WorkspaceStoreError> {
+    connection.execute_batch("BEGIN IMMEDIATE")?;
+    let result = migrate_steps(connection);
+    match result {
+        Ok(()) => {
+            connection.execute_batch("COMMIT")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = connection.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+fn migrate_steps(connection: &Connection) -> Result<(), WorkspaceStoreError> {
     let mut version: i32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version == 0 && table_exists(connection, "documents")? {
         return Err(WorkspaceStoreError::UnsupportedLegacySchema);
@@ -697,6 +792,12 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceStoreError> {
             "../../migrations/0009_workspace_invariants.sql"
         ))?;
         version = 9;
+    }
+    if version == 9 {
+        connection.execute_batch(include_str!(
+            "../../migrations/0010_durable_creation_and_invariants.sql"
+        ))?;
+        version = 10;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

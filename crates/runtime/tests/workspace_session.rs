@@ -172,6 +172,67 @@ fn restart_resumes_after_genesis_and_creates_exactly_one_plans_operation() {
 }
 
 #[test]
+fn restart_recovers_an_unpublished_initialization_without_duplicate_records() {
+    let directory = temporary_directory("unpublished-initialization");
+    let custody = InMemoryKeyCustody::default();
+    let mut workspace = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity creates"),
+        WorkspaceCatalog::open(&directory).expect("catalog opens"),
+        FakeDeliveryPort::default(),
+    );
+    let created = workspace
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    drop(workspace);
+
+    let catalog_database = directory.join(".resonance/catalog.sqlite3");
+    let workspace_database = directory
+        .join(".resonance/workspaces")
+        .join(created.workspace.id.as_str())
+        .join("workspace.sqlite3");
+    Connection::open(&catalog_database)
+        .expect("catalog database opens")
+        .execute_batch(&format!(
+            "DELETE FROM workspace_catalog WHERE workspace_id = '{}';
+             UPDATE catalog_state SET active_workspace_id = NULL WHERE singleton = 1;",
+            created.workspace.id.as_str()
+        ))
+        .expect("publication interruption injects");
+    Connection::open(workspace_database)
+        .expect("workspace database opens")
+        .execute(
+            "UPDATE workspace_configuration SET lifecycle = 'initializing' WHERE singleton = 1",
+            [],
+        )
+        .expect("initialization stage rewinds");
+
+    let mut restarted = WorkspaceSession::new(
+        InstallationIdentity::load_or_create(&custody).expect("identity reloads"),
+        WorkspaceCatalog::open(&directory).expect("catalog recovers orphan"),
+        FakeDeliveryPort::default(),
+    );
+    let recovered = restarted
+        .activate_active_workspace()
+        .expect("orphaned initialization recovers")
+        .expect("recovered workspace is active");
+    assert_eq!(recovered.workspace.lifecycle, WorkspaceLifecycle::Ready);
+
+    let catalog = WorkspaceCatalog::open(&directory).expect("catalog reopens");
+    let store = catalog
+        .open_workspace(&created.workspace.id)
+        .expect("store reopens");
+    assert_eq!(
+        store
+            .membership_operation_ids()
+            .expect("membership reads")
+            .len(),
+        1
+    );
+    assert_eq!(store.file_operations().expect("file reads").len(), 1);
+    fs::remove_dir_all(directory).expect("directory removes");
+}
+
+#[test]
 fn initialization_without_durable_creator_input_stays_unavailable() {
     let directory = temporary_directory("initialization-missing-input");
     let custody = InMemoryKeyCustody::default();

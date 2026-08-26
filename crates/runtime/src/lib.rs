@@ -14,6 +14,7 @@ pub mod membership_log;
 pub mod packages;
 pub mod protocol;
 pub mod release;
+pub mod workspace_application;
 pub mod workspace_catalog;
 pub mod workspace_domain;
 pub mod workspace_file_runtime;
@@ -21,3 +22,15 @@ pub mod workspace_file_transport;
 pub mod workspace_files;
 pub mod workspace_session;
 pub mod workspace_store;
+
+/// Preferred application-facing surface for desktop integrations.
+pub mod desktop {
+    pub use crate::identity::{IdentityError, InstallationIdentity};
+    pub use crate::workspace_application::{
+        WorkspaceApplication, WorkspaceApplicationView, WorkspaceHealth,
+    };
+    pub use crate::workspace_domain::{
+        KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary,
+    };
+    pub use crate::workspace_session::WorkspaceTransition;
+}

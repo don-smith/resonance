@@ -8,6 +8,7 @@
     "revision",
     "state",
     "message",
+    "health",
     "workspace",
     "localPublicIdentity",
     "members",
@@ -26,6 +27,16 @@
       ]
     },
     "message": { "type": ["string", "null"] },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "storage", "network"],
+      "properties": {
+        "identity": { "enum": ["healthy", "unavailable", "offline"] },
+        "storage": { "enum": ["healthy", "unavailable", "offline"] },
+        "network": { "enum": ["healthy", "unavailable", "offline"] }
+      }
+    },
     "workspace": {
       "oneOf": [
         { "type": "null" },

@@ -14,6 +14,11 @@ export type WorkspaceShellView = Readonly<{
     | "identity-error"
     | "storage-error";
   message: string | null;
+  health: Readonly<{
+    identity: "healthy" | "unavailable" | "offline";
+    storage: "healthy" | "unavailable" | "offline";
+    network: "healthy" | "unavailable" | "offline";
+  }>;
   workspace: Readonly<{
     id: string;
     displayName: string;

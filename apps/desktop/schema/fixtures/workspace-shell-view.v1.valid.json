@@ -3,6 +3,11 @@
     "revision": 1,
     "state": "onboarding",
     "message": null,
+    "health": {
+      "identity": "healthy",
+      "storage": "healthy",
+      "network": "healthy"
+    },
     "workspace": null,
     "localPublicIdentity": "local-id",
     "members": [],
@@ -12,6 +17,11 @@
     "revision": 2,
     "state": "ready",
     "message": null,
+    "health": {
+      "identity": "healthy",
+      "storage": "healthy",
+      "network": "healthy"
+    },
     "workspace": {
       "id": "workspace-id",
       "displayName": "Team Resonance",

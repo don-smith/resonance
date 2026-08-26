@@ -564,86 +564,88 @@ async fn dispatch(
         WorkspaceFilesRequest::Snapshot => Ok(WorkspaceFilesResponse::Snapshot {
             snapshot: snapshot(&state.inner).await?,
         }),
-        WorkspaceFilesRequest::SelectRoot => {
+        WorkspaceFilesRequest::SelectRoot | WorkspaceFilesRequest::ReplaceRoot => {
+            let replace = matches!(request, WorkspaceFilesRequest::ReplaceRoot);
             if let Some(root) = choose_confirmed_root(app)? {
-                let mut files = state.inner.files.lock().await;
-                files
-                    .as_mut()
-                    .ok_or_else(unavailable)?
-                    .bind_root(root, RootSelection::ConfirmedNotGitManaged)
-                    .map_err(root_error)?;
-                drop(files);
+                state
+                    .inner
+                    .with_files(|files| {
+                        let files = files.ok_or_else(unavailable)?;
+                        if replace {
+                            files.replace_root(root, RootSelection::ConfirmedNotGitManaged)
+                        } else {
+                            files.bind_root(root, RootSelection::ConfirmedNotGitManaged)
+                        }
+                        .map_err(root_error)
+                    })
+                    .await?;
                 state.inner.emit_files_changed();
             }
-            Ok(WorkspaceFilesResponse::SelectRoot {
-                snapshot: snapshot(&state.inner).await?,
-            })
+            let response = if replace {
+                WorkspaceFilesResponse::ReplaceRoot {
+                    snapshot: snapshot(&state.inner).await?,
+                }
+            } else {
+                WorkspaceFilesResponse::SelectRoot {
+                    snapshot: snapshot(&state.inner).await?,
+                }
+            };
+            Ok(response)
         }
-        WorkspaceFilesRequest::ReplaceRoot => {
-            if let Some(root) = choose_confirmed_root(app)? {
-                let mut files = state.inner.files.lock().await;
-                files
-                    .as_mut()
-                    .ok_or_else(unavailable)?
-                    .replace_root(root, RootSelection::ConfirmedNotGitManaged)
-                    .map_err(root_error)?;
-                drop(files);
-                state.inner.emit_files_changed();
-            }
-            Ok(WorkspaceFilesResponse::ReplaceRoot {
-                snapshot: snapshot(&state.inner).await?,
-            })
-        }
-        WorkspaceFilesRequest::RepairRoot => {
-            let mut files = state.inner.files.lock().await;
-            files
-                .as_mut()
-                .ok_or_else(unavailable)?
-                .repair_root()
-                .map_err(root_error)?;
-            drop(files);
+        WorkspaceFilesRequest::RepairRoot | WorkspaceFilesRequest::UnbindRoot => {
+            let unbind = matches!(request, WorkspaceFilesRequest::UnbindRoot);
+            state
+                .inner
+                .with_files(|files| {
+                    let files = files.ok_or_else(unavailable)?;
+                    if unbind {
+                        files.unbind_root()
+                    } else {
+                        files.repair_root()
+                    }
+                    .map_err(root_error)
+                })
+                .await?;
             state.inner.emit_files_changed();
-            Ok(WorkspaceFilesResponse::RepairRoot {
-                snapshot: snapshot(&state.inner).await?,
-            })
-        }
-        WorkspaceFilesRequest::UnbindRoot => {
-            let mut files = state.inner.files.lock().await;
-            files
-                .as_mut()
-                .ok_or_else(unavailable)?
-                .unbind_root()
-                .map_err(root_error)?;
-            drop(files);
-            state.inner.emit_files_changed();
-            Ok(WorkspaceFilesResponse::UnbindRoot {
-                snapshot: snapshot(&state.inner).await?,
+            let snapshot = snapshot(&state.inner).await?;
+            Ok(if unbind {
+                WorkspaceFilesResponse::UnbindRoot { snapshot }
+            } else {
+                WorkspaceFilesResponse::RepairRoot { snapshot }
             })
         }
         WorkspaceFilesRequest::OpenMarkdown {
             node_id,
             revision_id,
         } => {
-            let files = state.inner.files.lock().await;
-            let revision = files
-                .as_ref()
-                .ok_or_else(unavailable)?
-                .open_markdown_file(&node_id, &revision_id)
-                .map(markdown_revision_view)
-                .map_err(revision_error)?;
+            let revision = state
+                .inner
+                .with_files(|files| {
+                    files.ok_or_else(unavailable).and_then(|files| {
+                        files
+                            .open_markdown_file(&node_id, &revision_id)
+                            .map(markdown_revision_view)
+                            .map_err(revision_error)
+                    })
+                })
+                .await?;
             Ok(WorkspaceFilesResponse::OpenMarkdown { revision })
         }
         WorkspaceFilesRequest::OpenPreview {
             node_id,
             revision_id,
         } => {
-            let files = state.inner.files.lock().await;
-            let preview = files
-                .as_ref()
-                .ok_or_else(unavailable)?
-                .open_file_preview(&node_id, &revision_id)
-                .map(file_preview_view)
-                .map_err(revision_error)?;
+            let preview = state
+                .inner
+                .with_files(|files| {
+                    files.ok_or_else(unavailable).and_then(|files| {
+                        files
+                            .open_file_preview(&node_id, &revision_id)
+                            .map(file_preview_view)
+                            .map_err(revision_error)
+                    })
+                })
+                .await?;
             Ok(WorkspaceFilesResponse::OpenPreview { preview })
         }
         WorkspaceFilesRequest::CreateMarkdown {
@@ -651,14 +653,16 @@ async fn dispatch(
             name,
             markdown,
         } => {
-            let (revision, announcements) = {
-                let mut files = state.inner.files.lock().await;
-                let files = files.as_mut().ok_or_else(unavailable)?;
-                let revision = files
-                    .create_markdown_file(&parent_node_id, &name, &markdown)
-                    .map_err(mutation_error)?;
-                (revision, files.take_pending_announcements())
-            };
+            let (revision, announcements) = state
+                .inner
+                .with_files(|files| {
+                    let files = files.ok_or_else(unavailable)?;
+                    let revision = files
+                        .create_markdown_file(&parent_node_id, &name, &markdown)
+                        .map_err(mutation_error)?;
+                    Ok::<_, WorkspaceFilesError>((revision, files.take_pending_announcements()))
+                })
+                .await?;
             state.inner.announce_file_changes(announcements).await;
             state.inner.emit_files_changed();
             Ok(WorkspaceFilesResponse::CreateMarkdown {
@@ -670,14 +674,16 @@ async fn dispatch(
             base_revision_id,
             markdown,
         } => {
-            let (revision, announcements) = {
-                let mut files = state.inner.files.lock().await;
-                let files = files.as_mut().ok_or_else(unavailable)?;
-                let revision = files
-                    .replace_markdown_file(&node_id, &base_revision_id, &markdown)
-                    .map_err(mutation_error)?;
-                (revision, files.take_pending_announcements())
-            };
+            let (revision, announcements) = state
+                .inner
+                .with_files(|files| {
+                    let files = files.ok_or_else(unavailable)?;
+                    let revision = files
+                        .replace_markdown_file(&node_id, &base_revision_id, &markdown)
+                        .map_err(mutation_error)?;
+                    Ok::<_, WorkspaceFilesError>((revision, files.take_pending_announcements()))
+                })
+                .await?;
             state.inner.announce_file_changes(announcements).await;
             state.inner.emit_files_changed();
             Ok(WorkspaceFilesResponse::ReplaceMarkdown {
@@ -688,16 +694,18 @@ async fn dispatch(
             record_id,
             chosen_candidate_id,
         } => {
-            let announcements = {
-                let mut files = state.inner.files.lock().await;
-                let files = files.as_mut().ok_or_else(unavailable)?;
-                files
-                    .resolve_conflict(&record_id, chosen_candidate_id)
-                    .map_err(|_| {
-                        WorkspaceFilesError::new(WorkspaceFilesErrorCode::ChangedConflictChoice)
-                    })?;
-                files.take_pending_announcements()
-            };
+            let announcements = state
+                .inner
+                .with_files(|files| {
+                    let files = files.ok_or_else(unavailable)?;
+                    files
+                        .resolve_conflict(&record_id, chosen_candidate_id)
+                        .map_err(|_| {
+                            WorkspaceFilesError::new(WorkspaceFilesErrorCode::ChangedConflictChoice)
+                        })?;
+                    Ok::<_, WorkspaceFilesError>(files.take_pending_announcements())
+                })
+                .await?;
             state.inner.announce_file_changes(announcements).await;
             state.inner.emit_files_changed();
             Ok(WorkspaceFilesResponse::ResolveConflict {
@@ -711,12 +719,13 @@ async fn snapshot(
     workspace: &ManagedWorkspace,
 ) -> Result<WorkspaceFilesSnapshot, WorkspaceFilesError> {
     workspace
-        .files
-        .lock()
+        .with_files(|files| {
+            files
+                .as_deref()
+                .map(workspace_files_view)
+                .ok_or_else(unavailable)
+        })
         .await
-        .as_ref()
-        .map(workspace_files_view)
-        .ok_or_else(unavailable)
 }
 
 fn choose_confirmed_root(

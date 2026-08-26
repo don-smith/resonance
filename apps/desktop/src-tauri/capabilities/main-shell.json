@@ -7,7 +7,6 @@
     "core:event:allow-emit",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "allow-bundled-package-ids",
     "allow-workspace-view",
     "allow-workspace-files-v1",
     "allow-create-workspace",

@@ -1,30 +1,20 @@
-use std::{
-    path::Path,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{sync::Arc, time::Duration};
 
 use resonance_runtime::{
-    identity::InstallationIdentity,
+    identity::{IdentityError, InstallationIdentity},
     invite::Invite,
-    iroh_transport::{IrohSessionAdapterError, IrohTransport, IrohTransportError},
-    workspace_catalog::WorkspaceCatalog,
+    workspace_application::{WorkspaceApplication, WorkspaceApplicationView, WorkspaceHealth},
     workspace_domain::{KnownPeer, Member, PeerConnection, WorkspaceLifecycle, WorkspaceSummary},
-    workspace_file_runtime::WorkspaceFileRuntime,
-    workspace_session::{
-        FakeDeliveryPort, WorkspaceSession, WorkspaceSessionError, WorkspaceTransition,
-    },
+    workspace_session::WorkspaceTransition,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
-
-use tokio::{sync::Mutex, time};
+use tokio::sync::Mutex;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
-const TRANSPORT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const MAX_DISPLAY_NAME_LENGTH: usize = 255;
+const MAX_INVITE_LENGTH: usize = 16_384;
+const MAX_RELAY_LENGTH: usize = 4_096;
 
 pub struct ManagedWorkspaceState {
     pub(super) inner: Arc<ManagedWorkspace>,
@@ -32,20 +22,7 @@ pub struct ManagedWorkspaceState {
 
 pub(super) struct ManagedWorkspace {
     app: AppHandle,
-    session: Mutex<Option<WorkspaceSession<FakeDeliveryPort>>>,
-    transport: Mutex<Option<IrohTransport>>,
-    pub(super) files: Mutex<Option<WorkspaceFileRuntime>>,
-    issue: Mutex<Option<WorkspaceIssue>>,
-    local_public_identity: Option<String>,
-    last_view: Mutex<Option<WorkspaceShellView>>,
-    view_revision: AtomicU64,
-}
-
-#[derive(Clone, Debug)]
-enum WorkspaceIssue {
-    Identity(String),
-    Storage,
-    Network(String),
+    pub(super) application: Mutex<WorkspaceApplication>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -54,28 +31,62 @@ pub struct WorkspaceShellView {
     pub revision: u64,
     pub state: ShellState,
     pub message: Option<String>,
+    pub health: ShellHealthView,
     pub workspace: Option<WorkspaceView>,
     pub local_public_identity: Option<String>,
     pub members: Vec<MemberView>,
     pub peers: Vec<PeerView>,
 }
 
-impl WorkspaceShellView {
-    fn validate(&self) -> bool {
-        self.revision > 0
-            && self.workspace.as_ref().is_none_or(|workspace| {
-                !workspace.id.is_empty() && !workspace.display_name.is_empty()
-            })
-            && self.members.iter().all(|member| {
-                !member.public_identity.is_empty()
-                    && !member.display_name.is_empty()
-                    && !member.role.is_empty()
-            })
-            && self
-                .peers
-                .iter()
-                .all(|peer| !peer.public_identity.is_empty() && !peer.display_name.is_empty())
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ShellHealthView {
+    pub identity: HealthState,
+    pub storage: HealthState,
+    pub network: HealthState,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ShellCommandError {
+    pub code: ShellErrorCode,
+    pub message: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShellErrorCode {
+    InvalidRequest,
+    InvalidInvite,
+    NetworkOffline,
+    StorageUnavailable,
+    Internal,
+}
+
+impl ShellCommandError {
+    fn new(code: ShellErrorCode) -> Self {
+        let message = match code {
+            ShellErrorCode::InvalidRequest => "The workspace request is invalid.",
+            ShellErrorCode::InvalidInvite => "That invite is invalid or has been altered.",
+            ShellErrorCode::NetworkOffline => "Peer networking is not ready yet. Try again.",
+            ShellErrorCode::StorageUnavailable => {
+                "The installation identity or workspace storage is unavailable."
+            }
+            ShellErrorCode::Internal => "Resonance could not complete the workspace request.",
+        };
+        Self {
+            code,
+            message: message.to_owned(),
+        }
     }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HealthState {
+    Healthy,
+    Unavailable,
+    Offline,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -151,45 +162,47 @@ pub struct RetryJoinRequest {
     pub display_name: String,
 }
 
+impl CreateWorkspaceRequest {
+    fn validate(&self) -> bool {
+        valid_text(&self.display_name, MAX_DISPLAY_NAME_LENGTH)
+            && valid_text(&self.creator_display_name, MAX_DISPLAY_NAME_LENGTH)
+            && self
+                .relay_override
+                .as_ref()
+                .is_none_or(|value| valid_text(value, MAX_RELAY_LENGTH))
+    }
+}
+
+impl JoinWorkspaceRequest {
+    fn validate(&self) -> bool {
+        valid_text(&self.invite, MAX_INVITE_LENGTH)
+            && valid_text(&self.display_name, MAX_DISPLAY_NAME_LENGTH)
+    }
+}
+
+impl RetryJoinRequest {
+    fn validate(&self) -> bool {
+        valid_text(&self.display_name, MAX_DISPLAY_NAME_LENGTH)
+    }
+}
+
+fn valid_text(value: &str, max_length: usize) -> bool {
+    !value.trim().is_empty() && value.chars().count() <= max_length
+}
+
 impl ManagedWorkspaceState {
     pub fn initialize(
         app: AppHandle,
-        identity: Result<InstallationIdentity, resonance_runtime::identity::IdentityError>,
-        application_data: &Path,
+        identity: Result<InstallationIdentity, IdentityError>,
+        application_data: &std::path::Path,
     ) -> Self {
-        let (session, files, local_public_identity, issue) = match identity {
-            Ok(identity) => match WorkspaceCatalog::open(application_data) {
-                Ok(catalog) => {
-                    let mut session =
-                        WorkspaceSession::new(identity, catalog, FakeDeliveryPort::default());
-                    let local_public_identity = session.local_public_identity();
-                    match session.activate_active_workspace() {
-                        Ok(_) => {
-                            let files = session.open_file_runtime().ok();
-                            (Some(session), files, Some(local_public_identity), None)
-                        }
-                        Err(_) => (None, None, None, Some(WorkspaceIssue::Storage)),
-                    }
-                }
-                Err(_) => (None, None, None, Some(WorkspaceIssue::Storage)),
-            },
-            Err(error) => (
-                None,
-                None,
-                None,
-                Some(WorkspaceIssue::Identity(error.to_string())),
-            ),
-        };
         Self {
             inner: Arc::new(ManagedWorkspace {
                 app,
-                session: Mutex::new(session),
-                transport: Mutex::new(None),
-                files: Mutex::new(files),
-                issue: Mutex::new(issue),
-                local_public_identity,
-                last_view: Mutex::new(None),
-                view_revision: AtomicU64::new(0),
+                application: Mutex::new(WorkspaceApplication::initialize(
+                    identity,
+                    application_data,
+                )),
             }),
         }
     }
@@ -199,13 +212,13 @@ impl ManagedWorkspaceState {
         tauri::async_runtime::spawn(async move {
             workspace.restart_transport().await;
             workspace.emit_view().await;
-            let mut last_heartbeat = time::Instant::now();
+            let mut last_heartbeat = tokio::time::Instant::now();
             loop {
                 workspace.poll_transport().await;
                 workspace.poll_files().await;
                 if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
                     workspace.send_heartbeat_and_expire().await;
-                    last_heartbeat = time::Instant::now();
+                    last_heartbeat = tokio::time::Instant::now();
                 }
             }
         });
@@ -214,91 +227,16 @@ impl ManagedWorkspaceState {
 
 impl ManagedWorkspace {
     pub(super) async fn view(&self) -> WorkspaceShellView {
-        let mut view = self.compute_view().await;
-        let mut last_view = self.last_view.lock().await;
-        let changed = last_view.as_ref().is_none_or(|previous| {
-            let mut comparable = previous.clone();
-            comparable.revision = 0;
-            comparable != view
-        });
-        if changed {
-            self.view_revision.fetch_add(1, Ordering::Relaxed);
-        }
-        view.revision = self.view_revision.load(Ordering::Relaxed);
-        debug_assert!(view.validate(), "native shell view must match its contract");
-        *last_view = Some(view.clone());
-        view
-    }
-
-    async fn compute_view(&self) -> WorkspaceShellView {
-        let mut session = self.session.lock().await;
-        let issue = self.issue.lock().await.clone();
-        let Some(session) = session.as_mut() else {
-            return WorkspaceShellView {
-                revision: 0,
-                state: match issue {
-                    Some(WorkspaceIssue::Identity(_)) => ShellState::IdentityError,
-                    _ => ShellState::StorageError,
-                },
-                message: issue.map(issue_message),
-                workspace: None,
-                local_public_identity: None,
-                members: Vec::new(),
-                peers: Vec::new(),
-            };
-        };
-        if !session.has_active_workspace() {
-            return WorkspaceShellView {
-                revision: 0,
-                state: ShellState::Onboarding,
-                message: None,
-                workspace: None,
-                local_public_identity: self.local_public_identity.clone(),
-                members: Vec::new(),
-                peers: Vec::new(),
-            };
-        }
-        match session.view() {
-            Ok(view) => WorkspaceShellView {
-                revision: 0,
-                state: match view.workspace.lifecycle {
-                    WorkspaceLifecycle::Initializing => ShellState::Initializing,
-                    WorkspaceLifecycle::Ready => ShellState::Ready,
-                    WorkspaceLifecycle::Joining => ShellState::Joining,
-                },
-                message: issue.and_then(|issue| match issue {
-                    WorkspaceIssue::Network(_) => Some(issue_message(issue)),
-                    WorkspaceIssue::Identity(_) | WorkspaceIssue::Storage => None,
-                }),
-                workspace: Some(workspace_summary_view(&view.workspace)),
-                local_public_identity: Some(view.local_public_identity),
-                members: view.members.iter().map(member_view).collect(),
-                peers: view
-                    .peers
-                    .iter()
-                    .map(|peer| peer_view(peer, &view.members))
-                    .collect(),
-            },
-            Err(_) => WorkspaceShellView {
-                revision: 0,
-                state: ShellState::StorageError,
-                message: Some(issue_message(WorkspaceIssue::Storage)),
-                workspace: None,
-                local_public_identity: self.local_public_identity.clone(),
-                members: Vec::new(),
-                peers: Vec::new(),
-            },
-        }
+        let mut application = self.application.lock().await;
+        shell_view(application.view())
     }
 
     pub(super) async fn emit_view(&self) {
-        let view = self.view().await;
-        let transitions = {
-            let mut session = self.session.lock().await;
-            session
-                .as_mut()
-                .map(WorkspaceSession::take_transitions)
-                .unwrap_or_default()
+        let (view, transitions) = {
+            let mut application = self.application.lock().await;
+            let view = shell_view(application.view());
+            let transitions = application.take_transitions();
+            (view, transitions)
         };
         let _ = self.app.emit("workspace:changed", view);
         for transition in transitions {
@@ -307,7 +245,7 @@ impl ManagedWorkspace {
                 WorkspaceTransition::MemberJoined(member) => {
                     let _ = self
                         .app
-                        .emit("workspace:member-joined", member_view(&member));
+                        .emit("workspace:member-added", member_view(&member));
                 }
                 WorkspaceTransition::PeerPresenceChanged(peer) => {
                     let peer = peer_view(&peer, &[]);
@@ -327,195 +265,76 @@ impl ManagedWorkspace {
         let _ = self.app.emit("workspace-files:changed", ());
     }
 
-    async fn refresh_file_runtime(&self) {
-        let files = {
-            let session = self.session.lock().await;
-            session
-                .as_ref()
-                .and_then(|session| session.open_file_runtime().ok())
-        };
-        *self.files.lock().await = files;
-    }
-
-    async fn poll_files(&self) {
-        let (changed, announcements) = {
-            let mut files = self.files.lock().await;
-            let Some(files) = files.as_mut() else {
-                return;
-            };
-            let root_before = files.root_status();
-            let changed_files = files.poll_root_changes().unwrap_or_default() > 0;
-            let root_changed = root_before != files.root_status();
-            (
-                changed_files || root_changed,
-                files.take_pending_announcements(),
-            )
-        };
-        if !announcements.is_empty() {
-            self.announce_file_changes(announcements).await;
-        }
-        if changed {
-            self.emit_files_changed();
-        }
+    pub(super) async fn refresh_file_runtime(&self) {
+        let mut application = self.application.lock().await;
+        let _ = application.refresh_file_runtime();
     }
 
     pub(super) async fn announce_file_changes(&self, operation_ids: Vec<String>) {
-        let recovery_service = self
-            .files
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|files| files.recovery_service().ok());
-        let transport = self.transport.lock().await;
-        let mut session = self.session.lock().await;
-        if let Some(session) = session.as_mut() {
-            if session.announce_file_history(operation_ids).is_err() {
-                *self.issue.lock().await = Some(WorkspaceIssue::Storage);
-                return;
-            }
-            if let Some(transport) = transport.as_ref() {
-                if let Some(service) = recovery_service {
-                    transport.configure_file_recovery(service).await;
-                }
-                if let Err(error) = transport.flush_session(session).await {
-                    *self.issue.lock().await = Some(network_delivery_issue(error));
-                }
-            }
-        }
+        let mut application = self.application.lock().await;
+        application.announce_file_changes(operation_ids).await;
     }
 
-    async fn restart_transport(&self) {
-        let recovery_service = self
-            .files
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|files| files.recovery_service().ok());
-        let mut transport = self.transport.lock().await;
-        if let Some(mut active) = transport.take() {
-            let _ = active.shutdown().await;
-        }
-        let mut session = self.session.lock().await;
-        let Some(session) = session.as_mut() else {
-            return;
-        };
-        match IrohTransport::start_for_session(session).await {
-            Ok(active) => {
-                if let Some(service) = recovery_service {
-                    active.configure_file_recovery(service).await;
-                }
-                if let Err(error) = active.flush_session(session).await {
-                    *self.issue.lock().await = Some(network_delivery_issue(error));
-                } else {
-                    *self.issue.lock().await = None;
-                }
-                *transport = Some(active);
-            }
-            Err(error) => *self.issue.lock().await = Some(network_start_issue(error)),
-        }
+    pub(super) async fn restart_transport(&self) {
+        let mut application = self.application.lock().await;
+        application.restart_transport().await;
     }
 
     async fn poll_transport(&self) {
-        let mut transport_guard = self.transport.lock().await;
-        let mut session_guard = self.session.lock().await;
-        let (has_transport, should_emit) = if let (Some(transport), Some(session)) =
-            (transport_guard.as_mut(), session_guard.as_mut())
-        {
-            let result = time::timeout(
-                TRANSPORT_POLL_INTERVAL,
-                transport.apply_next_session_event(session),
-            )
-            .await;
-            let should_emit = match result {
-                Ok(Ok(view_changed)) => {
-                    let mut changed = view_changed;
-                    if let Err(error) = transport.flush_session(session).await {
-                        *self.issue.lock().await = Some(network_delivery_issue(error));
-                        changed = true;
-                    }
-                    match transport.recover_file_history(session).await {
-                        Ok(recovered) => changed |= recovered,
-                        Err(error) => {
-                            *self.issue.lock().await = Some(network_delivery_issue(error));
-                            changed = true;
-                        }
-                    }
-                    changed
-                }
-                Err(_) => false,
-                Ok(Err(error)) => {
-                    *self.issue.lock().await = Some(network_delivery_issue(error));
-                    true
-                }
-            };
-            (true, should_emit)
-        } else {
-            (false, false)
-        };
-        drop(session_guard);
-        drop(transport_guard);
-        if should_emit {
-            self.refresh_file_runtime().await;
-            self.refresh_file_recovery_service().await;
+        let mut application = self.application.lock().await;
+        if application.poll_transport().await {
+            drop(application);
             self.emit_files_changed();
             self.emit_view().await;
-        } else if !has_transport {
-            time::sleep(Duration::from_secs(1)).await;
         }
     }
 
-    async fn refresh_file_recovery_service(&self) {
-        let recovery_service = self
-            .files
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|files| files.recovery_service().ok());
-        if let (Some(transport), Some(service)) =
-            (self.transport.lock().await.as_ref(), recovery_service)
-        {
-            transport.configure_file_recovery(service).await;
+    async fn poll_files(&self) {
+        let mut application = self.application.lock().await;
+        if application.poll_files().await {
+            drop(application);
+            self.emit_files_changed();
         }
     }
 
     async fn send_heartbeat_and_expire(&self) {
-        let now = unix_seconds();
-        let mut should_emit = {
-            let mut session = self.session.lock().await;
-            let Some(session) = session.as_mut() else {
-                return;
-            };
-            if !session.has_active_workspace() {
-                return;
-            }
-            match session.expire_presence(now) {
-                Ok(changed) => changed,
-                Err(_) => {
-                    *self.issue.lock().await = Some(WorkspaceIssue::Storage);
-                    true
-                }
-            }
-        };
-        let transport = self.transport.lock().await;
-        let mut session = self.session.lock().await;
-        if let (Some(transport), Some(session)) = (transport.as_ref(), session.as_mut()) {
-            if let Err(error) = transport.send_session_heartbeat(session).await {
-                *self.issue.lock().await = Some(network_delivery_issue(error));
-                should_emit = true;
-            }
-        }
-        drop(session);
-        drop(transport);
-        if should_emit {
+        let mut application = self.application.lock().await;
+        if application.send_heartbeat_and_expire().await {
+            drop(application);
             self.emit_view().await;
         }
+    }
+
+    pub(super) async fn with_application<T>(
+        &self,
+        operation: impl FnOnce(&mut WorkspaceApplication) -> T,
+    ) -> T {
+        let mut application = self.application.lock().await;
+        operation(&mut application)
+    }
+
+    pub(super) async fn with_files<T>(
+        &self,
+        operation: impl FnOnce(
+            Option<&mut resonance_runtime::workspace_file_runtime::WorkspaceFileRuntime>,
+        ) -> T,
+    ) -> T {
+        let mut application = self.application.lock().await;
+        operation(application.files_mut())
+    }
+
+    pub(super) async fn bootstrap_hint(
+        &self,
+    ) -> Result<String, resonance_runtime::iroh_transport::IrohTransportError> {
+        let application = self.application.lock().await;
+        application.bootstrap_hint().await
     }
 }
 
 #[tauri::command]
 pub async fn workspace_view(
     state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
+) -> Result<WorkspaceShellView, ShellCommandError> {
     Ok(state.inner.view().await)
 }
 
@@ -523,21 +342,21 @@ pub async fn workspace_view(
 pub async fn create_workspace(
     request: CreateWorkspaceRequest,
     state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    {
-        let mut session = state.inner.session.lock().await;
-        let session = session.as_mut().ok_or_else(|| {
-            "The installation identity or workspace storage is unavailable.".to_owned()
-        })?;
-        session
-            .create_workspace_with_creator(
+) -> Result<WorkspaceShellView, ShellCommandError> {
+    if !request.validate() {
+        return Err(ShellCommandError::new(ShellErrorCode::InvalidRequest));
+    }
+    state
+        .inner
+        .with_application(|application| {
+            application.create_workspace(
                 request.display_name,
                 request.creator_display_name,
                 request.relay_override,
             )
-            .map_err(|_| "Resonance could not create this workspace.".to_owned())?;
-    }
-    state.inner.refresh_file_runtime().await;
+        })
+        .await
+        .map_err(|_| ShellCommandError::new(ShellErrorCode::StorageUnavailable))?;
     state.inner.restart_transport().await;
     state.inner.emit_view().await;
     Ok(state.inner.view().await)
@@ -546,42 +365,36 @@ pub async fn create_workspace(
 #[tauri::command]
 pub async fn create_workspace_invite(
     state: State<'_, ManagedWorkspaceState>,
-) -> Result<String, String> {
-    let bootstrap = {
-        let transport = state.inner.transport.lock().await;
-        let transport = transport
-            .as_ref()
-            .ok_or_else(|| "Peer networking is offline. Retry after it reconnects.".to_owned())?;
-        transport
-            .bootstrap_hint()
-            .await
-            .map_err(|_| "Peer networking is not ready yet. Try again.".to_owned())?
-    };
-    let session = state.inner.session.lock().await;
-    session
-        .as_ref()
-        .ok_or_else(|| "The installation identity or workspace storage is unavailable.".to_owned())?
-        .create_invite(bootstrap)
-        .map_err(|_| "Resonance could not create an invite for this workspace.".to_owned())
+) -> Result<String, ShellCommandError> {
+    let bootstrap = state
+        .inner
+        .bootstrap_hint()
+        .await
+        .map_err(|_| ShellCommandError::new(ShellErrorCode::NetworkOffline))?;
+    state
+        .inner
+        .with_application(|application| application.create_invite(bootstrap))
+        .await
+        .map_err(|_| ShellCommandError::new(ShellErrorCode::Internal))
 }
 
 #[tauri::command]
 pub async fn join_workspace(
     request: JoinWorkspaceRequest,
     state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    Invite::decode(&request.invite)
-        .map_err(|_| "That invite is invalid or has been altered.".to_owned())?;
-    {
-        let mut session = state.inner.session.lock().await;
-        let session = session.as_mut().ok_or_else(|| {
-            "The installation identity or workspace storage is unavailable.".to_owned()
-        })?;
-        session
-            .join_workspace(&request.invite, request.display_name)
-            .map_err(|_| "Resonance could not join this workspace.".to_owned())?;
+) -> Result<WorkspaceShellView, ShellCommandError> {
+    if !request.validate() {
+        return Err(ShellCommandError::new(ShellErrorCode::InvalidRequest));
     }
-    state.inner.refresh_file_runtime().await;
+    Invite::decode(&request.invite)
+        .map_err(|_| ShellCommandError::new(ShellErrorCode::InvalidInvite))?;
+    state
+        .inner
+        .with_application(|application| {
+            application.join_workspace(&request.invite, request.display_name)
+        })
+        .await
+        .map_err(|_| ShellCommandError::new(ShellErrorCode::Internal))?;
     state.inner.restart_transport().await;
     state.inner.emit_view().await;
     Ok(state.inner.view().await)
@@ -591,22 +404,81 @@ pub async fn join_workspace(
 pub async fn retry_workspace_join(
     request: RetryJoinRequest,
     state: State<'_, ManagedWorkspaceState>,
-) -> Result<WorkspaceShellView, String> {
-    let retry_sent = {
-        let mut session = state.inner.session.lock().await;
-        let session = session.as_mut().ok_or_else(|| {
-            "The installation identity or workspace storage is unavailable.".to_owned()
-        })?;
-        session
-            .retry_join(request.display_name)
-            .map_err(|_| "Resonance could not retry this workspace join.".to_owned())?
-    };
+) -> Result<WorkspaceShellView, ShellCommandError> {
+    if !request.validate() {
+        return Err(ShellCommandError::new(ShellErrorCode::InvalidRequest));
+    }
+    let retry_sent = state
+        .inner
+        .with_application(|application| application.retry_join(request.display_name))
+        .await
+        .map_err(|_| ShellCommandError::new(ShellErrorCode::Internal))?;
     if retry_sent {
         state.inner.restart_transport().await;
         state.inner.emit_view().await;
     }
     state.inner.refresh_file_runtime().await;
     Ok(state.inner.view().await)
+}
+
+fn shell_view(view: WorkspaceApplicationView) -> WorkspaceShellView {
+    let state = match (&view.health, view.workspace.as_ref()) {
+        (WorkspaceHealth::IdentityError(_), _) => ShellState::IdentityError,
+        (WorkspaceHealth::StorageError, _) => ShellState::StorageError,
+        (_, None) => ShellState::Onboarding,
+        (_, Some(workspace)) => match workspace.lifecycle {
+            WorkspaceLifecycle::Initializing => ShellState::Initializing,
+            WorkspaceLifecycle::Ready => ShellState::Ready,
+            WorkspaceLifecycle::Joining => ShellState::Joining,
+        },
+    };
+    let message = match &view.health {
+        WorkspaceHealth::IdentityError(message) => Some(message.clone()),
+        WorkspaceHealth::StorageError => {
+            Some("Resonance cannot open its local workspace data.".to_owned())
+        }
+        WorkspaceHealth::NetworkError(message) => Some(message.clone()),
+        WorkspaceHealth::Healthy => None,
+    };
+    WorkspaceShellView {
+        revision: view.revision,
+        state,
+        message,
+        health: health_view(&view.health),
+        workspace: view.workspace.as_ref().map(workspace_summary_view),
+        local_public_identity: view.local_public_identity,
+        members: view.members.iter().map(member_view).collect(),
+        peers: view
+            .peers
+            .iter()
+            .map(|peer| peer_view(peer, &view.members))
+            .collect(),
+    }
+}
+
+fn health_view(health: &WorkspaceHealth) -> ShellHealthView {
+    match health {
+        WorkspaceHealth::Healthy => ShellHealthView {
+            identity: HealthState::Healthy,
+            storage: HealthState::Healthy,
+            network: HealthState::Healthy,
+        },
+        WorkspaceHealth::IdentityError(_) => ShellHealthView {
+            identity: HealthState::Unavailable,
+            storage: HealthState::Healthy,
+            network: HealthState::Offline,
+        },
+        WorkspaceHealth::StorageError => ShellHealthView {
+            identity: HealthState::Healthy,
+            storage: HealthState::Unavailable,
+            network: HealthState::Offline,
+        },
+        WorkspaceHealth::NetworkError(_) => ShellHealthView {
+            identity: HealthState::Healthy,
+            storage: HealthState::Healthy,
+            network: HealthState::Offline,
+        },
+    }
 }
 
 fn workspace_summary_view(workspace: &WorkspaceSummary) -> WorkspaceView {
@@ -644,169 +516,5 @@ fn peer_view(peer: &KnownPeer, members: &[Member]) -> PeerView {
             PeerConnection::Relayed => PeerConnectionView::Relayed,
             PeerConnection::Unknown => PeerConnectionView::Unknown,
         },
-    }
-}
-
-fn issue_message(issue: WorkspaceIssue) -> String {
-    match issue {
-        WorkspaceIssue::Identity(message) => message,
-        WorkspaceIssue::Storage => "Resonance cannot open its local workspace data.".to_owned(),
-        WorkspaceIssue::Network(message) => message,
-    }
-}
-
-fn network_start_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
-    let message = match error {
-        IrohSessionAdapterError::Transport(IrohTransportError::Bind) => {
-            "Peer networking could not start its local endpoint."
-        }
-        IrohSessionAdapterError::Transport(IrohTransportError::Bootstrap) => {
-            "The invite's peer address is invalid."
-        }
-        IrohSessionAdapterError::Transport(IrohTransportError::Subscribe) => {
-            "The workspace peer channel could not start."
-        }
-        IrohSessionAdapterError::Transport(
-            IrohTransportError::Broadcast
-            | IrohTransportError::BroadcastClosed
-            | IrohTransportError::Receive
-            | IrohTransportError::Shutdown
-            | IrohTransportError::FileStream,
-        )
-        | IrohSessionAdapterError::Session(_)
-        | IrohSessionAdapterError::FileRecovery(_) => {
-            "Peer networking could not start for this workspace."
-        }
-    };
-    WorkspaceIssue::Network(message.to_owned())
-}
-
-fn network_delivery_issue(error: IrohSessionAdapterError) -> WorkspaceIssue {
-    let message = match error {
-        IrohSessionAdapterError::Transport(IrohTransportError::BroadcastClosed) => {
-            "Peer networking closed the workspace channel before it could send a message."
-        }
-        IrohSessionAdapterError::Transport(IrohTransportError::Broadcast) => {
-            "Peer networking could not send a workspace message."
-        }
-        IrohSessionAdapterError::Transport(IrohTransportError::Receive) => {
-            "Peer networking could not receive workspace traffic."
-        }
-        IrohSessionAdapterError::Session(WorkspaceSessionError::InvalidInviteAdmission(reason)) => {
-            return WorkspaceIssue::Network(format!(
-                "Peer networking rejected this message: {reason}."
-            ));
-        }
-        IrohSessionAdapterError::Session(WorkspaceSessionError::Protocol(_)) => {
-            "Peer networking received an invalid workspace message."
-        }
-        IrohSessionAdapterError::Session(_) => "Peer networking could not apply workspace state.",
-        _ => "Peer networking is offline. Local workspace data is still available.",
-    };
-    WorkspaceIssue::Network(message.to_owned())
-}
-
-fn unix_seconds() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs().try_into().unwrap_or(i64::MAX))
-        .unwrap_or_default()
-}
-
-#[cfg(test)]
-mod tests {
-    use serde::Deserialize;
-
-    use super::{
-        issue_message, network_delivery_issue, network_start_issue, IrohSessionAdapterError,
-        IrohTransportError, MemberView, PeerConnectionView, PeerView, ShellState,
-        WorkspaceLifecycleView, WorkspaceSessionError, WorkspaceShellView, WorkspaceView,
-    };
-
-    const VALID_SHELL_VIEWS: &str =
-        include_str!("../../../schema/fixtures/workspace-shell-view.v1.valid.json");
-    const INVALID_SHELL_VIEWS: &str =
-        include_str!("../../../schema/fixtures/workspace-shell-view.v1.invalid.json");
-
-    #[derive(Deserialize)]
-    struct InvalidShellView {
-        name: String,
-        value: serde_json::Value,
-    }
-
-    #[test]
-    fn shares_the_strict_shell_view_fixture_corpus() {
-        let valid: Vec<WorkspaceShellView> =
-            serde_json::from_str(VALID_SHELL_VIEWS).expect("valid shell fixtures parse");
-        assert_eq!(valid.len(), 2);
-
-        let invalid: Vec<InvalidShellView> =
-            serde_json::from_str(INVALID_SHELL_VIEWS).expect("invalid shell corpus parses");
-        for fixture in invalid {
-            assert!(
-                !serde_json::from_value::<WorkspaceShellView>(fixture.value)
-                    .is_ok_and(|view| view.validate()),
-                "invalid shell fixture unexpectedly passed: {}",
-                fixture.name
-            );
-        }
-    }
-
-    #[test]
-    fn maps_transport_start_errors_to_safe_actionable_messages() {
-        let message = issue_message(network_start_issue(IrohSessionAdapterError::Transport(
-            IrohTransportError::Bootstrap,
-        )));
-        assert_eq!(message, "The invite's peer address is invalid.");
-        let closed = issue_message(network_delivery_issue(IrohSessionAdapterError::Transport(
-            IrohTransportError::BroadcastClosed,
-        )));
-        assert_eq!(
-            closed,
-            "Peer networking closed the workspace channel before it could send a message."
-        );
-        let rejected = issue_message(network_delivery_issue(IrohSessionAdapterError::Session(
-            WorkspaceSessionError::InvalidInviteAdmission("test admission rejection"),
-        )));
-        assert_eq!(
-            rejected,
-            "Peer networking rejected this message: test admission rejection."
-        );
-        for forbidden in ["secret", "token", "bootstrap", "path", "iroh"] {
-            assert!(!message.to_ascii_lowercase().contains(forbidden));
-        }
-    }
-
-    #[test]
-    fn public_workspace_event_contains_no_secret_or_transport_fields() {
-        let view = WorkspaceShellView {
-            revision: 1,
-            state: ShellState::Ready,
-            message: None,
-            workspace: Some(WorkspaceView {
-                id: "opaque-id".to_owned(),
-                display_name: "Team".to_owned(),
-                lifecycle: WorkspaceLifecycleView::Ready,
-            }),
-            local_public_identity: Some("public-id".to_owned()),
-            members: vec![MemberView {
-                public_identity: "member-id".to_owned(),
-                display_name: "Ada".to_owned(),
-                role: "developer".to_owned(),
-            }],
-            peers: vec![PeerView {
-                public_identity: "member-id".to_owned(),
-                display_name: "Ada".to_owned(),
-                online: true,
-                connection: PeerConnectionView::Direct,
-            }],
-        };
-
-        assert!(view.validate());
-        let payload = serde_json::to_string(&view).expect("view serializes");
-        assert!(!payload.contains("\"files\""));
-        for forbidden in ["secret", "token", "private", "bootstrap", "path", "iroh"] {
-            assert!(!payload.to_ascii_lowercase().contains(forbidden));
-        }
     }
 }

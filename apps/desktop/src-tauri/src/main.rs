@@ -22,6 +22,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
+            commands::packages::validate_bundled_catalog().map_err(std::io::Error::other)?;
             if let Some(configuration) =
                 release_configuration::load_for_current_run(app).map_err(std::io::Error::other)?
             {
@@ -52,15 +53,10 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::packages::bundled_package_ids,
-            commands::workspace::workspace_view,
-            commands::workspace_files::workspace_files_v1,
-            commands::workspace::create_workspace,
-            commands::workspace::create_workspace_invite,
-            commands::workspace::join_workspace,
-            commands::workspace::retry_workspace_join
-        ])
+        .invoke_handler({
+            debug_assert!(!commands::APPLICATION_COMMANDS.is_empty());
+            commands::application_handler!()
+        })
         .run(tauri::generate_context!())
         .expect("error while running Resonance");
 }
@@ -110,7 +106,7 @@ fn select_workspace_startup(
 #[cfg(test)]
 mod tests {
     const TAURI_CONFIGURATION: &str = include_str!("../tauri.conf.json");
-    const MAIN_SOURCE: &str = include_str!("main.rs");
+    const COMMAND_REGISTRY: &str = include_str!("commands/mod.rs");
     const BUILD_SOURCE: &str = include_str!("../build.rs");
     const MAIN_SHELL_CAPABILITY: &str = include_str!("../capabilities/main-shell.json");
 
@@ -132,7 +128,6 @@ mod tests {
             .as_array()
             .expect("permissions are an array");
         let commands = [
-            "bundled_package_ids",
             "workspace_view",
             "workspace_files_v1",
             "create_workspace",
@@ -142,8 +137,8 @@ mod tests {
         ];
 
         for command in commands {
-            assert!(MAIN_SOURCE.contains(&format!("::{command}")));
-            assert!(BUILD_SOURCE.contains(&format!("\"{command}\"")));
+            assert!(COMMAND_REGISTRY.contains(&format!("::{command}")));
+            assert!(BUILD_SOURCE.contains("COMMAND_REGISTRY"));
             let permission = command.replace('_', "-");
             assert!(permissions
                 .iter()

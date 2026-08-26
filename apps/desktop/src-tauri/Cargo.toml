@@ -9,6 +9,7 @@ license.workspace = true
 debug-local-profiles = ["resonance-runtime/debug-local-profiles"]
 
 [build-dependencies]
+serde_json.workspace = true
 tauri-build = { version = "2.3.0", features = [] }
 
 [dependencies]

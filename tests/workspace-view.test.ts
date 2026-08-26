@@ -15,6 +15,7 @@ function readyView(revision = 1): WorkspaceShellView {
     revision,
     state: "ready",
     message: null,
+    health: { identity: "healthy", storage: "healthy", network: "healthy" },
     workspace: {
       id: "workspace-id",
       displayName: "Team Resonance",

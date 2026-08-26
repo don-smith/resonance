@@ -65,7 +65,11 @@ export async function bootstrapShell({
   const showError = (error: unknown): void => {
     temporaryMessage.clear();
     actionMessage =
-      typeof error === "string" ? error : "The request could not be completed.";
+      typeof error === "string"
+        ? error
+        : isNativeError(error)
+          ? error.message
+          : "The request could not be completed.";
     renderCurrent();
   };
 
@@ -170,6 +174,19 @@ export async function bootstrapShell({
     );
   }
   return cleanup;
+}
+
+function isNativeError(
+  value: unknown,
+): value is Readonly<{ code: string; message: string }> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "code" in value &&
+    "message" in value &&
+    typeof value.code === "string" &&
+    typeof value.message === "string"
+  );
 }
 
 export async function startDesktopShell({

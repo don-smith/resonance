@@ -24,6 +24,7 @@ function view(
     revision,
     state,
     message: null,
+    health: { identity: "healthy", storage: "healthy", network: "healthy" },
     workspace: active
       ? { id: "workspace-id", displayName: "Team", lifecycle: "ready" }
       : null,

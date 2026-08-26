@@ -11,12 +11,12 @@ import {
   type WorkspaceFilesRequest,
   type WorkspaceFilesResponse,
   type WorkspaceFilesSnapshot,
-} from "../../../packages/contracts/src/workspace-files-v1.js";
+} from "@resonance/contracts";
 import {
   workspaceFilesError,
   type WorkspaceFilesSnapshotListener,
   type WorkspaceFilesV1,
-} from "../../../packages/sdk/src/workspace-files-v1.js";
+} from "@resonance/package-sdk";
 
 const COMMAND = "workspace_files_v1";
 const INVALIDATION_EVENT = "workspace-files:changed";

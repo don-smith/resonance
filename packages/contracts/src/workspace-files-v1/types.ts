@@ -128,5 +128,5 @@ export type WorkspaceFilesEnvelope =
   | Readonly<{ kind: "response"; value: WorkspaceFilesResponse }>
   | Readonly<{
       kind: "error";
-      value: import("./errors.js").WorkspaceFilesError;
+      value: import("./errors.ts").WorkspaceFilesError;
     }>;

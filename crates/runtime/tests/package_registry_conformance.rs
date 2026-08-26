@@ -1,4 +1,4 @@
-use resonance_runtime::packages::{PackageRegistry, PackageSource};
+use resonance_runtime::packages::{PackageRegistry, PackageSource, SemanticCapability};
 
 const VALID: &str =
     include_str!("../../../packages/contracts/fixtures/manifest-v2/valid/reference-manifest.json");
@@ -10,6 +10,8 @@ const INVALID_PERMISSION: &str = include_str!(
 );
 const INVALID_ENTRY: &str =
     include_str!("../../../packages/contracts/fixtures/manifest-v2/invalid/traversing-entry.json");
+const INVALID_PROMPT: &str =
+    include_str!("../../../packages/contracts/fixtures/manifest-v2/invalid/traversing-prompt.json");
 
 #[test]
 fn accepts_the_shared_valid_conformance_fixture() {
@@ -22,7 +24,7 @@ fn accepts_the_shared_valid_conformance_fixture() {
     assert_eq!(manifest.content.entry, "src/index.ts");
     assert!(manifest
         .capabilities
-        .contains(&"workspace-files:v1".to_owned()));
+        .contains(&SemanticCapability::WorkspaceFilesV1));
 }
 
 #[test]
@@ -37,21 +39,22 @@ fn accepts_a_catalog_of_shared_manifests() {
 #[test]
 fn rejects_shared_invalid_fixtures_with_actionable_diagnostics() {
     for (fixture, expected_message) in [
-        (INVALID_SOURCE, "source must be bundled"),
-        (
-            INVALID_PERMISSION,
-            "unsupported agent permission: filesystem.read",
-        ),
+        (INVALID_SOURCE, "malformed manifest:"),
+        (INVALID_PERMISSION, "malformed manifest:"),
         (
             INVALID_ENTRY,
             "content entry must be a package-relative TypeScript path without traversal",
+        ),
+        (
+            INVALID_PROMPT,
+            "agent systemPrompt must be a package-relative Markdown path without traversal",
         ),
     ] {
         let diagnostics = PackageRegistry::load(PackageSource::Bundled, &[fixture])
             .expect_err("invalid fixture must not load");
         assert!(diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.message == expected_message));
+            .any(|diagnostic| diagnostic.message.contains(expected_message)));
     }
 }
 

@@ -1,2 +1,2 @@
-export * from "./manifest-v2.js";
-export * from "./workspace-files-v1.js";
+export * from "./manifest-v2.ts";
+export * from "./workspace-files-v1.ts";

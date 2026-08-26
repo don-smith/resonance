@@ -11,7 +11,7 @@ import {
   workspaceFilesErrorMessages,
   workspaceFilesV1Operations,
   type WorkspaceFilesEnvelope,
-} from "./workspace-files-v1.js";
+} from "./workspace-files-v1.ts";
 
 async function fixture<T>(kind: "valid" | "invalid"): Promise<T> {
   return JSON.parse(

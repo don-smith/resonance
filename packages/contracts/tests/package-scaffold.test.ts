@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
@@ -37,6 +37,34 @@ describe("package scaffold", () => {
           content: { entry: "src/index.ts" },
         },
       });
+    } finally {
+      await rm(output, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects changed destinations before creating any missing files", async () => {
+    const output = await mkdtemp(resolve(tmpdir(), "resonance-package-"));
+    const command = [
+      "--experimental-strip-types",
+      "--no-warnings",
+      "packages/contracts/scripts/generate.ts",
+      "--id",
+      "resonance.generated",
+      "--output",
+      output,
+    ];
+    try {
+      await execute("node", command);
+      const changedPath = resolve(output, "src/index.ts");
+      const missingPath = resolve(output, "src/styles.css");
+      await writeFile(changedPath, "developer edit\n");
+      await unlink(missingPath);
+
+      await expect(execute("node", command)).rejects.toThrow(
+        "Scaffold would overwrite changed files",
+      );
+      expect(await readFile(changedPath, "utf8")).toBe("developer edit\n");
+      await expect(readFile(missingPath, "utf8")).rejects.toThrow();
     } finally {
       await rm(output, { recursive: true, force: true });
     }

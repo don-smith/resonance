@@ -74,14 +74,40 @@ const replacements = new Map([
 ]);
 const templateRoot = resolve(import.meta.dirname, "../templates/package");
 
-for (const path of await templateFiles(templateRoot)) {
-  let content = await readFile(resolve(templateRoot, path), "utf8");
-  for (const [placeholder, value] of replacements) {
-    content = content.replaceAll(placeholder, value);
+const renderedFiles = await Promise.all(
+  (await templateFiles(templateRoot)).map(async (path) => {
+    let content = await readFile(resolve(templateRoot, path), "utf8");
+    for (const [placeholder, value] of replacements) {
+      content = content.replaceAll(placeholder, value);
+    }
+    return { path, content, outputPath: resolve(destination, path) };
+  }),
+);
+const changedFiles: string[] = [];
+const missingFiles: typeof renderedFiles = [];
+for (const file of renderedFiles) {
+  try {
+    const existing = await readFile(file.outputPath, "utf8");
+    if (existing !== file.content) changedFiles.push(file.path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      missingFiles.push(file);
+    } else {
+      throw error;
+    }
   }
-  const outputPath = resolve(destination, path);
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, content);
+}
+if (changedFiles.length > 0) {
+  throw new Error(
+    `Scaffold would overwrite changed files:\n${changedFiles
+      .sort()
+      .map((path) => `- ${path}`)
+      .join("\n")}`,
+  );
+}
+for (const file of missingFiles) {
+  await mkdir(dirname(file.outputPath), { recursive: true });
+  await writeFile(file.outputPath, file.content);
 }
 
 const packagesDirectory = resolve(root, "packages");

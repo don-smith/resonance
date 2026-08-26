@@ -1,13 +1,13 @@
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
 
-import schema from "../../schema/workspace-files.v1.json";
-import type { WorkspaceFilesError } from "./errors.js";
+import schema from "../../schema/workspace-files.v1.json" with { type: "json" };
+import type { WorkspaceFilesError } from "./errors.ts";
 import type {
   WorkspaceFilesEnvelope,
   WorkspaceFilesRequest,
   WorkspaceFilesResponse,
   WorkspaceFilesSnapshot,
-} from "./types.js";
+} from "./types.ts";
 
 export type WorkspaceFilesDiagnostic = Readonly<{
   path: string;

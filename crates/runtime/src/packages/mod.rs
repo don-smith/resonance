@@ -5,24 +5,12 @@ use std::{
     path::{Component, Path},
 };
 
-use serde::Deserialize;
+mod manifest_generated;
 
-const ROLES: [&str; 3] = ["viewer", "contributor", "developer"];
-const CAPABILITIES: [&str; 6] = [
-    "documents:read",
-    "documents:write",
-    "workspace:read",
-    "repository:read",
-    "telemetry:write",
-    "workspace-files:v1",
-];
-const AGENT_PERMISSIONS: [&str; 5] = [
-    "read",
-    "suggest-edits",
-    "apply-edits",
-    "create-documents",
-    "post-messages",
-];
+pub use manifest_generated::{
+    AgentConfiguration, AgentPermission, ContentEntry, EventDeclarations, ManifestRole, Navigation,
+    PackageManifest, PackageSourceValue, SemanticCapability, MANIFEST_SCHEMA_SHA256,
+};
 const STANDARD_EVENTS: [&str; 9] = [
     "repo:changed",
     "doc:updated",
@@ -34,51 +22,6 @@ const STANDARD_EVENTS: [&str; 9] = [
     "workspace:member-added",
     "workspace:member-removed",
 ];
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PackageManifest {
-    pub manifest_version: u8,
-    pub source: String,
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub nav: Navigation,
-    pub content: ContentEntry,
-    pub events: EventDeclarations,
-    pub min_role: String,
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-    pub agent: Option<AgentConfiguration>,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct Navigation {
-    pub label: String,
-    pub icon: String,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct ContentEntry {
-    pub entry: String,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct EventDeclarations {
-    pub emits: Vec<String>,
-    pub consumes: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AgentConfiguration {
-    pub system_prompt: String,
-    pub permissions: Vec<String>,
-    pub context_providers: Vec<String>,
-}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct PackageDiagnostic {
@@ -191,9 +134,6 @@ impl PackageRegistry {
                 "manifestVersion must be 2",
             ));
         }
-        if manifest.source != "bundled" {
-            diagnostics.push(PackageDiagnostic::new(id.clone(), "source must be bundled"));
-        }
         if !is_namespaced_id(&manifest.id) {
             diagnostics.push(PackageDiagnostic::new(
                 id.clone(),
@@ -210,41 +150,21 @@ impl PackageRegistry {
                 "name, description, and nav fields must be non-empty",
             ));
         }
-        if !is_relative_typescript_entry(&manifest.content.entry) {
+        if !is_relative_resource(&manifest.content.entry, ".ts") {
             diagnostics.push(PackageDiagnostic::new(
                 id.clone(),
                 "content entry must be a package-relative TypeScript path without traversal",
             ));
         }
-        if !ROLES.contains(&manifest.min_role.as_str()) {
-            diagnostics.push(PackageDiagnostic::new(
-                id.clone(),
-                "minRole is not a supported role",
-            ));
-        }
-        validate_set(
-            &manifest.capabilities,
-            &CAPABILITIES,
-            "capability",
-            &id,
-            &mut diagnostics,
-        );
         validate_events(&manifest.events.emits, "emitted", &id, &mut diagnostics);
         validate_events(&manifest.events.consumes, "consumed", &id, &mut diagnostics);
         if let Some(agent) = &manifest.agent {
-            if agent.system_prompt.is_empty() {
+            if !is_relative_resource(&agent.system_prompt, ".md") {
                 diagnostics.push(PackageDiagnostic::new(
                     id.clone(),
-                    "agent systemPrompt must be non-empty",
+                    "agent systemPrompt must be a package-relative Markdown path without traversal",
                 ));
             }
-            validate_set(
-                &agent.permissions,
-                &AGENT_PERMISSIONS,
-                "agent permission",
-                &id,
-                &mut diagnostics,
-            );
             if has_duplicate(&agent.context_providers)
                 || agent.context_providers.iter().any(String::is_empty)
             {
@@ -263,36 +183,13 @@ impl PackageRegistry {
     }
 }
 
-fn is_relative_typescript_entry(entry: &str) -> bool {
-    !entry.is_empty()
-        && !entry.contains('\\')
-        && entry.ends_with(".ts")
-        && Path::new(entry)
+fn is_relative_resource(path: &str, extension: &str) -> bool {
+    !path.is_empty()
+        && !path.contains('\\')
+        && path.ends_with(extension)
+        && Path::new(path)
             .components()
-            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
-}
-
-fn validate_set(
-    values: &[String],
-    allowed: &[&str],
-    label: &str,
-    id: &str,
-    diagnostics: &mut Vec<PackageDiagnostic>,
-) {
-    if has_duplicate(values) {
-        diagnostics.push(PackageDiagnostic::new(
-            id,
-            format!("{label} values must be unique"),
-        ));
-    }
-    for value in values {
-        if !allowed.contains(&value.as_str()) {
-            diagnostics.push(PackageDiagnostic::new(
-                id,
-                format!("unsupported {label}: {value}"),
-            ));
-        }
-    }
+            .all(|component| matches!(component, Component::Normal(_)))
 }
 
 fn validate_events(

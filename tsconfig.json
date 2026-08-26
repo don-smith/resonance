@@ -8,7 +8,9 @@
     "moduleResolution": "bundler",
     "baseUrl": ".",
     "paths": {
-      "@resonance/package-sdk": ["packages/sdk/src/index.ts"]
+      "@resonance/contracts": ["packages/contracts/src/index.ts"],
+      "@resonance/package-sdk": ["packages/sdk/src/index.ts"],
+      "@resonance/package-sdk/testing": ["packages/sdk/src/testing/index.ts"]
     },
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,

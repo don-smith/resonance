@@ -10,6 +10,7 @@ const roots: string[] = [];
 
 type FixtureOptions = Readonly<{
   id?: string;
+  entry?: string;
   capabilities?: string[];
   dependencies?: Record<string, string>;
   source?: string;
@@ -37,7 +38,7 @@ async function packageFixture(
       name,
       description: `${name} package`,
       nav: { label: name, icon: "box" },
-      content: { entry: "src/index.ts" },
+      content: { entry: options.entry ?? "src/index.ts" },
       events: { emits: [], consumes: [] },
       minRole: "viewer",
       ...(options.capabilities ? { capabilities: options.capabilities } : {}),
@@ -54,7 +55,7 @@ async function packageFixture(
     }),
   );
   await write(
-    resolve(directory, "src/index.ts"),
+    resolve(directory, options.entry ?? "src/index.ts"),
     options.source ??
       'import type { PackageContentModule } from "@resonance/package-sdk";\nexport const mount: PackageContentModule["mount"] = () => ({ activate() {}, deactivate() {}, dispose() {} });\n',
   );
@@ -83,6 +84,43 @@ describe("bundled package boundaries", () => {
     await expect(
       checkBundledPackageBoundaries({ root }),
     ).resolves.toBeUndefined();
+  });
+
+  it("checks an entry graph outside src and rejects nonliteral imports", async () => {
+    const validRoot = await mkdtemp(resolve(tmpdir(), "resonance-boundary-"));
+    roots.push(validRoot);
+    await packageFixture(validRoot, "web-entry", {
+      entry: "web/index.ts",
+      source:
+        'import type { PackageContentModule } from "@resonance/package-sdk"; export const mount: PackageContentModule["mount"] = () => ({ activate() {}, deactivate() {}, dispose() {} });',
+    });
+    await expect(
+      checkBundledPackageBoundaries({ root: validRoot }),
+    ).resolves.toBeUndefined();
+
+    const invalidRoot = await mkdtemp(resolve(tmpdir(), "resonance-boundary-"));
+    roots.push(invalidRoot);
+    await packageFixture(invalidRoot, "dynamic", {
+      source:
+        'const name = "./feature.js"; export const feature = import(name);',
+      dependencies: {},
+    });
+    await expect(
+      checkBundledPackageBoundaries({ root: invalidRoot }),
+    ).rejects.toThrow("imports must use a string literal");
+  });
+
+  it("requires production and test imports in package metadata", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "resonance-boundary-"));
+    roots.push(root);
+    await packageFixture(root, "dependencies", {
+      dependencies: {},
+      source: 'import "left-pad"; export const value = true;',
+    });
+
+    await expect(checkBundledPackageBoundaries({ root })).rejects.toThrow(
+      "production import requires dependency left-pad",
+    );
   });
 
   it.skipIf(process.platform === "win32")(
@@ -119,11 +157,23 @@ describe("bundled package boundaries", () => {
         'import "../../outside.js";',
         "export function mount(_root, context) { void invoke; void context.capabilities.workspaceFilesV1; return { activate() {}, deactivate() {}, dispose() {} }; }",
       ].join("\n"),
-      css: "body, .unscoped { color: red; }\n",
+      css: "body, :global(.unscoped) { color: red; }\n",
     });
 
-    await expect(checkBundledPackageBoundaries({ root })).rejects.toThrow(
-      /forbidden dependency[\s\S]*@tauri-apps\/api[\s\S]*host internals[\s\S]*relative import escapes[\s\S]*undeclared capability[\s\S]*unscoped package selector/,
+    const failure = await checkBundledPackageBoundaries({ root }).catch(
+      (error: unknown) => error,
     );
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    for (const expected of [
+      "forbidden dependency @tauri-apps/api",
+      "bundled packages cannot import host internals",
+      "relative import escapes its package",
+      "uses undeclared capability",
+      "unscoped package selector",
+      "CSS Modules global escape is not allowed",
+    ]) {
+      expect(message).toContain(expected);
+    }
   });
 });

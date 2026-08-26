@@ -6,7 +6,7 @@ import {
   packageDesignTokens,
   type PackageContext,
   type PackageInstance,
-} from "../packages/sdk/src/index.js";
+} from "@resonance/package-sdk";
 
 class FakeElement {
   public readonly attributes = new Map<string, string>();

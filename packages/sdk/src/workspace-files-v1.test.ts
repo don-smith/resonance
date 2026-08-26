@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { WorkspaceFilesSnapshot } from "../../contracts/src/workspace-files-v1.js";
+import type { WorkspaceFilesSnapshot } from "@resonance/contracts";
 import { InMemoryWorkspaceFilesV1 } from "@resonance/package-sdk/testing";
 import { workspaceFilesError } from "./workspace-files-v1.js";
 

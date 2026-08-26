@@ -38,6 +38,7 @@ describe("package manifest v2", () => {
     ["invalid/traversing-entry.json", "/content/entry"],
     ["invalid/windows-absolute-entry.json", "/content/entry"],
     ["invalid/backslash-traversing-entry.json", "/content/entry"],
+    ["invalid/traversing-prompt.json", "/agent/systemPrompt"],
   ])("reports an actionable diagnostic for %s", async (path, expectedPath) => {
     const result = validateManifest(await fixture(path));
 

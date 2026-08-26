@@ -5,7 +5,7 @@ import {
   type WorkspaceFilesPreview,
   type WorkspaceFilesSnapshot,
   type WorkspaceFilesV1Operation,
-} from "../../../contracts/src/workspace-files-v1.js";
+} from "@resonance/contracts";
 
 function immutableClone<T>(value: T): T {
   return deepFreeze(structuredClone(value));

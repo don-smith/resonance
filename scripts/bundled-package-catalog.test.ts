@@ -1,10 +1,18 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { PackageManifest } from "../packages/contracts/src/manifest-v2.js";
+import type { PackageManifest } from "@resonance/contracts";
 import { generateBundledPackageCatalog } from "./bundled-package-catalog.ts";
 
 const temporaryRoots: string[] = [];
@@ -119,6 +127,84 @@ describe("bundled package catalog", () => {
       generateBundledPackageCatalog({ root, mode: "check" }),
     ).rejects.toThrow("is stale");
   });
+
+  it("restores both catalogs when the second promotion fails", async () => {
+    const root = await temporaryRepository();
+    await writePackage(root, "first", manifest("resonance.first"));
+    await generateBundledPackageCatalog({ root });
+    const typescriptPath = resolve(
+      root,
+      "apps/desktop/src/generated/bundled-package-catalog.ts",
+    );
+    const rustPath = resolve(
+      root,
+      "apps/desktop/src-tauri/generated/bundled-package-manifests.json",
+    );
+    const before = await Promise.all([
+      readFile(typescriptPath, "utf8"),
+      readFile(rustPath, "utf8"),
+    ]);
+    await writePackage(root, "second", manifest("resonance.second"));
+    let promotions = 0;
+
+    await expect(
+      generateBundledPackageCatalog({
+        root,
+        renameFile: async (source, destination) => {
+          promotions += 1;
+          if (promotions === 2) throw new Error("injected promotion failure");
+          await rename(source, destination);
+        },
+      }),
+    ).rejects.toThrow("injected promotion failure");
+    await expect(
+      Promise.all([
+        readFile(typescriptPath, "utf8"),
+        readFile(rustPath, "utf8"),
+      ]),
+    ).resolves.toEqual(before);
+  });
+
+  it("rejects missing declared prompt resources", async () => {
+    const root = await temporaryRepository();
+    const candidate = manifest("resonance.prompt");
+    candidate.agent = {
+      systemPrompt: "prompts/missing.md",
+      permissions: ["read"],
+      contextProviders: [],
+    };
+    await writePackage(root, "prompt", candidate);
+
+    await expect(generateBundledPackageCatalog({ root })).rejects.toThrow(
+      "agent.systemPrompt does not exist",
+    );
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "rejects prompt resources that resolve outside the package",
+    async () => {
+      const root = await temporaryRepository();
+      const candidate = manifest("resonance.prompt-link");
+      candidate.agent = {
+        systemPrompt: "prompts/reference.md",
+        permissions: ["read"],
+        contextProviders: [],
+      };
+      await writePackage(root, "prompt-link", candidate);
+      await writeFile(resolve(root, "outside.md"), "outside\n");
+      await mkdir(resolve(root, "packages/prompt-link/prompts"), {
+        recursive: true,
+      });
+      await symlink(
+        "../../../outside.md",
+        resolve(root, "packages/prompt-link/prompts/reference.md"),
+      );
+
+      await expect(generateBundledPackageCatalog({ root })).rejects.toThrow(
+        "agent.systemPrompt resolves outside its package",
+      );
+    },
+  );
 
   it("rejects duplicate ids and missing entries", async () => {
     const duplicateRoot = await temporaryRepository();

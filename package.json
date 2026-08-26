@@ -28,9 +28,12 @@
     "check": "pnpm packages:check && pnpm format:check && pnpm typecheck && pnpm web:build && pnpm test && pnpm rust:check && pnpm rust:test && pnpm rust:clippy"
   },
   "devDependencies": {
+    "@resonance/contracts": "workspace:*",
+    "@resonance/package-sdk": "workspace:*",
     "@tauri-apps/cli": "2.8.4",
     "@types/node": "22.15.3",
     "parse5": "8.0.1",
+    "postcss": "8.5.26",
     "prettier": "3.5.3",
     "typescript": "5.8.3",
     "vite": "6.3.5",

@@ -7,6 +7,12 @@ settings:
 importers:
   .:
     devDependencies:
+      "@resonance/contracts":
+        specifier: workspace:*
+        version: link:packages/contracts
+      "@resonance/package-sdk":
+        specifier: workspace:*
+        version: link:packages/sdk
       "@tauri-apps/cli":
         specifier: 2.8.4
         version: 2.8.4
@@ -16,6 +22,9 @@ importers:
       parse5:
         specifier: 8.0.1
         version: 8.0.1
+      postcss:
+        specifier: 8.5.26
+        version: 8.5.26
       prettier:
         specifier: 3.5.3
         version: 3.5.3
@@ -31,6 +40,12 @@ importers:
 
   apps/desktop:
     dependencies:
+      "@resonance/contracts":
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      "@resonance/package-sdk":
+        specifier: workspace:*
+        version: link:../../packages/sdk
       "@tauri-apps/api":
         specifier: 2.5.0
         version: 2.5.0
@@ -47,7 +62,11 @@ importers:
         specifier: workspace:*
         version: link:../sdk
 
-  packages/sdk: {}
+  packages/sdk:
+    dependencies:
+      "@resonance/contracts":
+        specifier: workspace:*
+        version: link:../contracts
 
   packages/workspace-files:
     dependencies:
@@ -57,6 +76,10 @@ importers:
       "@toast-ui/editor":
         specifier: 3.2.2
         version: 3.2.2
+    devDependencies:
+      vitest:
+        specifier: 3.1.3
+        version: 3.1.3(@types/node@22.15.3)
 
 packages:
   "@esbuild/aix-ppc64@0.25.12":

@@ -8,7 +8,7 @@ export type {
   WorkspaceFilesRootState,
   WorkspaceFilesSnapshot,
   WorkspaceFilesV1Operation,
-} from "../../contracts/src/workspace-files-v1.js";
+} from "@resonance/contracts";
 
 import {
   workspaceFilesErrorMessages,
@@ -17,7 +17,7 @@ import {
   type WorkspaceFilesPreview,
   type WorkspaceFilesSnapshot,
   type WorkspaceFilesV1Operation,
-} from "../../contracts/src/workspace-files-v1.js";
+} from "@resonance/contracts";
 
 export type WorkspaceFilesSnapshotListener = (
   snapshot: WorkspaceFilesSnapshot,

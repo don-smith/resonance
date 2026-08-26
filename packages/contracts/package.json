@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "test": "pnpm --dir ../.. exec vitest run packages/contracts/tests/manifest-validation.test.ts packages/contracts/tests/package-scaffold.test.ts packages/contracts/src/workspace-files-v1.test.ts",
     "generate": "node --experimental-strip-types --no-warnings scripts/generate.ts"

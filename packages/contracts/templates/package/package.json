@@ -5,5 +5,8 @@
   "type": "module",
   "dependencies": {
     "@resonance/package-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "3.1.3"
   }
 }

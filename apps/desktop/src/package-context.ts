@@ -5,7 +5,7 @@ import {
   packageDesignTokens,
   type PackageContext,
   type WorkspaceFilesV1,
-} from "../../../packages/sdk/src/index.js";
+} from "@resonance/package-sdk";
 import { WorkspaceFilesTauriAdapter } from "./workspace-files-tauri-adapter.js";
 import type { BundledPackageManifest } from "./package-host.js";
 

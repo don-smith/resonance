@@ -1,10 +1,11 @@
-import { createRequire } from "node:module";
 import {
   access,
   mkdir,
   readFile,
   readdir,
   realpath,
+  rename,
+  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -14,15 +15,8 @@ import { pathToFileURL } from "node:url";
 
 import prettier from "prettier";
 
-import type { PackageManifest } from "../packages/contracts/src/manifest-v2.js";
-
-type AjvError = Readonly<{
-  instancePath: string;
-  message?: string;
-}>;
-type ManifestValidator = ((candidate: unknown) => boolean) & {
-  errors?: AjvError[] | null;
-};
+import { validateManifest, type PackageManifest } from "@resonance/contracts";
+import { generateManifestBindings } from "../packages/contracts/scripts/generate-manifest-bindings.ts";
 type DiscoveredPackage = Readonly<{
   manifest: PackageManifest;
   entryPath: string;
@@ -32,16 +26,12 @@ type CatalogOptions = Readonly<{
   mode?: "write" | "check";
   typescriptOutput?: string;
   rustOutput?: string;
+  renameFile?: typeof rename;
 }>;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
-
-const requireFromContracts = createRequire(
-  resolve(import.meta.dirname, "../packages/contracts/package.json"),
-);
-const Ajv2020 = requireFromContracts("ajv/dist/2020.js").default;
 
 const DEFAULT_TYPESCRIPT_OUTPUT =
   "apps/desktop/src/generated/bundled-package-catalog.ts";
@@ -80,16 +70,6 @@ function normalizeManifest(manifest: PackageManifest): PackageManifest {
   };
 }
 
-function formatAjvErrors(errors: AjvError[] | null | undefined): string {
-  return (errors ?? [])
-    .map(
-      (error) =>
-        `${error.instancePath || "/"} ${error.message ?? "is invalid"}`,
-    )
-    .sort()
-    .join("; ");
-}
-
 function isInside(parent: string, child: string): boolean {
   const pathFromParent = relative(parent, child);
   return (
@@ -111,10 +91,42 @@ function typescriptImportPath(outputPath: string, entryPath: string): string {
   return importPath;
 }
 
-async function discoverPackages(
+async function validatePackageResource(
   root: string,
-  validate: ManifestValidator,
-): Promise<DiscoveredPackage[]> {
+  packageDirectory: string,
+  packageId: string,
+  field: string,
+  resource: string,
+  extension: string,
+): Promise<void> {
+  if (!resource.endsWith(extension)) {
+    throw new Error(`${packageId} ${field} must be a ${extension} file`);
+  }
+  const resourcePath = resolve(packageDirectory, resource);
+  if (!isInside(packageDirectory, resourcePath)) {
+    throw new Error(`${packageId} ${field} escapes its package`);
+  }
+  let metadata;
+  try {
+    metadata = await stat(resourcePath);
+  } catch {
+    throw new Error(
+      `${packageId} ${field} does not exist: ${relative(root, resourcePath)}`,
+    );
+  }
+  if (!metadata.isFile()) {
+    throw new Error(`${packageId} ${field} is not a file: ${resource}`);
+  }
+  const [realPackageDirectory, realResourcePath] = await Promise.all([
+    realpath(packageDirectory),
+    realpath(resourcePath),
+  ]);
+  if (!isInside(realPackageDirectory, realResourcePath)) {
+    throw new Error(`${packageId} ${field} resolves outside its package`);
+  }
+}
+
+async function discoverPackages(root: string): Promise<DiscoveredPackage[]> {
   const packagesDirectory = resolve(root, "packages");
   const directories = await readdir(packagesDirectory, { withFileTypes: true });
   const discovered: DiscoveredPackage[] = [];
@@ -139,13 +151,17 @@ async function discoverPackages(
       );
     }
 
-    if (!validate(candidate)) {
+    const validation = validateManifest(candidate);
+    if (validation.kind === "invalid") {
+      const diagnostics = validation.diagnostics
+        .map(({ path, message }) => `${path} ${message}`)
+        .join("; ");
       throw new Error(
-        `${relative(root, manifestPath)} does not match manifest v2: ${formatAjvErrors(validate.errors)}`,
+        `${relative(root, manifestPath)} does not match manifest v2: ${diagnostics}`,
       );
     }
 
-    const manifest = candidate as PackageManifest;
+    const manifest = validation.manifest;
     const entry = manifest.content.entry;
     if (
       isAbsolute(entry) ||
@@ -180,6 +196,17 @@ async function discoverPackages(
     if (!isInside(realPackageDirectory, realEntryPath)) {
       throw new Error(
         `${manifest.id} content.entry resolves outside its package`,
+      );
+    }
+
+    if (manifest.agent) {
+      await validatePackageResource(
+        root,
+        packageDirectory,
+        manifest.id,
+        "agent.systemPrompt",
+        manifest.agent.systemPrompt,
+        ".md",
       );
     }
 
@@ -241,11 +268,65 @@ async function assertCurrent(
   }
 }
 
+type CatalogOutput = Readonly<{ path: string; content: string }>;
+
+async function publishMatchedCatalogs(
+  outputs: CatalogOutput[],
+  renameFile: typeof rename,
+): Promise<void> {
+  const suffix = `.tmp-${process.pid}-${Date.now()}`;
+  const staged = outputs.map((output) => ({
+    ...output,
+    temporaryPath: `${output.path}${suffix}`,
+  }));
+  const previous = await Promise.all(
+    outputs.map(async ({ path }) => {
+      try {
+        return await readFile(path, "utf8");
+      } catch {
+        return null;
+      }
+    }),
+  );
+  await Promise.all(
+    staged.map(({ temporaryPath, content }) =>
+      writeFile(temporaryPath, content, { flush: true }),
+    ),
+  );
+
+  let promoted = 0;
+  try {
+    for (const output of staged) {
+      await renameFile(output.temporaryPath, output.path);
+      promoted += 1;
+    }
+  } catch (error) {
+    for (let index = promoted - 1; index >= 0; index -= 1) {
+      const output = outputs[index];
+      const oldContent = previous[index];
+      if (!output) continue;
+      if (oldContent === null || oldContent === undefined) {
+        await rm(output.path, { force: true });
+      } else {
+        const rollbackPath = `${output.path}${suffix}-rollback`;
+        await writeFile(rollbackPath, oldContent, { flush: true });
+        await renameFile(rollbackPath, output.path);
+      }
+    }
+    throw error;
+  } finally {
+    await Promise.all(
+      staged.map(({ temporaryPath }) => rm(temporaryPath, { force: true })),
+    );
+  }
+}
+
 export async function generateBundledPackageCatalog({
   root = process.cwd(),
   mode = "write",
   typescriptOutput = DEFAULT_TYPESCRIPT_OUTPUT,
   rustOutput = DEFAULT_RUST_OUTPUT,
+  renameFile = rename,
 }: CatalogOptions = {}): Promise<PackageManifest[]> {
   if (mode !== "write" && mode !== "check") {
     throw new Error(
@@ -254,18 +335,10 @@ export async function generateBundledPackageCatalog({
   }
 
   const absoluteRoot = resolve(root);
-  const schema = JSON.parse(
-    await readFile(
-      resolve(absoluteRoot, "packages/contracts/schema/manifest.v2.json"),
-      "utf8",
-    ),
-  );
-  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(
-    schema,
-  ) as ManifestValidator;
+  await generateManifestBindings({ root: absoluteRoot, mode });
   const typescriptOutputPath = resolve(absoluteRoot, typescriptOutput);
   const rustOutputPath = resolve(absoluteRoot, rustOutput);
-  const packages = await discoverPackages(absoluteRoot, validate);
+  const packages = await discoverPackages(absoluteRoot);
   const typescript = await renderTypescriptCatalog(
     packages,
     typescriptOutputPath,
@@ -285,10 +358,13 @@ export async function generateBundledPackageCatalog({
       mkdir(dirname(typescriptOutputPath), { recursive: true }),
       mkdir(dirname(rustOutputPath), { recursive: true }),
     ]);
-    await Promise.all([
-      writeFile(typescriptOutputPath, typescript),
-      writeFile(rustOutputPath, rust),
-    ]);
+    await publishMatchedCatalogs(
+      [
+        { path: typescriptOutputPath, content: typescript },
+        { path: rustOutputPath, content: rust },
+      ],
+      renameFile,
+    );
   }
 
   return packages.map(({ manifest }) => manifest);

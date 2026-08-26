@@ -1,23 +1,19 @@
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
 
-import manifestSchema from "../schema/manifest.v2.json";
+import manifestSchema from "../schema/manifest.v2.json" with { type: "json" };
+import {
+  manifestSchemaSha256,
+  roles,
+  semanticAgentPermissions,
+  semanticCapabilities,
+} from "./manifest-vocabulary.generated.ts";
 
-export const roles = ["viewer", "contributor", "developer"] as const;
-export const semanticCapabilities = [
-  "documents:read",
-  "documents:write",
-  "workspace:read",
-  "repository:read",
-  "telemetry:write",
-  "workspace-files:v1",
-] as const;
-export const semanticAgentPermissions = [
-  "read",
-  "suggest-edits",
-  "apply-edits",
-  "create-documents",
-  "post-messages",
-] as const;
+export {
+  manifestSchemaSha256,
+  roles,
+  semanticAgentPermissions,
+  semanticCapabilities,
+};
 
 export type ManifestRole = (typeof roles)[number];
 export type SemanticCapability = (typeof semanticCapabilities)[number];

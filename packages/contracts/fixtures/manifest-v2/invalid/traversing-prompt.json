@@ -1,0 +1,16 @@
+{
+  "manifestVersion": 2,
+  "source": "bundled",
+  "id": "resonance.invalid",
+  "name": "Invalid",
+  "description": "Uses a traversing prompt path.",
+  "nav": { "label": "Invalid", "icon": "x" },
+  "content": { "entry": "src/index.ts" },
+  "events": { "emits": [], "consumes": [] },
+  "minRole": "viewer",
+  "agent": {
+    "systemPrompt": "../outside.md",
+    "permissions": ["read"],
+    "contextProviders": []
+  }
+}

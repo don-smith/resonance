@@ -3,7 +3,7 @@ import {
   type PackageContentModule,
   type PackageContext,
   type PackageInstance,
-} from "../../../packages/sdk/src/index.js";
+} from "@resonance/package-sdk";
 
 export type BundledPackageManifest = Readonly<{
   id: string;

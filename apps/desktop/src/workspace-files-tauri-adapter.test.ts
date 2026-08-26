@@ -4,8 +4,8 @@ import type {
   WorkspaceFilesRequest,
   WorkspaceFilesResponse,
   WorkspaceFilesSnapshot,
-} from "../../../packages/contracts/src/workspace-files-v1.js";
-import { workspaceFilesError } from "../../../packages/sdk/src/workspace-files-v1.js";
+} from "@resonance/contracts";
+import { workspaceFilesError } from "@resonance/package-sdk";
 import { WorkspaceFilesTauriAdapter } from "./workspace-files-tauri-adapter.js";
 
 function snapshot(

@@ -230,7 +230,11 @@ impl ManagedWorkspaceState {
                 }
             });
         });
-        let lifecycle = WorkspaceApplication::spawn_lifecycle(application, on_update);
+        let lifecycle = WorkspaceApplication::spawn_lifecycle(
+            application,
+            on_update,
+            tauri::async_runtime::handle().inner().clone(),
+        );
         tauri::async_runtime::spawn(async move {
             *workspace.lifecycle.lock().await = Some(lifecycle);
         });

@@ -306,9 +306,10 @@ impl WorkspaceApplication {
     pub fn spawn_lifecycle(
         application: std::sync::Arc<Mutex<Self>>,
         on_update: std::sync::Arc<dyn Fn(WorkspaceApplicationUpdate) + Send + Sync>,
+        runtime: tokio::runtime::Handle,
     ) -> WorkspaceLifecycleHandle {
         let (cancel, mut cancellation) = oneshot::channel();
-        let task = tokio::spawn(async move {
+        let task = runtime.spawn(async move {
             {
                 let mut application = application.lock().await;
                 application.restart_transport().await;
@@ -549,11 +550,45 @@ mod tests {
         let callback = Arc::new(move |_: WorkspaceApplicationUpdate| {
             callback_updates.fetch_add(1, Ordering::Relaxed);
         });
-        let mut lifecycle =
-            WorkspaceApplication::spawn_lifecycle(Arc::clone(&application), callback);
+        let mut lifecycle = WorkspaceApplication::spawn_lifecycle(
+            Arc::clone(&application),
+            callback,
+            tokio::runtime::Handle::current(),
+        );
         sleep(Duration::from_millis(20)).await;
         lifecycle.stop().await;
         assert!(updates.load(Ordering::Relaxed) >= 1);
         assert!(!application.lock().await.transport_active());
+    }
+
+    #[test]
+    fn lifecycle_can_start_from_a_non_async_caller() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime creates");
+        let runtime_handle = runtime.handle().clone();
+        let directory = tempfile::tempdir().expect("directory creates");
+        let identity = InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())
+            .expect("identity creates");
+        let application = Arc::new(Mutex::new(WorkspaceApplication::initialize(
+            Ok(identity),
+            directory.path(),
+        )));
+        let updates = Arc::new(AtomicUsize::new(0));
+        let callback_updates = Arc::clone(&updates);
+        let callback = Arc::new(move |_: WorkspaceApplicationUpdate| {
+            callback_updates.fetch_add(1, Ordering::Relaxed);
+        });
+
+        let mut lifecycle = WorkspaceApplication::spawn_lifecycle(
+            Arc::clone(&application),
+            callback,
+            runtime_handle,
+        );
+        runtime.block_on(async {
+            sleep(Duration::from_millis(20)).await;
+            lifecycle.stop().await;
+            assert!(!application.lock().await.transport_active());
+        });
+
+        assert!(updates.load(Ordering::Relaxed) >= 1);
     }
 }

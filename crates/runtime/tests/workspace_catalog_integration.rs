@@ -122,6 +122,48 @@ fn rejects_an_unsupported_catalog_schema_before_opening() {
 }
 
 #[test]
+fn upgrades_the_unversioned_catalog_without_retaining_duplicate_metadata() {
+    let root = temporary_directory("workspace-catalog-migration");
+    let catalog_directory = root.join(".resonance");
+    fs::create_dir_all(&catalog_directory).expect("catalog directory creates");
+    let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))
+        .expect("catalog database opens");
+    connection
+        .execute_batch(
+            "CREATE TABLE workspace_catalog (
+               workspace_id TEXT PRIMARY KEY NOT NULL,
+               display_name TEXT NOT NULL,
+               lifecycle TEXT NOT NULL
+             );
+             CREATE TABLE catalog_state (
+               singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+               active_workspace_id TEXT NULL
+             );
+             INSERT INTO catalog_state VALUES (1, NULL);
+             INSERT INTO workspace_catalog VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Old', 'ready');",
+        )
+        .expect("legacy catalog writes");
+    drop(connection);
+
+    WorkspaceCatalog::open(&root).expect("legacy catalog upgrades");
+    let connection = Connection::open(catalog_directory.join("catalog.sqlite3"))
+        .expect("upgraded catalog opens");
+    let has_display_name: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('workspace_catalog') WHERE name = 'display_name')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("catalog columns inspect");
+    let version: i32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("catalog version reads");
+    assert!(!has_display_name);
+    assert_eq!(version, 1);
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
 fn recovers_a_durable_workspace_store_missing_its_catalog_reference() {
     let root = temporary_directory("workspace-catalog-recovery");
     let catalog = WorkspaceCatalog::open(&root).expect("catalog opens");

@@ -3,6 +3,8 @@ use std::{fmt, str::FromStr};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IdentityError {
     MalformedStoredSecret,
+    MalformedStoredRecipientSecret,
+    RecipientSecretMissingAfterUse,
     InvalidPublicIdentity,
     StoreUnavailable,
 }
@@ -12,6 +14,12 @@ impl fmt::Display for IdentityError {
         match self {
             Self::MalformedStoredSecret => formatter.write_str(
                 "the installation identity in the native credential store is malformed; remove it only after recovering the installation identity",
+            ),
+            Self::MalformedStoredRecipientSecret => formatter.write_str(
+                "the conversation recipient key in native custody is malformed; recover it instead of rotating it",
+            ),
+            Self::RecipientSecretMissingAfterUse => formatter.write_str(
+                "the conversation recipient key is missing after prior use; recover it instead of rotating it",
             ),
             Self::InvalidPublicIdentity => {
                 formatter.write_str("public identity is not valid hexadecimal")

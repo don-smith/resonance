@@ -144,7 +144,55 @@ fn upgrades_the_supported_workspace_v8_fixture_transactionally() {
     let version: i32 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("workspace version reads");
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn upgrades_schema_v10_without_losing_workspace_or_file_data() {
+    let root = temporary_directory("workspace-store-v10-fixture");
+    let database = workspace_database(&root, "legacy-v10");
+    fs::create_dir_all(database.parent().expect("database has parent"))
+        .expect("workspace directory creates");
+    Connection::open(&database)
+        .expect("legacy database opens")
+        .execute_batch(include_str!("fixtures/legacy_workspace_v10.sql"))
+        .expect("v10 fixture applies");
+
+    let store = WorkspaceStore::open(&root, "legacy-v10").expect("v10 workspace upgrades");
+    assert_eq!(
+        store.settings().expect("settings").display_name,
+        "Legacy workspace"
+    );
+    let connection = Connection::open(database).expect("upgraded database opens");
+    assert_eq!(
+        connection
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+            .expect("schema version"),
+        11
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT signed_operation FROM workspace_file_operations WHERE operation_id = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'",
+                [],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .expect("file row remains"),
+        vec![1, 2, 3]
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM membership_operations", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .expect("membership row remains"),
+        1
+    );
+    assert_eq!(
+        store.lookup_peer_set_version().expect("conversation state"),
+        0
+    );
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }
 
@@ -274,7 +322,63 @@ fn typed_store_reads_report_corrupt_persisted_values() {
 }
 
 #[test]
-fn sqlite_rejects_impossible_workspace_member_values() {
+fn departure_request_and_retry_duty_commit_before_first_transmission() {
+    let root = temporary_directory("workspace-store-departure-duty");
+    let workspace = "b1".repeat(32);
+    let store = WorkspaceStore::open(&root, &workspace).expect("store opens");
+    let requester =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![71; 32]))
+            .expect("requester loads");
+    let creator =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![72; 32]))
+            .expect("creator loads");
+    let request = resonance_runtime::membership_log::SignedSelfRemovalRequestV1::create_with_nonce(
+        &requester,
+        &workspace,
+        "c1".repeat(32),
+        *creator.public_identity().as_bytes(),
+        [73; 32],
+        1,
+    )
+    .expect("request signs");
+
+    let first = store
+        .record_departure_request(&request)
+        .expect("request and duty persist atomically");
+    let second = store
+        .record_departure_request(&request)
+        .expect("duplicate request is idempotent");
+
+    assert_eq!(first, second);
+    assert_eq!(
+        store.pending_departure_requests().expect("requests").len(),
+        1
+    );
+    let duties = store.durable_publication_duties().expect("duties");
+    assert_eq!(duties.len(), 1);
+    assert_eq!(duties[0].transport, "iroh-departure");
+    assert_eq!(
+        duties[0].exact_bytes,
+        request.encode().expect("request encodes")
+    );
+    drop(store);
+    let reopened = WorkspaceStore::open(&root, &workspace).expect("store reopens");
+    assert_eq!(
+        reopened
+            .pending_departure_requests()
+            .expect("requests")
+            .len(),
+        1
+    );
+    assert_eq!(
+        reopened.durable_publication_duties().expect("duties").len(),
+        1
+    );
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
+fn sqlite_rejects_impossible_workspace_member_values_without_interpreting_roles() {
     let root = temporary_directory("workspace-store-invariants");
     let store = WorkspaceStore::open(&root, "invariants").expect("store opens");
     let database = workspace_database(&root, "invariants");
@@ -282,10 +386,18 @@ fn sqlite_rejects_impossible_workspace_member_values() {
     let error = connection.execute(
         "INSERT INTO workspace_members
          (public_identity, display_name, role, added_by, added_at)
-         VALUES (?1, 'Ada', 'owner', ?1, 1)",
+         VALUES (?1, 'Ada', '', ?1, 1)",
         [&"a".repeat(64)],
     );
     assert!(error.is_err());
+    assert!(connection
+        .execute(
+            "INSERT INTO workspace_members
+             (public_identity, display_name, role, added_by, added_at)
+             VALUES (?1, 'Ada', 'workspace-admin', ?1, 1)",
+            [&"b".repeat(64)],
+        )
+        .is_ok());
     drop(store);
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }

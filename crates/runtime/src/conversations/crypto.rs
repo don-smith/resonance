@@ -92,6 +92,10 @@ impl RecipientPublicKey {
 pub struct RecipientPrivateKey(Zeroizing<[u8; KEY_BYTES]>);
 
 impl RecipientPrivateKey {
+    pub(crate) fn for_installation(identity: &InstallationIdentity) -> (Self, RecipientPublicKey) {
+        identity.with_recipient_seed(|seed| Self::from_ikm(*seed))
+    }
+
     pub fn generate() -> Result<(Self, RecipientPublicKey), ConversationError> {
         let mut ikm = [0; KEY_BYTES];
         getrandom::fill(&mut ikm).map_err(|_| ConversationError::RandomnessUnavailable)?;

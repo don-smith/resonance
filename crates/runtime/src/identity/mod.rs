@@ -3,6 +3,7 @@
 use commonware_codec::DecodeExt;
 use commonware_cryptography::{ed25519, Signer as _};
 use iroh::SecretKey;
+use zeroize::Zeroizing;
 
 mod domain;
 pub use domain::{IdentityError, PublicIdentity};
@@ -10,6 +11,10 @@ pub use domain::{IdentityError, PublicIdentity};
 pub trait KeyCustody {
     fn read_secret(&self) -> Result<Vec<u8>, CustodyError>;
     fn write_secret(&self, secret: &[u8]) -> Result<(), CustodyError>;
+    fn read_recipient_secret(&self) -> Result<Vec<u8>, CustodyError>;
+    fn write_recipient_secret(&self, secret: &[u8]) -> Result<(), CustodyError>;
+    fn recipient_secret_was_created(&self) -> Result<bool, CustodyError>;
+    fn mark_recipient_secret_created(&self) -> Result<(), CustodyError>;
 }
 
 /// Platform custody adapters are kept behind the identity module's seam.
@@ -33,30 +38,62 @@ pub enum CustodyError {
 #[derive(Clone)]
 pub struct InstallationIdentity {
     secret_key: SecretKey,
+    recipient_seed: Zeroizing<[u8; 32]>,
 }
 
 impl InstallationIdentity {
     pub fn load_or_create(custody: &impl KeyCustody) -> Result<Self, IdentityError> {
-        match custody.read_secret() {
+        let secret_key = match custody.read_secret() {
             Ok(bytes) => {
                 let bytes: [u8; 32] = bytes
                     .try_into()
                     .map_err(|_| IdentityError::MalformedStoredSecret)?;
-                Self::from_secret_key(SecretKey::from_bytes(&bytes))
+                SecretKey::from_bytes(&bytes)
             }
             Err(CustodyError::Missing) => {
                 let secret_key = SecretKey::generate();
                 custody
                     .write_secret(&secret_key.to_bytes())
                     .map_err(|_| IdentityError::StoreUnavailable)?;
-                Self::from_secret_key(secret_key)
+                secret_key
             }
-            Err(CustodyError::Unavailable) => Err(IdentityError::StoreUnavailable),
-        }
+            Err(CustodyError::Unavailable) => return Err(IdentityError::StoreUnavailable),
+        };
+        let recipient_seed = match custody.read_recipient_secret() {
+            Ok(bytes) => bytes
+                .try_into()
+                .map(Zeroizing::new)
+                .map_err(|_| IdentityError::MalformedStoredRecipientSecret)?,
+            Err(CustodyError::Missing) => {
+                if custody
+                    .recipient_secret_was_created()
+                    .map_err(|_| IdentityError::StoreUnavailable)?
+                {
+                    return Err(IdentityError::RecipientSecretMissingAfterUse);
+                }
+                let mut bytes = [0; 32];
+                getrandom::fill(&mut bytes).map_err(|_| IdentityError::StoreUnavailable)?;
+                custody
+                    .write_recipient_secret(&bytes)
+                    .map_err(|_| IdentityError::StoreUnavailable)?;
+                custody
+                    .mark_recipient_secret_created()
+                    .map_err(|_| IdentityError::StoreUnavailable)?;
+                Zeroizing::new(bytes)
+            }
+            Err(CustodyError::Unavailable) => return Err(IdentityError::StoreUnavailable),
+        };
+        Self::from_secret_key(secret_key, recipient_seed)
     }
 
-    fn from_secret_key(secret_key: SecretKey) -> Result<Self, IdentityError> {
-        let identity = Self { secret_key };
+    fn from_secret_key(
+        secret_key: SecretKey,
+        recipient_seed: Zeroizing<[u8; 32]>,
+    ) -> Result<Self, IdentityError> {
+        let identity = Self {
+            secret_key,
+            recipient_seed,
+        };
         identity.commonware_signer()?;
         Ok(identity)
     }
@@ -76,6 +113,10 @@ impl InstallationIdentity {
 
     pub(crate) fn transport_secret_key(&self) -> SecretKey {
         self.secret_key.clone()
+    }
+
+    pub(crate) fn with_recipient_seed<R>(&self, use_seed: impl FnOnce(&[u8; 32]) -> R) -> R {
+        use_seed(&self.recipient_seed)
     }
 
     /// Reconstructs Commonware's signer from the installation secret already in memory.
@@ -133,14 +174,42 @@ mod file_custody_tests {
 
         assert_eq!(first.public_identity(), second.public_identity());
         let key = directory.path().join("installation.key");
+        let recipient = directory.path().join("conversation-recipient.key");
         assert_eq!(
-            fs::metadata(key)
+            fs::metadata(&key)
                 .expect("key metadata")
                 .permissions()
                 .mode()
                 & 0o777,
             0o600
         );
+        assert_eq!(
+            fs::metadata(&recipient)
+                .expect("recipient-key metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_ne!(
+            fs::read(key).expect("identity key reads"),
+            fs::read(recipient).expect("recipient key reads")
+        );
+    }
+
+    #[test]
+    fn missing_recipient_key_after_use_never_rotates() {
+        let directory = tempfile::tempdir().expect("temporary directory creates");
+        let custody = FileKeyCustody::open(directory.path()).expect("custody opens");
+        InstallationIdentity::load_or_create(&custody).expect("identity creates");
+        let recipient = directory.path().join("conversation-recipient.key");
+        fs::remove_file(&recipient).expect("recipient key loss injects");
+
+        assert!(matches!(
+            InstallationIdentity::load_or_create(&custody),
+            Err(super::IdentityError::RecipientSecretMissingAfterUse)
+        ));
+        assert!(!recipient.exists());
     }
 
     #[test]

@@ -7,11 +7,12 @@ use std::{
 };
 
 use crate::{
+    conversations::authority::{ConversationAuthority, ConversationAuthorityError},
     identity::{InstallationIdentity, PublicIdentity},
     invite::{validate_relay_override, Invite, InviteError},
     membership_log::{
         MembershipError, MembershipLog, MembershipOperationBody, MembershipProjection,
-        SignedMembershipOperation,
+        PreparedMembershipTransition, SignedMembershipOperation, SignedSelfRemovalRequestV1,
     },
     protocol::{Envelope, EnvelopeBody, ProtocolError},
     workspace_catalog::{WorkspaceCatalog, WorkspaceCatalogError},
@@ -74,6 +75,7 @@ pub enum WorkspaceSessionError {
     FileOperation(FileOperationError),
     Invite(InviteError),
     Protocol(ProtocolError),
+    ConversationAuthority(ConversationAuthorityError),
     NoActiveWorkspace,
     InvalidInviteAdmission(&'static str),
     ClockUnavailable,
@@ -91,6 +93,12 @@ impl fmt::Display for WorkspaceSessionError {
             }
             Self::Invite(error) => write!(formatter, "invite processing failed: {error}"),
             Self::Protocol(error) => write!(formatter, "workspace protocol failed: {error}"),
+            Self::ConversationAuthority(error) => {
+                write!(
+                    formatter,
+                    "conversation membership coordination failed: {error}"
+                )
+            }
             Self::NoActiveWorkspace => formatter.write_str("there is no active workspace"),
             Self::InvalidInviteAdmission(reason) => formatter.write_str(reason),
             Self::ClockUnavailable => formatter.write_str("system clock is unavailable"),
@@ -129,6 +137,11 @@ impl From<InviteError> for WorkspaceSessionError {
 impl From<ProtocolError> for WorkspaceSessionError {
     fn from(error: ProtocolError) -> Self {
         Self::Protocol(error)
+    }
+}
+impl From<ConversationAuthorityError> for WorkspaceSessionError {
+    fn from(error: ConversationAuthorityError) -> Self {
+        Self::ConversationAuthority(error)
     }
 }
 
@@ -191,6 +204,220 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
     #[must_use]
     pub fn has_active_workspace(&self) -> bool {
         self.active.is_some()
+    }
+
+    pub fn prepare_add_member(
+        &self,
+        public_identity: [u8; 32],
+        display_name: impl Into<String>,
+        added_at: i64,
+    ) -> Result<PreparedMembershipTransition, WorkspaceSessionError> {
+        let active = self.active()?;
+        let projection = self.projection();
+        let head =
+            projection
+                .canonical_head
+                .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                    "workspace has no canonical membership head",
+                ))?;
+        let operation = SignedMembershipOperation::add_member(
+            &self.identity,
+            active.summary.id.as_str(),
+            head.as_str(),
+            active
+                .log
+                .next_author_counter(self.identity.public_identity().as_bytes()),
+            public_identity,
+            display_name,
+            added_at,
+        )?;
+        Ok(active.log.prepare(active.summary.id.as_str(), operation)?)
+    }
+
+    pub fn prepare_creator_expulsion(
+        &self,
+        target: PublicIdentity,
+        removed_at: i64,
+    ) -> Result<PreparedMembershipTransition, WorkspaceSessionError> {
+        let active = self.active()?;
+        let projection = self.projection();
+        if projection.creator != Some(self.identity.public_identity()) {
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "only the genesis creator may expel a member",
+            ));
+        }
+        let interval = projection.interval_id(&target).cloned().ok_or(
+            WorkspaceSessionError::InvalidInviteAdmission("target has no current interval"),
+        )?;
+        let head =
+            projection
+                .canonical_head
+                .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                    "workspace has no canonical membership head",
+                ))?;
+        let operation = SignedMembershipOperation::expel_member(
+            &self.identity,
+            active.summary.id.as_str(),
+            head.as_str(),
+            active
+                .log
+                .next_author_counter(self.identity.public_identity().as_bytes()),
+            *target.as_bytes(),
+            interval.as_str(),
+            removed_at,
+        )?;
+        Ok(active.log.prepare(active.summary.id.as_str(), operation)?)
+    }
+
+    pub fn local_conversation_authoring_blocked(&self) -> Result<bool, WorkspaceSessionError> {
+        let active = self.active()?;
+        let projection = self.projection();
+        let current_interval = projection.interval_id(&self.identity.public_identity());
+        let store = self.catalog.open_workspace(&active.summary.id)?;
+        for exact in store.pending_departure_requests()? {
+            let request = SignedSelfRemovalRequestV1::decode(&exact)?;
+            if request.request.requester == *self.identity.public_identity().as_bytes()
+                && current_interval.map(|interval| interval.as_str())
+                    == Some(request.request.membership_interval_id.as_str())
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn request_departure(
+        &self,
+        requested_at: i64,
+    ) -> Result<SignedSelfRemovalRequestV1, WorkspaceSessionError> {
+        let active = self.active()?;
+        let projection = self.projection();
+        let creator = projection
+            .creator
+            .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                "workspace has no genesis creator",
+            ))?;
+        if creator == self.identity.public_identity() {
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "the genesis creator cannot leave in membership v1",
+            ));
+        }
+        let interval = projection
+            .interval_id(&self.identity.public_identity())
+            .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                "requester has no current membership interval",
+            ))?;
+        let store = self.catalog.open_workspace(&active.summary.id)?;
+        for exact in store.pending_departure_requests()? {
+            let existing = SignedSelfRemovalRequestV1::decode(&exact)?;
+            if existing.request.requester == *self.identity.public_identity().as_bytes()
+                && existing.request.membership_interval_id == interval.as_str()
+            {
+                return Ok(existing);
+            }
+        }
+        let request = SignedSelfRemovalRequestV1::create(
+            &self.identity,
+            active.summary.id.as_str(),
+            interval.as_str(),
+            *creator.as_bytes(),
+            requested_at,
+        )?;
+        store.record_departure_request(&request)?;
+        Ok(request)
+    }
+
+    pub fn prepare_requested_departure(
+        &self,
+        request: SignedSelfRemovalRequestV1,
+        removed_at: i64,
+    ) -> Result<PreparedMembershipTransition, WorkspaceSessionError> {
+        request.verify()?;
+        let active = self.active()?;
+        let projection = self.projection();
+        if projection.creator != Some(self.identity.public_identity()) {
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "only the genesis creator processes a departure request",
+            ));
+        }
+        if request.request.workspace_id != active.summary.id.as_str()
+            || request.request.genesis_creator != *self.identity.public_identity().as_bytes()
+        {
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "departure request does not bind this workspace and creator",
+            ));
+        }
+        let requester = PublicIdentity::from_bytes(request.request.requester);
+        if projection.interval_id(&requester).map(|id| id.as_str())
+            != Some(request.request.membership_interval_id.as_str())
+        {
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "departure request does not name the current interval",
+            ));
+        }
+        let head =
+            projection
+                .canonical_head
+                .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                    "workspace has no canonical membership head",
+                ))?;
+        self.catalog
+            .open_workspace(&active.summary.id)?
+            .record_received_departure_request(&request)?;
+        let operation = SignedMembershipOperation::remove_member_by_request(
+            &self.identity,
+            active.summary.id.as_str(),
+            head.as_str(),
+            active
+                .log
+                .next_author_counter(self.identity.public_identity().as_bytes()),
+            request,
+            removed_at,
+        )?;
+        Ok(active.log.prepare(active.summary.id.as_str(), operation)?)
+    }
+
+    pub fn finalize_prepared_transition(
+        &mut self,
+        prepared: &PreparedMembershipTransition,
+    ) -> Result<(), WorkspaceSessionError> {
+        let active = self.active()?;
+        if active
+            .log
+            .projection(active.summary.id.as_str())
+            .canonical_head
+            != prepared.before_head
+        {
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "prepared transition is stale",
+            ));
+        }
+        let resulting_head = decode_membership_head(prepared.resulting_head.as_str()).ok_or(
+            WorkspaceSessionError::InvalidInviteAdmission("resulting head is invalid"),
+        )?;
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&active.summary.id)?;
+        if store.exact_epoch_for_head(&resulting_head)?.is_none() {
+            return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                "membership epoch must commit before projection finalization",
+            ));
+        }
+        let before = self.projection();
+        self.active_mut()?.log.insert(prepared.operation.clone())?;
+        let after = self.projection();
+        self.apply_projection_change(&before, &after)
+    }
+
+    pub fn rebuild_membership_from_store(&mut self) -> Result<(), WorkspaceSessionError> {
+        let id = self.active()?.summary.id.clone();
+        let store = self.catalog.open_workspace_for_initialization(&id)?;
+        let mut log = MembershipLog::new();
+        for operation in store.membership_operations()? {
+            log.insert_bytes(&operation)?;
+        }
+        self.active_mut()?.log = log;
+        Ok(())
     }
 
     /// Restores the catalog's active workspace, if this installation has one.
@@ -466,6 +693,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             EnvelopeBody::JoinRequest {
                 inviter,
                 display_name,
+                recipient_key,
             } => {
                 if inviter != *self.identity.public_identity().as_bytes()
                     || !projection.contains(&self.identity.public_identity())
@@ -474,24 +702,21 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                         "join request is not addressed to this installation",
                     ));
                 }
-                let head = projection.canonical_head.ok_or(
-                    WorkspaceSessionError::InvalidInviteAdmission(
-                        "inviter has no canonical membership authority",
-                    ),
-                )?;
-                let operation = SignedMembershipOperation::add_member(
-                    &self.identity,
+                let prepared = self.prepare_add_member(envelope.sender, display_name, now()?)?;
+                let store = self
+                    .catalog
+                    .open_workspace_for_initialization(&self.active()?.summary.id)?;
+                let mut authority = ConversationAuthority::open(
+                    self.identity.clone(),
                     self.active()?.summary.id.as_str(),
-                    head.as_str(),
-                    self.active()?
-                        .log
-                        .next_author_counter(self.identity.public_identity().as_bytes()),
-                    envelope.sender,
-                    display_name,
-                    now()?,
+                    store,
                 )?;
-                let operation_bytes = operation.encode()?;
-                self.persist_operation(operation_bytes)?;
+                authority.stage_recipient_record(
+                    &recipient_key,
+                    PublicIdentity::from_bytes(envelope.sender),
+                )?;
+                authority.commit_transition(&prepared)?;
+                self.finalize_prepared_transition(&prepared)?;
                 self.send(
                     EnvelopeBody::MembershipSyncResponse(self.active()?.log.encoded_operations()?),
                     envelope.workspace_id,
@@ -591,6 +816,18 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
 
     pub(crate) fn transport_identity(&self) -> &InstallationIdentity {
         &self.identity
+    }
+
+    pub(crate) fn conversation_authority_context(
+        &self,
+    ) -> Result<(InstallationIdentity, String, WorkspaceStore), WorkspaceSessionError> {
+        let active = self.active()?;
+        Ok((
+            self.identity.clone(),
+            active.summary.id.as_str().to_owned(),
+            self.catalog
+                .open_workspace_for_initialization(&active.summary.id)?,
+        ))
     }
 
     pub(crate) fn transport_settings(
@@ -695,7 +932,32 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             peers: BTreeMap::new(),
             file_history_recovery_needed: recover_file_history,
         });
-        Ok(())
+        self.reconcile_conversation_epoch()
+    }
+
+    fn reconcile_conversation_epoch(&self) -> Result<(), WorkspaceSessionError> {
+        let active = self.active()?;
+        let projection = active.log.projection(active.summary.id.as_str());
+        let Some(head) = projection.canonical_head else {
+            return Ok(());
+        };
+        let Some(head_bytes) = decode_membership_head(head.as_str()) else {
+            return Ok(());
+        };
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&active.summary.id)?;
+        if store.exact_epoch_for_head(&head_bytes)?.is_some() {
+            return Ok(());
+        }
+        let prepared = active.log.current_transition(active.summary.id.as_str())?;
+        let mut authority =
+            ConversationAuthority::open(self.identity.clone(), active.summary.id.as_str(), store)?;
+        match authority.commit_transition(&prepared) {
+            Ok(_) | Err(ConversationAuthorityError::UnauthorizedCoordinator) => Ok(()),
+            Err(ConversationAuthorityError::MissingRecipientKey(_)) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn complete_initialization(&mut self) -> Result<(), WorkspaceSessionError> {
@@ -724,7 +986,11 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 creator_display_name,
                 now()?,
             )?;
-            self.persist_operation(genesis.encode()?)?;
+            let prepared = self.active()?.log.prepare(&workspace_id, genesis)?;
+            let mut authority =
+                ConversationAuthority::open(self.identity.clone(), &workspace_id, store.clone())?;
+            authority.commit_transition(&prepared)?;
+            self.finalize_prepared_transition(&prepared)?;
             store.set_creation_stage("membership-initialized")?;
         }
         let membership = self.projection();
@@ -790,17 +1056,19 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             return Ok(());
         };
         let signed = SignedMembershipOperation::decode(operation)?;
-        let MembershipOperationBody::AddMember {
+        if let MembershipOperationBody::AddMember {
             public_identity,
             role,
             ..
-        } = &signed.operation.body;
-        if public_identity == self.identity.public_identity().as_bytes()
-            && (signed.operation.author != inviter || role != "contributor")
+        } = &signed.operation.body
         {
-            return Err(WorkspaceSessionError::InvalidInviteAdmission(
-                "membership admission is not signed by the named inviter",
-            ));
+            if public_identity == self.identity.public_identity().as_bytes()
+                && (signed.operation.author != inviter || role != "contributor")
+            {
+                return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                    "membership admission is not signed by the named inviter",
+                ));
+            }
         }
         Ok(())
     }
@@ -809,14 +1077,37 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         let signed = SignedMembershipOperation::decode(&operation)?;
         let operation_id = signed.operation_id_value()?;
         let before = self.projection();
-        self.active_mut()?.log.insert(signed)?;
-        let after = self.projection();
+        let mut staged = self.active()?.log.clone();
+        staged.insert(signed)?;
+        let workspace_id = self.active()?.summary.id.clone();
+        let after = staged.projection(workspace_id.as_str());
+        let losing_head = before
+            .canonical_head
+            .as_ref()
+            .filter(|head| {
+                after.canonical_head.as_ref() != Some(*head)
+                    && !after.canonical_lineage.contains(*head)
+            })
+            .and_then(|head| decode_membership_head(head.as_str()));
         let store = self
             .catalog
-            .open_workspace_for_initialization(&self.active()?.summary.id)?;
-        store.record_membership_operation(&operation_id, &operation)?;
-        store.replace_members(&after.members)?;
+            .open_workspace_for_initialization(&workspace_id)?;
+        store.commit_received_membership(
+            &operation_id,
+            &operation,
+            &after.members,
+            losing_head.as_ref(),
+            before.canonical_head != after.canonical_head,
+        )?;
+        self.active_mut()?.log = staged;
+        self.apply_projection_change(&before, &after)
+    }
 
+    fn apply_projection_change(
+        &mut self,
+        before: &MembershipProjection,
+        after: &MembershipProjection,
+    ) -> Result<(), WorkspaceSessionError> {
         for member in &after.members {
             if !before.contains(&member.public_identity) {
                 self.transitions
@@ -867,10 +1158,16 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                     "pending join has no named inviter",
                 ))?;
         let workspace_id = self.active()?.summary.id.as_str().to_owned();
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&self.active()?.summary.id)?;
+        let authority = ConversationAuthority::open(self.identity.clone(), &workspace_id, store)?;
+        let recipient_key = authority.local_recipient_record().bytes().to_vec();
         self.send(
             EnvelopeBody::JoinRequest {
                 inviter,
                 display_name,
+                recipient_key,
             },
             workspace_id,
         )
@@ -902,11 +1199,34 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         self.active.as_ref().map_or_else(
             || MembershipProjection {
                 canonical_head: None,
+                creator: None,
                 members: Vec::new(),
+                intervals: Default::default(),
+                latest_removals: Default::default(),
+                canonical_lineage: Vec::new(),
                 statuses: Default::default(),
             },
             |active| active.log.projection(active.summary.id.as_str()),
         )
+    }
+}
+
+fn decode_membership_head(value: &str) -> Option<[u8; 32]> {
+    if value.len() != 64 {
+        return None;
+    }
+    let mut output = [0; 32];
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        output[index] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
+    }
+    Some(output)
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
     }
 }
 

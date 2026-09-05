@@ -12,9 +12,10 @@ use std::{
 use rusqlite::{params, Connection};
 
 use crate::{
+    conversations::wire::{ExactRecordV1, RecordId},
     identity::PublicIdentity,
     local_root_binding::{MaterializedRecord, RootHealth},
-    membership_log::MembershipOperationId,
+    membership_log::{MembershipOperationId, SignedSelfRemovalRequestV1},
     workspace_domain::{Member, WorkspaceLifecycle, WorkspaceSettings, WorkspaceToken},
     workspace_files::{
         blobs::{BlobError, WorkspaceBlobStore},
@@ -22,7 +23,7 @@ use crate::{
     },
 };
 
-const CURRENT_SCHEMA_VERSION: i32 = 10;
+const CURRENT_SCHEMA_VERSION: i32 = 11;
 
 #[derive(Clone)]
 pub(crate) struct PrivateWorkspaceSettings {
@@ -42,6 +43,29 @@ pub struct WorkspaceStore {
     connection: Arc<Mutex<Connection>>,
 }
 
+#[derive(Clone, Debug)]
+pub struct AtomicMembershipEpochCommit {
+    pub operation_id: MembershipOperationId,
+    pub exact_membership_operation: Vec<u8>,
+    pub resulting_members: Vec<Member>,
+    pub previous_membership_head: Option<RecordId>,
+    pub resulting_membership_head: RecordId,
+    pub coordinator: [u8; 32],
+    pub exact_epoch_record: Vec<u8>,
+    pub epoch_record_id: RecordId,
+    pub coordinator_own_envelope_opened: bool,
+    pub processed_request_id: Option<MembershipOperationId>,
+    pub genesis_channel: Option<ExactRecordV1>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DurablePublicationDuty {
+    pub transport: String,
+    pub record_id: Vec<u8>,
+    pub exact_bytes: Vec<u8>,
+    pub membership_head: Option<RecordId>,
+}
+
 #[derive(Debug)]
 pub enum WorkspaceStoreError {
     InvalidIdentifier(&'static str),
@@ -54,6 +78,8 @@ pub enum WorkspaceStoreError {
     FileOperation(FileOperationError),
     FileOperationConflict,
     MembershipOperationConflict,
+    ConversationRecordConflict,
+    DepartureRequestConflict,
     Blob(BlobError),
     LockPoisoned,
 }
@@ -83,6 +109,12 @@ impl std::fmt::Display for WorkspaceStoreError {
             }
             Self::MembershipOperationConflict => {
                 formatter.write_str("membership operation ID has conflicting durable bytes")
+            }
+            Self::ConversationRecordConflict => {
+                formatter.write_str("conversation record has conflicting durable bytes")
+            }
+            Self::DepartureRequestConflict => {
+                formatter.write_str("departure request has conflicting durable bytes")
             }
             Self::Blob(error) => write!(formatter, "workspace blob storage failed: {error}"),
             Self::LockPoisoned => formatter.write_str("workspace store lock was poisoned"),
@@ -405,6 +437,468 @@ impl WorkspaceStore {
         Ok(operations)
     }
 
+    pub fn commit_received_membership(
+        &self,
+        operation_id: &MembershipOperationId,
+        exact_operation: &[u8],
+        resulting_members: &[Member],
+        losing_head: Option<&RecordId>,
+        canonical_head_changed: bool,
+    ) -> Result<(), WorkspaceStoreError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        let inserted = transaction.execute(
+            "INSERT OR IGNORE INTO membership_operations (operation_id, signed_operation) VALUES (?1, ?2)",
+            params![operation_id.as_str(), exact_operation],
+        )?;
+        if inserted == 0 {
+            let existing = transaction.query_row(
+                "SELECT signed_operation FROM membership_operations WHERE operation_id = ?1",
+                [operation_id.as_str()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )?;
+            if existing != exact_operation {
+                return Err(WorkspaceStoreError::MembershipOperationConflict);
+            }
+        }
+        transaction.execute("DELETE FROM workspace_members", [])?;
+        for member in resulting_members {
+            transaction.execute(
+                "INSERT INTO workspace_members
+                   (public_identity, display_name, role, added_by, added_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    member.public_identity.to_string(),
+                    member.display_name,
+                    member.role,
+                    member.added_by.to_string(),
+                    member.added_at
+                ],
+            )?;
+        }
+        if canonical_head_changed {
+            transaction.execute(
+                "UPDATE conversation_state
+                 SET lookup_peer_set_version = lookup_peer_set_version + 1
+                 WHERE singleton = 1",
+                [],
+            )?;
+        }
+        if let Some(head) = losing_head {
+            transaction.execute(
+                "UPDATE conversation_epochs SET accepted = 0 WHERE resulting_membership_head = ?1",
+                [head.as_slice()],
+            )?;
+            transaction.execute(
+                "UPDATE conversation_records SET accepted = 0 WHERE membership_head = ?1",
+                [head.as_slice()],
+            )?;
+            transaction.execute(
+                "UPDATE publication_duties SET invalidated = 1 WHERE membership_head = ?1",
+                [head.as_slice()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn record_recipient_key(
+        &self,
+        exact: &ExactRecordV1,
+        accepted: bool,
+    ) -> Result<(), WorkspaceStoreError> {
+        let crate::conversations::wire::ConversationRecordV1::RecipientKey(record) = exact.record()
+        else {
+            return Err(WorkspaceStoreError::CorruptPersistedValue(
+                "recipient-key record family",
+            ));
+        };
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let inserted = connection.execute(
+            "INSERT OR IGNORE INTO conversation_recipient_keys
+               (record_id, installation, generation, exact_record, accepted)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                exact.id().as_slice(),
+                record.installation.as_slice(),
+                i64::try_from(record.generation)
+                    .map_err(|_| WorkspaceStoreError::InvalidIdentifier("recipient generation"))?,
+                exact.bytes(),
+                accepted
+            ],
+        )?;
+        if inserted == 0 {
+            let existing = connection.query_row(
+                "SELECT exact_record FROM conversation_recipient_keys WHERE record_id = ?1",
+                [exact.id().as_slice()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )?;
+            if existing != exact.bytes() {
+                return Err(WorkspaceStoreError::ConversationRecordConflict);
+            }
+            if accepted {
+                connection.execute(
+                    "UPDATE conversation_recipient_keys SET accepted = 1 WHERE record_id = ?1",
+                    [exact.id().as_slice()],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn recipient_key_records(&self) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT exact_record FROM conversation_recipient_keys WHERE accepted = 1 ORDER BY installation, generation",
+        )?;
+        let records = statement
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<Vec<u8>>, _>>()?;
+        Ok(records)
+    }
+
+    pub fn record_departure_request(
+        &self,
+        request: &SignedSelfRemovalRequestV1,
+    ) -> Result<MembershipOperationId, WorkspaceStoreError> {
+        self.record_departure_request_with_duty(request, true)
+    }
+
+    pub fn record_received_departure_request(
+        &self,
+        request: &SignedSelfRemovalRequestV1,
+    ) -> Result<MembershipOperationId, WorkspaceStoreError> {
+        self.record_departure_request_with_duty(request, false)
+    }
+
+    fn record_departure_request_with_duty(
+        &self,
+        request: &SignedSelfRemovalRequestV1,
+        enqueue_duty: bool,
+    ) -> Result<MembershipOperationId, WorkspaceStoreError> {
+        request
+            .verify()
+            .map_err(|_| WorkspaceStoreError::CorruptPersistedValue("departure request"))?;
+        let request_id = request
+            .request_id()
+            .map_err(|_| WorkspaceStoreError::InvalidIdentifier("departure request"))?;
+        let exact = request
+            .encode()
+            .map_err(|_| WorkspaceStoreError::CorruptPersistedValue("departure request"))?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        let inserted = transaction.execute(
+            "INSERT OR IGNORE INTO departure_requests
+               (request_id, requester, membership_interval_id, exact_request, status)
+             VALUES (?1, ?2, ?3, ?4, 'pending')",
+            params![
+                request_id.as_str(),
+                request.request.requester.as_slice(),
+                request.request.membership_interval_id,
+                exact
+            ],
+        )?;
+        if inserted == 0 {
+            let existing = transaction.query_row(
+                "SELECT exact_request FROM departure_requests WHERE request_id = ?1",
+                [request_id.as_str()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )?;
+            if existing != exact {
+                return Err(WorkspaceStoreError::DepartureRequestConflict);
+            }
+        }
+        if enqueue_duty {
+            transaction.execute(
+                "INSERT OR IGNORE INTO publication_duties
+                   (transport, record_id, membership_head, exact_bytes)
+                 VALUES ('iroh-departure', ?1, NULL, ?2)",
+                params![request_id.as_str().as_bytes(), exact],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(request_id)
+    }
+
+    pub fn pending_departure_requests(&self) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT exact_request FROM departure_requests WHERE status = 'pending' ORDER BY request_id",
+        )?;
+        let requests = statement
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<Vec<u8>>, _>>()?;
+        Ok(requests)
+    }
+
+    pub fn commit_membership_epoch(
+        &self,
+        commit: &AtomicMembershipEpochCommit,
+    ) -> Result<u64, WorkspaceStoreError> {
+        if !commit.coordinator_own_envelope_opened {
+            return Err(WorkspaceStoreError::CorruptPersistedValue(
+                "coordinator envelope proof",
+            ));
+        }
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        let existing_epoch = transaction
+            .query_row(
+                "SELECT exact_record FROM conversation_epochs WHERE resulting_membership_head = ?1",
+                [commit.resulting_membership_head.as_slice()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()?;
+        if let Some(existing) = existing_epoch {
+            if existing != commit.exact_epoch_record {
+                return Err(WorkspaceStoreError::ConversationRecordConflict);
+            }
+            return transaction
+                .query_row(
+                    "SELECT lookup_peer_set_version FROM conversation_state WHERE singleton = 1",
+                    [],
+                    |row| row.get::<_, u64>(0),
+                )
+                .map_err(Into::into);
+        }
+
+        let operation_inserted = transaction.execute(
+            "INSERT OR IGNORE INTO membership_operations (operation_id, signed_operation) VALUES (?1, ?2)",
+            params![
+                commit.operation_id.as_str(),
+                commit.exact_membership_operation
+            ],
+        )?;
+        if operation_inserted == 0 {
+            let existing = transaction.query_row(
+                "SELECT signed_operation FROM membership_operations WHERE operation_id = ?1",
+                [commit.operation_id.as_str()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )?;
+            if existing != commit.exact_membership_operation {
+                return Err(WorkspaceStoreError::MembershipOperationConflict);
+            }
+        }
+        transaction.execute("DELETE FROM workspace_members", [])?;
+        transaction.execute("UPDATE conversation_recipient_keys SET accepted = 0", [])?;
+        for member in &commit.resulting_members {
+            transaction.execute(
+                "INSERT INTO workspace_members
+                   (public_identity, display_name, role, added_by, added_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    member.public_identity.to_string(),
+                    member.display_name,
+                    member.role,
+                    member.added_by.to_string(),
+                    member.added_at
+                ],
+            )?;
+            transaction.execute(
+                "UPDATE conversation_recipient_keys SET accepted = 1 WHERE installation = ?1",
+                [member.public_identity.as_bytes().as_slice()],
+            )?;
+        }
+        transaction.execute(
+            "INSERT INTO conversation_epochs
+               (resulting_membership_head, previous_membership_head, coordinator, exact_record, own_envelope_opened)
+             VALUES (?1, ?2, ?3, ?4, 1)",
+            params![
+                commit.resulting_membership_head.as_slice(),
+                commit.previous_membership_head.as_ref().map(<[u8; 32]>::as_slice),
+                commit.coordinator.as_slice(),
+                commit.exact_epoch_record
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO conversation_records (record_id, family, membership_head, exact_record)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                commit.epoch_record_id.as_slice(),
+                i64::from(crate::conversations::wire::EPOCH_FAMILY),
+                commit.resulting_membership_head.as_slice(),
+                commit.exact_epoch_record
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO publication_duties
+               (transport, record_id, membership_head, exact_bytes)
+             VALUES ('iroh-membership', ?1, ?2, ?3)",
+            params![
+                commit.operation_id.as_str().as_bytes(),
+                commit.resulting_membership_head.as_slice(),
+                commit.exact_membership_operation
+            ],
+        )?;
+        transaction.execute(
+            "INSERT INTO publication_duties
+               (transport, record_id, membership_head, exact_bytes)
+             VALUES ('commonware-record', ?1, ?2, ?3)",
+            params![
+                commit.epoch_record_id.as_slice(),
+                commit.resulting_membership_head.as_slice(),
+                commit.exact_epoch_record
+            ],
+        )?;
+        if let Some(channel) = &commit.genesis_channel {
+            transaction.execute(
+                "INSERT INTO conversation_records (record_id, family, membership_head, exact_record)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    channel.id().as_slice(),
+                    i64::from(crate::conversations::wire::CHANNEL_FAMILY),
+                    commit.resulting_membership_head.as_slice(),
+                    channel.bytes()
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO publication_duties
+                   (transport, record_id, membership_head, exact_bytes)
+                 VALUES ('commonware-record', ?1, ?2, ?3)",
+                params![
+                    channel.id().as_slice(),
+                    commit.resulting_membership_head.as_slice(),
+                    channel.bytes()
+                ],
+            )?;
+        }
+        if let Some(request_id) = &commit.processed_request_id {
+            transaction.execute(
+                "UPDATE departure_requests
+                 SET status = 'processed', resulting_membership_head = ?1
+                 WHERE request_id = ?2 AND status = 'pending'",
+                params![
+                    commit.resulting_membership_head.as_slice(),
+                    request_id.as_str()
+                ],
+            )?;
+        }
+        transaction.execute(
+            "UPDATE conversation_state
+             SET lookup_peer_set_version = lookup_peer_set_version + 1
+             WHERE singleton = 1",
+            [],
+        )?;
+        let version = transaction.query_row(
+            "SELECT lookup_peer_set_version FROM conversation_state WHERE singleton = 1",
+            [],
+            |row| row.get::<_, u64>(0),
+        )?;
+        transaction.commit()?;
+        Ok(version)
+    }
+
+    pub fn durable_publication_duties(
+        &self,
+    ) -> Result<Vec<DurablePublicationDuty>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT transport, record_id, exact_bytes, membership_head
+             FROM publication_duties
+             WHERE delivered_at IS NULL AND invalidated = 0
+             ORDER BY transport, record_id",
+        )?;
+        let duties = statement
+            .query_map([], |row| {
+                let head = row
+                    .get::<_, Option<Vec<u8>>>(3)?
+                    .map(|bytes| {
+                        bytes.try_into().map_err(|_| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                3,
+                                rusqlite::types::Type::Blob,
+                                "membership head has the wrong length".into(),
+                            )
+                        })
+                    })
+                    .transpose()?;
+                Ok(DurablePublicationDuty {
+                    transport: row.get(0)?,
+                    record_id: row.get(1)?,
+                    exact_bytes: row.get(2)?,
+                    membership_head: head,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(duties)
+    }
+
+    pub fn exact_epoch_for_head(
+        &self,
+        head: &RecordId,
+    ) -> Result<Option<Vec<u8>>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        Ok(connection
+            .query_row(
+                "SELECT exact_record FROM conversation_epochs
+                 WHERE resulting_membership_head = ?1 AND accepted = 1",
+                [head.as_slice()],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn lookup_peer_set_version(&self) -> Result<u64, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        Ok(connection.query_row(
+            "SELECT lookup_peer_set_version FROM conversation_state WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+
+    pub fn invalidate_conversation_head(
+        &self,
+        losing_head: &RecordId,
+    ) -> Result<(), WorkspaceStoreError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "UPDATE conversation_epochs SET accepted = 0 WHERE resulting_membership_head = ?1",
+            [losing_head.as_slice()],
+        )?;
+        transaction.execute(
+            "UPDATE conversation_records SET accepted = 0 WHERE membership_head = ?1",
+            [losing_head.as_slice()],
+        )?;
+        transaction.execute(
+            "UPDATE publication_duties SET invalidated = 1 WHERE membership_head = ?1",
+            [losing_head.as_slice()],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn record_file_operation(
         &self,
         operation: &SignedFileOperation,
@@ -695,7 +1189,7 @@ impl WorkspaceStore {
                             "member display name",
                         ));
                     }
-                    if !matches!(role.as_str(), "viewer" | "contributor" | "developer") {
+                    if role.trim().is_empty() || role.len() > 64 {
                         return Err(WorkspaceStoreError::CorruptPersistedValue("member role"));
                     }
                     Ok(Member::new(
@@ -798,6 +1292,10 @@ fn migrate_steps(connection: &Connection) -> Result<(), WorkspaceStoreError> {
             "../../migrations/0010_durable_creation_and_invariants.sql"
         ))?;
         version = 10;
+    }
+    if version == 10 {
+        connection.execute_batch(include_str!("../../migrations/0011_conversations.sql"))?;
+        version = 11;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

@@ -25,6 +25,7 @@ pub enum EnvelopeBody {
     JoinRequest {
         inviter: [u8; 32],
         display_name: String,
+        recipient_key: Vec<u8>,
     },
     MembershipSyncRequest,
     MembershipSyncResponse(Vec<Vec<u8>>),
@@ -149,8 +150,13 @@ fn validate_unsigned(envelope: &UnsignedEnvelope) -> Result<(), ProtocolError> {
     }
     WorkspaceId::parse(&envelope.workspace_id).map_err(|_| ProtocolError::InvalidWorkspace)?;
     match &envelope.body {
-        EnvelopeBody::JoinRequest { display_name, .. }
-            if display_name.trim().is_empty() || display_name.len() > 256 =>
+        EnvelopeBody::JoinRequest {
+            display_name,
+            recipient_key,
+            ..
+        } if display_name.trim().is_empty()
+            || display_name.len() > 256
+            || recipient_key.len() > crate::conversations::wire::MAX_RECORD_BYTES =>
         {
             Err(ProtocolError::InvalidJoinRequest)
         }

@@ -48,6 +48,7 @@ fn membership(identity: &InstallationIdentity) -> MembershipProjection {
             0,
         )],
         statuses: Default::default(),
+        ..MembershipProjection::empty()
     }
 }
 

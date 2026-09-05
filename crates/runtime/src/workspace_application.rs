@@ -16,8 +16,10 @@ use tokio::{
 };
 
 use crate::{
+    conversations::authority::ConversationAuthority,
     identity::{IdentityError, InstallationIdentity, PublicIdentity},
     iroh_transport::{IrohSessionAdapterError, IrohTransport, IrohTransportError},
+    membership_log::{PreparedMembershipTransition, SignedSelfRemovalRequestV1},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{KnownPeer, Member, WorkspaceSummary},
     workspace_file_runtime::WorkspaceFileRuntime,
@@ -200,6 +202,56 @@ impl WorkspaceApplication {
         )?;
         self.refresh_file_runtime()?;
         self.health = WorkspaceHealth::default();
+        Ok(())
+    }
+
+    pub fn request_departure(
+        &self,
+        requested_at: i64,
+    ) -> Result<SignedSelfRemovalRequestV1, WorkspaceSessionError> {
+        self.session
+            .as_ref()
+            .ok_or(WorkspaceSessionError::NoActiveWorkspace)?
+            .request_departure(requested_at)
+    }
+
+    pub fn process_departure_request(
+        &mut self,
+        request: SignedSelfRemovalRequestV1,
+        removed_at: i64,
+    ) -> Result<(), WorkspaceSessionError> {
+        let prepared = self
+            .session
+            .as_ref()
+            .ok_or(WorkspaceSessionError::NoActiveWorkspace)?
+            .prepare_requested_departure(request, removed_at)?;
+        self.commit_membership_transition(&prepared)
+    }
+
+    pub fn expel_member(
+        &mut self,
+        target: PublicIdentity,
+        removed_at: i64,
+    ) -> Result<(), WorkspaceSessionError> {
+        let prepared = self
+            .session
+            .as_ref()
+            .ok_or(WorkspaceSessionError::NoActiveWorkspace)?
+            .prepare_creator_expulsion(target, removed_at)?;
+        self.commit_membership_transition(&prepared)
+    }
+
+    fn commit_membership_transition(
+        &mut self,
+        prepared: &PreparedMembershipTransition,
+    ) -> Result<(), WorkspaceSessionError> {
+        let session = self
+            .session
+            .as_mut()
+            .ok_or(WorkspaceSessionError::NoActiveWorkspace)?;
+        let (identity, workspace_id, store) = session.conversation_authority_context()?;
+        ConversationAuthority::open(identity, &workspace_id, store)?.commit_transition(prepared)?;
+        session.finalize_prepared_transition(prepared)?;
         Ok(())
     }
 

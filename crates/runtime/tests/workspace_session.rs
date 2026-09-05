@@ -5,6 +5,10 @@ use std::{
 };
 
 use resonance_runtime::{
+    conversations::{
+        authority::ConversationAuthority,
+        wire::{ConversationRecordV1, ExactRecordV1},
+    },
     identity::{InMemoryKeyCustody, InstallationIdentity},
     invite::Invite,
     protocol::{Envelope, EnvelopeBody},
@@ -298,6 +302,18 @@ fn creates_an_invite_and_completes_a_named_inviter_join() {
         .take_outbound()
         .pop()
         .expect("join request sends");
+    let decoded_join = Envelope::decode(&join_request).expect("join envelope decodes");
+    let EnvelopeBody::JoinRequest { recipient_key, .. } = decoded_join.body else {
+        panic!("join request body");
+    };
+    let recipient_key = ExactRecordV1::decode(&recipient_key).expect("recipient record validates");
+    let ConversationRecordV1::RecipientKey(recipient_key) = recipient_key.record() else {
+        panic!("recipient-key family");
+    };
+    assert_eq!(
+        recipient_key.installation,
+        *joining_view.local_public_identity.as_bytes()
+    );
     inviter
         .receive(&join_request)
         .expect("named inviter accepts");
@@ -634,6 +650,126 @@ fn rejects_malformed_invites_and_invalid_relay_or_bootstrap_input() {
 }
 
 #[test]
+fn creator_processes_a_persisted_interval_bound_departure_atomically() {
+    let creator_directory = temporary_directory("departure-creator");
+    let requester_directory = temporary_directory("departure-requester");
+    let creator_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![81; 32]))
+            .expect("creator identity");
+    let requester_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![82; 32]))
+            .expect("requester identity");
+    let creator_catalog = WorkspaceCatalog::open(&creator_directory).expect("creator catalog");
+    let requester_catalog =
+        WorkspaceCatalog::open(&requester_directory).expect("requester catalog");
+    let mut creator = WorkspaceSession::new(
+        creator_identity.clone(),
+        creator_catalog,
+        FakeDeliveryPort::default(),
+    );
+    let created = creator
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let invite = creator.create_invite("bootstrap").expect("invite");
+    let mut requester = WorkspaceSession::new(
+        requester_identity.clone(),
+        requester_catalog,
+        FakeDeliveryPort::default(),
+    );
+    requester
+        .join_workspace(&invite, "Lin")
+        .expect("join starts");
+    let join = requester
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("join request");
+    creator.receive(&join).expect("creator admits");
+    let admission = creator
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("admission");
+    requester.receive(&admission).expect("requester admitted");
+
+    assert!(!requester
+        .local_conversation_authoring_blocked()
+        .expect("authoring starts enabled"));
+    let request = requester.request_departure(3).expect("request persists");
+    assert_eq!(
+        requester
+            .request_departure(99)
+            .expect("duplicate action reuses exact request")
+            .request_id()
+            .expect("duplicate ID"),
+        request.request_id().expect("request ID")
+    );
+    assert!(requester
+        .local_conversation_authoring_blocked()
+        .expect("pending departure blocks local authoring"));
+    assert_eq!(requester.view().expect("pending view").members.len(), 2);
+    let prepared = creator
+        .prepare_requested_departure(request, 4)
+        .expect("creator automatically prepares valid request");
+    assert_eq!(creator.view().expect("old view").members.len(), 2);
+    let store = WorkspaceCatalog::open(&creator_directory)
+        .expect("creator catalog reopens")
+        .open_workspace(&created.workspace.id)
+        .expect("creator store");
+    let mut authority = ConversationAuthority::open(
+        creator_identity.clone(),
+        created.workspace.id.as_str(),
+        store.clone(),
+    )
+    .expect("authority opens");
+    let committed = authority
+        .commit_transition(&prepared)
+        .expect("membership and epoch commit");
+    let ConversationRecordV1::Epoch(epoch) = committed.epoch.record() else {
+        panic!("epoch record");
+    };
+    assert!(epoch
+        .recipients
+        .iter()
+        .all(|recipient| recipient.member != *requester_identity.public_identity().as_bytes()));
+    assert_eq!(
+        creator
+            .view()
+            .expect("still old until finalize")
+            .members
+            .len(),
+        2
+    );
+    let mut rebuilt = WorkspaceSession::new(
+        creator_identity.clone(),
+        WorkspaceCatalog::open(&creator_directory).expect("recovery catalog"),
+        FakeDeliveryPort::default(),
+    );
+    assert_eq!(
+        rebuilt
+            .activate_active_workspace()
+            .expect("post-commit restart rebuilds")
+            .expect("active workspace")
+            .members
+            .len(),
+        1
+    );
+    creator
+        .finalize_prepared_transition(&prepared)
+        .expect("projection finalizes after commit");
+    let final_view = creator.view().expect("final view");
+    assert_eq!(final_view.members.len(), 1);
+    assert_eq!(
+        final_view.members[0].public_identity,
+        final_view.local_public_identity
+    );
+    assert_eq!(store.lookup_peer_set_version().expect("version"), 3);
+
+    fs::remove_dir_all(creator_directory).expect("creator directory removes");
+    fs::remove_dir_all(requester_directory).expect("requester directory removes");
+}
+
+#[test]
 fn rejects_a_join_request_not_addressed_to_the_canonical_inviter() {
     let directory = temporary_directory("wrong-inviter");
     let mut inviter = session(&directory);
@@ -648,6 +784,7 @@ fn rejects_a_join_request_not_addressed_to_the_canonical_inviter() {
         EnvelopeBody::JoinRequest {
             inviter: [7; 32],
             display_name: "Lin".to_owned(),
+            recipient_key: Vec::new(),
         },
     )
     .expect("envelope signs")

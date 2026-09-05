@@ -203,6 +203,32 @@ impl MembershipLog {
         })
     }
 
+    pub fn projection_at(
+        &self,
+        workspace_id: &str,
+        head: &MembershipOperationId,
+    ) -> Option<MembershipProjection> {
+        let current = self.projection(workspace_id);
+        let position = current
+            .canonical_lineage
+            .iter()
+            .position(|candidate| candidate == head)?;
+        let mut historical = Self::new();
+        for operation_id in &current.canonical_lineage[..=position] {
+            historical.operations.insert(
+                operation_id.clone(),
+                self.operations.get(operation_id)?.clone(),
+            );
+        }
+        Some(historical.projection(workspace_id))
+    }
+
+    pub fn operation_author(&self, operation_id: &MembershipOperationId) -> Option<PublicIdentity> {
+        self.operations
+            .get(operation_id)
+            .map(|signed| PublicIdentity::from_bytes(signed.operation.author))
+    }
+
     pub fn current_transition(
         &self,
         workspace_id: &str,

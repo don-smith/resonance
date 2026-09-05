@@ -6,8 +6,9 @@ use resonance_runtime::{
         crypto::{
             self, EpochEnvelopeContextV1, EpochKey, HpkeEpochEnvelopeV1, RecipientPrivateKey,
         },
+        runtime::ConversationRuntime,
         testing,
-        wire::ConversationRecordV1,
+        wire::{ChannelOperationV1, ChannelRecordV1, ConversationRecordV1, ExactRecordV1},
         ConversationError,
     },
     identity::{InMemoryKeyCustody, InstallationIdentity},
@@ -160,6 +161,100 @@ fn atomic_genesis_creates_epoch_general_channel_and_durable_duties() {
         .expect("epoch query")
         .expect("epoch exists");
     assert_eq!(exact, committed.epoch.bytes());
+}
+
+#[test]
+fn three_identity_branch_replacement_invalidates_losing_runtime_epoch() {
+    let root = tempfile::tempdir().expect("root");
+    let first_root = tempfile::tempdir().expect("first root");
+    let second_root = tempfile::tempdir().expect("second root");
+    let workspace = "a6".repeat(32);
+    let creator = identity(110);
+    let first_member = identity(111);
+    let second_member = identity(112);
+    let store = open_store(root.path(), &workspace);
+    let mut authority =
+        ConversationAuthority::open(creator.clone(), &workspace, store.clone()).expect("authority");
+    for (member, root) in [
+        (&first_member, first_root.path()),
+        (&second_member, second_root.path()),
+    ] {
+        let member_authority =
+            ConversationAuthority::open(member.clone(), &workspace, open_store(root, &workspace))
+                .expect("member authority");
+        authority
+            .stage_recipient_record(
+                member_authority.local_recipient_record().bytes(),
+                member.public_identity(),
+            )
+            .expect("member key stages");
+    }
+    let genesis =
+        SignedMembershipOperation::genesis(&creator, &workspace, "Ada", 1).expect("genesis");
+    let genesis_id = genesis.operation_id().expect("genesis ID");
+    let first = SignedMembershipOperation::add_member(
+        &creator,
+        &workspace,
+        &genesis_id,
+        1,
+        *first_member.public_identity().as_bytes(),
+        "Lin",
+        2,
+    )
+    .expect("first branch");
+    let second = SignedMembershipOperation::add_member(
+        &creator,
+        &workspace,
+        &genesis_id,
+        2,
+        *second_member.public_identity().as_bytes(),
+        "Mia",
+        2,
+    )
+    .expect("second branch");
+    let (winner, loser) =
+        if first.operation_id().expect("first ID") < second.operation_id().expect("second ID") {
+            (first, second)
+        } else {
+            (second, first)
+        };
+    let mut losing_log = MembershipLog::new();
+    let genesis_prepared = losing_log
+        .prepare(&workspace, genesis.clone())
+        .expect("genesis prepares");
+    authority
+        .commit_transition_with(&genesis_prepared, &mut DeterministicMaterial::new(92))
+        .expect("genesis commits");
+    losing_log.insert(genesis).expect("genesis finalizes");
+    let losing_prepared = losing_log
+        .prepare(&workspace, loser.clone())
+        .expect("losing branch prepares while alone");
+    let losing_epoch = authority
+        .commit_transition_with(&losing_prepared, &mut DeterministicMaterial::new(93))
+        .expect("losing epoch commits");
+    losing_log.insert(loser).expect("losing branch finalizes");
+    let ConversationRecordV1::Epoch(epoch) = losing_epoch.epoch.record() else {
+        panic!("epoch");
+    };
+    let losing_head = epoch.resulting_membership_head;
+    let mut runtime =
+        ConversationRuntime::open(creator, &workspace, store.clone(), losing_log.clone())
+            .expect("runtime opens losing head");
+    losing_log.insert(winner).expect("winner arrives");
+
+    runtime
+        .replace_membership(losing_log)
+        .expect("runtime replaces canonical branch");
+
+    assert!(store
+        .exact_epoch_for_head(&losing_head)
+        .expect("epoch query")
+        .is_none());
+    assert!(store
+        .durable_publication_duties()
+        .expect("duties")
+        .iter()
+        .all(|duty| duty.membership_head != Some(losing_head)));
 }
 
 #[test]
@@ -472,6 +567,372 @@ fn one_member_v10_workspace_bootstraps_once_and_missing_coordinator_waits() {
         .expect("bootstrap reuses");
     assert_eq!(first.epoch.bytes(), second.epoch.bytes());
     assert_eq!(store.lookup_peer_set_version().expect("version"), 1);
+}
+
+struct ChannelFixture {
+    _root: tempfile::TempDir,
+    _member_root: tempfile::TempDir,
+    workspace: String,
+    creator: InstallationIdentity,
+    member: InstallationIdentity,
+    membership: MembershipLog,
+    store: WorkspaceStore,
+    epoch: [u8; 32],
+}
+
+impl ChannelFixture {
+    fn new() -> Self {
+        let root = tempfile::tempdir().expect("root");
+        let member_root = tempfile::tempdir().expect("member root");
+        let workspace = "d1".repeat(32);
+        let creator = identity(101);
+        let member = identity(102);
+        let store = open_store(root.path(), &workspace);
+        let mut authority = ConversationAuthority::open(creator.clone(), &workspace, store.clone())
+            .expect("authority");
+        let member_authority = ConversationAuthority::open(
+            member.clone(),
+            &workspace,
+            open_store(member_root.path(), &workspace),
+        )
+        .expect("member authority");
+        authority
+            .stage_recipient_record(
+                member_authority.local_recipient_record().bytes(),
+                member.public_identity(),
+            )
+            .expect("member key stages");
+        let mut membership = MembershipLog::new();
+        let genesis =
+            SignedMembershipOperation::genesis(&creator, &workspace, "Ada", 1).expect("genesis");
+        let prepared = membership
+            .prepare(&workspace, genesis.clone())
+            .expect("genesis prepares");
+        authority
+            .commit_transition_with(&prepared, &mut DeterministicMaterial::new(90))
+            .expect("genesis commits");
+        membership.insert(genesis).expect("genesis finalizes");
+        let addition = SignedMembershipOperation::add_member(
+            &creator,
+            &workspace,
+            membership
+                .projection(&workspace)
+                .canonical_head
+                .expect("head")
+                .to_string(),
+            1,
+            *member.public_identity().as_bytes(),
+            "Lin",
+            2,
+        )
+        .expect("addition");
+        let prepared = membership
+            .prepare(&workspace, addition.clone())
+            .expect("addition prepares");
+        let committed = authority
+            .commit_transition_with(&prepared, &mut DeterministicMaterial::new(91))
+            .expect("addition commits");
+        membership.insert(addition).expect("addition finalizes");
+        let ConversationRecordV1::Epoch(epoch) = committed.epoch.record() else {
+            panic!("epoch family");
+        };
+        Self {
+            _root: root,
+            _member_root: member_root,
+            workspace,
+            creator,
+            member,
+            membership,
+            store,
+            epoch: epoch.resulting_membership_head,
+        }
+    }
+
+    fn runtime(&self) -> ConversationRuntime {
+        ConversationRuntime::open(
+            self.creator.clone(),
+            &self.workspace,
+            self.store.clone(),
+            self.membership.clone(),
+        )
+        .expect("runtime opens")
+    }
+
+    fn record(
+        &self,
+        signer: &InstallationIdentity,
+        channel_id: [u8; 16],
+        creator: [u8; 32],
+        sequence: u64,
+        predecessor: Option<[u8; 32]>,
+        operation: ChannelOperationV1,
+    ) -> ExactRecordV1 {
+        ExactRecordV1::author(
+            ConversationRecordV1::Channel(ChannelRecordV1 {
+                workspace_id: hex_head(&self.workspace),
+                channel_id,
+                authorization_epoch: self.epoch,
+                creator,
+                author: *signer.public_identity().as_bytes(),
+                author_sequence: sequence,
+                created_at: sequence as i64 + 10,
+                predecessor,
+                operation,
+            }),
+            signer,
+        )
+        .expect("channel record signs")
+    }
+}
+
+#[test]
+fn epoch_acceptance_rejects_semantic_recipient_coordinator_and_key_mismatches() {
+    let fixture = ChannelFixture::new();
+    let bytes = fixture
+        .store
+        .exact_epoch_for_head(&fixture.epoch)
+        .expect("epoch query")
+        .expect("epoch bytes");
+    let exact = ExactRecordV1::decode(&bytes).expect("epoch decodes");
+    let ConversationRecordV1::Epoch(valid) = exact.record() else {
+        panic!("epoch family");
+    };
+    let mut runtime = fixture.runtime();
+
+    let mut missing_recipient = valid.clone();
+    missing_recipient.recipients.pop();
+    let missing_recipient = ExactRecordV1::author(
+        ConversationRecordV1::Epoch(missing_recipient),
+        &fixture.creator,
+    )
+    .expect("semantic-invalid epoch signs");
+    assert!(runtime
+        .accept_epoch_record(missing_recipient.bytes())
+        .is_err());
+
+    let mut wrong_previous = valid.clone();
+    wrong_previous.previous_membership_head = None;
+    let wrong_previous = ExactRecordV1::author(
+        ConversationRecordV1::Epoch(wrong_previous),
+        &fixture.creator,
+    )
+    .expect("wrong previous signs");
+    assert!(runtime.accept_epoch_record(wrong_previous.bytes()).is_err());
+
+    let mut wrong_key = valid.clone();
+    wrong_key.recipients[0].recipient_key_record_id = [0; 32];
+    let wrong_key = ExactRecordV1::author(ConversationRecordV1::Epoch(wrong_key), &fixture.creator)
+        .expect("wrong key signs");
+    assert!(runtime.accept_epoch_record(wrong_key.bytes()).is_err());
+
+    let mut wrong_coordinator = valid.clone();
+    wrong_coordinator.coordinator = *fixture.member.public_identity().as_bytes();
+    let wrong_coordinator = ExactRecordV1::author(
+        ConversationRecordV1::Epoch(wrong_coordinator),
+        &fixture.member,
+    )
+    .expect("wrong coordinator signs");
+    assert!(runtime
+        .accept_epoch_record(wrong_coordinator.bytes())
+        .is_err());
+}
+
+#[test]
+fn channel_replay_enforces_general_creator_lifecycle_normalization_and_terminal_archive() {
+    let fixture = ChannelFixture::new();
+    let mut runtime = fixture.runtime();
+    assert_eq!(runtime.channels().len(), 1);
+    assert_eq!(runtime.channels()[0].name, "#general");
+
+    let channel_id = [7; 16];
+    let create = fixture.record(
+        &fixture.member,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        0,
+        None,
+        ChannelOperationV1::Create {
+            name: "#design".to_owned(),
+        },
+    );
+    assert!(runtime
+        .accept_channel_record(create.bytes())
+        .expect("member create applies"));
+    let unauthorized = fixture.record(
+        &fixture.creator,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        1,
+        Some(*create.id()),
+        ChannelOperationV1::Rename {
+            name: "#owner-only".to_owned(),
+        },
+    );
+    assert!(!runtime
+        .accept_channel_record(unauthorized.bytes())
+        .expect("non-creator extension is diagnostic"));
+    let rename = fixture.record(
+        &fixture.member,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        1,
+        Some(*create.id()),
+        ChannelOperationV1::Rename {
+            name: "#product".to_owned(),
+        },
+    );
+    assert!(runtime
+        .accept_channel_record(rename.bytes())
+        .expect("creator rename applies"));
+    let archive = fixture.record(
+        &fixture.member,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        2,
+        Some(*rename.id()),
+        ChannelOperationV1::Archive,
+    );
+    assert!(runtime
+        .accept_channel_record(archive.bytes())
+        .expect("archive applies"));
+    assert!(runtime
+        .post_message(channel_id, "archived channels reject posts", 20)
+        .is_err());
+    let after_archive = fixture.record(
+        &fixture.member,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        3,
+        Some(*archive.id()),
+        ChannelOperationV1::Rename {
+            name: "#resurrected".to_owned(),
+        },
+    );
+    assert!(!runtime
+        .accept_channel_record(after_archive.bytes())
+        .expect("terminal child is diagnostic"));
+    let invalid_name = fixture.record(
+        &fixture.member,
+        [8; 16],
+        *fixture.member.public_identity().as_bytes(),
+        4,
+        None,
+        ChannelOperationV1::Create {
+            name: " #not-normalized".to_owned(),
+        },
+    );
+    assert!(!runtime
+        .accept_channel_record(invalid_name.bytes())
+        .expect("invalid name is diagnostic"));
+    assert!(runtime
+        .channels()
+        .iter()
+        .any(|channel| channel.channel_id == channel_id && channel.archived));
+    assert!(runtime.diagnostic_count().expect("diagnostics") >= 3);
+}
+
+#[test]
+fn channel_predecessor_and_active_name_conflicts_are_arrival_order_independent() {
+    let fixture = ChannelFixture::new();
+    let channel_id = [9; 16];
+    let create = fixture.record(
+        &fixture.member,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        0,
+        None,
+        ChannelOperationV1::Create {
+            name: "#initial".to_owned(),
+        },
+    );
+    let left = fixture.record(
+        &fixture.member,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        1,
+        Some(*create.id()),
+        ChannelOperationV1::Rename {
+            name: "#left".to_owned(),
+        },
+    );
+    let right = fixture.record(
+        &fixture.member,
+        channel_id,
+        *fixture.member.public_identity().as_bytes(),
+        2,
+        Some(*create.id()),
+        ChannelOperationV1::Rename {
+            name: "#right".to_owned(),
+        },
+    );
+    let winning_name = if left.id() < right.id() {
+        "#left"
+    } else {
+        "#right"
+    };
+    let first_claim = fixture.record(
+        &fixture.member,
+        [10; 16],
+        *fixture.member.public_identity().as_bytes(),
+        3,
+        None,
+        ChannelOperationV1::Create {
+            name: "#collision".to_owned(),
+        },
+    );
+    let second_claim = fixture.record(
+        &fixture.creator,
+        [11; 16],
+        *fixture.creator.public_identity().as_bytes(),
+        0,
+        None,
+        ChannelOperationV1::Create {
+            name: "#COLLISION".to_owned(),
+        },
+    );
+    let winning_claim = if first_claim.id() < second_claim.id() {
+        [10; 16]
+    } else {
+        [11; 16]
+    };
+
+    let mut forward = fixture.runtime();
+    for record in [&create, &left, &right, &first_claim, &second_claim] {
+        forward
+            .accept_channel_record(record.bytes())
+            .expect("record replays");
+    }
+    let second_fixture = ChannelFixture::new();
+    let mut reverse = second_fixture.runtime();
+    for record in [&second_claim, &first_claim, &right, &left, &create] {
+        reverse
+            .accept_channel_record(record.bytes())
+            .expect("record replays in reverse");
+    }
+    let summarize = |runtime: &ConversationRuntime| {
+        runtime
+            .channels()
+            .into_iter()
+            .map(|channel| (channel.channel_id, channel.name, channel.archived))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(summarize(&forward), summarize(&reverse));
+    assert!(forward
+        .channels()
+        .iter()
+        .any(|channel| channel.channel_id == channel_id && channel.name == winning_name));
+    assert!(forward
+        .channels()
+        .iter()
+        .any(|channel| channel.channel_id == winning_claim));
+    assert_eq!(
+        forward
+            .channels()
+            .iter()
+            .filter(|channel| channel.name.eq_ignore_ascii_case("#collision"))
+            .count(),
+        1
+    );
 }
 
 #[test]

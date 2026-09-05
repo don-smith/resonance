@@ -1,8 +1,12 @@
 //! Canonical conversation records and cryptography kept behind the runtime boundary.
 
 pub mod authority;
+mod channels;
 pub mod crypto;
 mod key_custody;
+mod recovery;
+pub mod runtime;
+mod store;
 pub mod testing;
 pub mod wire;
 

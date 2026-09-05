@@ -40,7 +40,7 @@ pub(crate) struct PrivateWorkspaceSettings {
 #[derive(Clone, Debug)]
 pub struct WorkspaceStore {
     private_directory: PathBuf,
-    connection: Arc<Mutex<Connection>>,
+    pub(crate) connection: Arc<Mutex<Connection>>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +79,7 @@ pub enum WorkspaceStoreError {
     FileOperationConflict,
     MembershipOperationConflict,
     ConversationRecordConflict,
+    ConversationClockConflict,
     DepartureRequestConflict,
     Blob(BlobError),
     LockPoisoned,
@@ -112,6 +113,9 @@ impl std::fmt::Display for WorkspaceStoreError {
             }
             Self::ConversationRecordConflict => {
                 formatter.write_str("conversation record has conflicting durable bytes")
+            }
+            Self::ConversationClockConflict => {
+                formatter.write_str("conversation author clock changed before atomic commit")
             }
             Self::DepartureRequestConflict => {
                 formatter.write_str("departure request has conflicting durable bytes")
@@ -497,6 +501,22 @@ impl WorkspaceStore {
                 [head.as_slice()],
             )?;
             transaction.execute(
+                "UPDATE conversation_channel_records SET disposition = 'diagnostic'
+                 WHERE authorization_epoch = ?1",
+                [head.as_slice()],
+            )?;
+            transaction.execute(
+                "UPDATE conversation_message_archive SET disposition = 'diagnostic'
+                 WHERE authorization_epoch = ?1",
+                [head.as_slice()],
+            )?;
+            transaction.execute(
+                "DELETE FROM conversation_outbox WHERE record_id IN
+                   (SELECT record_id FROM conversation_message_archive
+                    WHERE authorization_epoch = ?1)",
+                [head.as_slice()],
+            )?;
+            transaction.execute(
                 "UPDATE publication_duties SET invalidated = 1 WHERE membership_head = ?1",
                 [head.as_slice()],
             )?;
@@ -553,13 +573,27 @@ impl WorkspaceStore {
     }
 
     pub fn recipient_key_records(&self) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
+        self.recipient_key_records_with_filter(true)
+    }
+
+    pub(crate) fn all_recipient_key_records(&self) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
+        self.recipient_key_records_with_filter(false)
+    }
+
+    fn recipient_key_records_with_filter(
+        &self,
+        accepted_only: bool,
+    ) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
         let connection = self
             .connection
             .lock()
             .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
-        let mut statement = connection.prepare(
-            "SELECT exact_record FROM conversation_recipient_keys WHERE accepted = 1 ORDER BY installation, generation",
-        )?;
+        let sql = if accepted_only {
+            "SELECT exact_record FROM conversation_recipient_keys WHERE accepted = 1 ORDER BY installation, generation"
+        } else {
+            "SELECT exact_record FROM conversation_recipient_keys ORDER BY installation, generation"
+        };
+        let mut statement = connection.prepare(sql)?;
         let records = statement
             .query_map([], |row| row.get(0))?
             .collect::<Result<Vec<Vec<u8>>, _>>()?;
@@ -759,6 +793,24 @@ impl WorkspaceStore {
             ],
         )?;
         if let Some(channel) = &commit.genesis_channel {
+            let crate::conversations::wire::ConversationRecordV1::Channel(channel_record) =
+                channel.record()
+            else {
+                return Err(WorkspaceStoreError::CorruptPersistedValue(
+                    "genesis channel family",
+                ));
+            };
+            transaction.execute(
+                "INSERT INTO conversation_channel_records
+                   (record_id, channel_id, authorization_epoch, exact_record, disposition)
+                 VALUES (?1, ?2, ?3, ?4, 'accepted')",
+                params![
+                    channel.id().as_slice(),
+                    channel_record.channel_id.as_slice(),
+                    channel_record.authorization_epoch.as_slice(),
+                    channel.bytes()
+                ],
+            )?;
             transaction.execute(
                 "INSERT INTO conversation_records (record_id, family, membership_head, exact_record)
                  VALUES (?1, ?2, ?3, ?4)",
@@ -889,6 +941,22 @@ impl WorkspaceStore {
         )?;
         transaction.execute(
             "UPDATE conversation_records SET accepted = 0 WHERE membership_head = ?1",
+            [losing_head.as_slice()],
+        )?;
+        transaction.execute(
+            "UPDATE conversation_channel_records SET disposition = 'diagnostic'
+             WHERE authorization_epoch = ?1",
+            [losing_head.as_slice()],
+        )?;
+        transaction.execute(
+            "UPDATE conversation_message_archive SET disposition = 'diagnostic'
+             WHERE authorization_epoch = ?1",
+            [losing_head.as_slice()],
+        )?;
+        transaction.execute(
+            "DELETE FROM conversation_outbox WHERE record_id IN
+               (SELECT record_id FROM conversation_message_archive
+                WHERE authorization_epoch = ?1)",
             [losing_head.as_slice()],
         )?;
         transaction.execute(
@@ -1296,6 +1364,9 @@ fn migrate_steps(connection: &Connection) -> Result<(), WorkspaceStoreError> {
     if version == 10 {
         connection.execute_batch(include_str!("../../migrations/0011_conversations.sql"))?;
         version = 11;
+    }
+    if version == 11 && !table_exists(connection, "conversation_message_archive")? {
+        connection.execute_batch(include_str!("../../migrations/0011_conversation_state.sql"))?;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

@@ -197,6 +197,51 @@ fn upgrades_schema_v10_without_losing_workspace_or_file_data() {
 }
 
 #[test]
+fn completes_conversation_state_for_an_existing_phase3_schema_v11_workspace() {
+    let root = temporary_directory("workspace-store-phase3-v11");
+    let database = workspace_database(&root, "phase3-v11");
+    fs::create_dir_all(database.parent().expect("database has parent"))
+        .expect("workspace directory creates");
+    let connection = Connection::open(&database).expect("database opens");
+    connection
+        .execute_batch(include_str!("fixtures/legacy_workspace_v10.sql"))
+        .expect("v10 fixture applies");
+    connection
+        .execute_batch(include_str!("../migrations/0011_conversations.sql"))
+        .expect("phase3 schema applies");
+    let version: i32 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("version");
+    assert_eq!(version, 11);
+    assert!(connection
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'conversation_message_archive'",
+            [],
+            |_| Ok(()),
+        )
+        .is_err());
+    drop(connection);
+
+    let store = WorkspaceStore::open(&root, "phase3-v11").expect("phase3 workspace completes");
+    assert_eq!(
+        store.settings().expect("settings").display_name,
+        "Legacy workspace"
+    );
+    let connection = Connection::open(database).expect("database reopens");
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM conversation_message_archive",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("conversation archive exists"),
+        0
+    );
+    fs::remove_dir_all(root).expect("temporary directory cleans up");
+}
+
+#[test]
 fn rolls_back_workspace_migration_when_legacy_rows_violate_new_invariants() {
     let root = temporary_directory("workspace-store-rollback");
     let database = workspace_database(&root, "legacy-invalid");

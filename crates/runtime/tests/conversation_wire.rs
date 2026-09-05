@@ -5,17 +5,20 @@ use std::{fs, path::PathBuf};
 
 use commonware_codec::{varint::UInt, Encode as _};
 use resonance_runtime::conversations::{
-    testing,
-    wire::{
-        AcknowledgementV1, AddressNoticeV1, ChannelOperationV1, ChannelRecordV1,
-        ConversationRecordV1, EpochRecipientV1, EpochRecordV1, ExactRecordV1, MessageRecordV1,
-        RecoveryHeadV1, RecoveryRangeV1, RecoveryRequestV1, RecoveryResponseV1,
-        EPOCH_ENVELOPE_SUITE_V1, FAMILY_MARKER, FORMAT_VERSION_V1, MAX_ACKNOWLEDGEMENT_ITEMS,
-        MAX_ADDRESSES_PER_NOTICE, MAX_ADDRESS_BYTES, MAX_CHANNEL_NAME_BYTES, MAX_FRAME_BYTES,
-        MAX_MARKDOWN_BYTES, MAX_MEMBERS_PER_EPOCH, MAX_MESSAGE_CIPHERTEXT_BYTES, MAX_RECORD_BYTES,
-        MAX_RECOVERY_HEADS, MAX_RECOVERY_RANGES, MAX_RECOVERY_RECORD_BYTES,
-        MAX_RECOVERY_RESPONSE_RECORDS, MESSAGE_BODY_FORMAT_MARKDOWN_V1,
-        MESSAGE_ENCRYPTION_SUITE_V1,
+    testing::{
+        self,
+        crypto::MessageHeaderInputV1,
+        wire::{
+            AcknowledgementV1, AddressNoticeV1, ChannelOperationV1, ChannelRecordV1,
+            ConversationRecordV1, EpochRecipientV1, EpochRecordV1, ExactRecordV1, MessageRecordV1,
+            RecoveryHeadV1, RecoveryRangeV1, RecoveryRequestV1, RecoveryResponseV1,
+            EPOCH_ENVELOPE_SUITE_V1, FAMILY_MARKER, FORMAT_VERSION_V1, MAX_ACKNOWLEDGEMENT_ITEMS,
+            MAX_ADDRESSES_PER_NOTICE, MAX_ADDRESS_BYTES, MAX_CHANNEL_NAME_BYTES, MAX_FRAME_BYTES,
+            MAX_MARKDOWN_BYTES, MAX_MEMBERS_PER_EPOCH, MAX_MESSAGE_CIPHERTEXT_BYTES,
+            MAX_RECORD_BYTES, MAX_RECOVERY_HEADS, MAX_RECOVERY_RANGES, MAX_RECOVERY_RECORD_BYTES,
+            MAX_RECOVERY_RESPONSE_RECORDS, MESSAGE_BODY_FORMAT_MARKDOWN_V1,
+            MESSAGE_ENCRYPTION_SUITE_V1,
+        },
     },
     ConversationError,
 };
@@ -206,7 +209,7 @@ fn protocol_limits_accept_edges_and_reject_one_past_each_bound() {
     ));
 
     let key = testing::epoch_key([32; 32]);
-    let header = resonance_runtime::conversations::crypto::MessageHeaderInputV1 {
+    let header = MessageHeaderInputV1 {
         workspace_id: [1; 32],
         channel_id: [2; 16],
         authorization_epoch: [3; 32],

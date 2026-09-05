@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use resonance_runtime::{
-    conversations::{
+    conversations::testing::{
         authority::ConversationAuthority,
         runtime::{ConversationRuntime, ConversationSyncState},
         wire::{ConversationRecordV1, ExactRecordV1},

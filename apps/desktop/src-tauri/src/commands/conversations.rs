@@ -2,9 +2,8 @@ use std::collections::BTreeMap;
 
 use resonance_runtime::{
     conversations::{
-        runtime::{ChannelView, ConversationRuntimeError, ConversationSyncState, MessageView},
-        wire::{MAX_CHANNEL_NAME_BYTES, MAX_MARKDOWN_BYTES},
-        ConversationError,
+        ChannelView, ConversationError, ConversationRuntime, ConversationRuntimeError,
+        ConversationSyncState, MessageView, MAX_CHANNEL_NAME_BYTES, MAX_MARKDOWN_BYTES,
     },
     identity::PublicIdentity,
 };
@@ -550,7 +549,7 @@ async fn dispatch(
 }
 
 fn require_open_channel(
-    runtime: &resonance_runtime::conversations::runtime::ConversationRuntime,
+    runtime: &ConversationRuntime,
     channel_id: [u8; 16],
 ) -> Result<(), ConversationsError> {
     let Some(channel) = runtime
@@ -571,7 +570,7 @@ fn require_open_channel(
 }
 
 fn channel_view(
-    runtime: &resonance_runtime::conversations::runtime::ConversationRuntime,
+    runtime: &ConversationRuntime,
     channel: ChannelView,
     local: PublicIdentity,
 ) -> Result<ConversationChannelView, ConversationsError> {

@@ -1,18 +1,25 @@
 //! Canonical conversation records and cryptography kept behind the runtime boundary.
 
 mod address_directory;
-pub mod authority;
+pub(crate) mod authority;
 mod channels;
-pub mod crypto;
+pub(crate) mod crypto;
 mod framing;
 mod key_custody;
-pub mod lookup;
-pub mod mesh;
+pub(crate) mod lookup;
+pub(crate) mod mesh;
 mod recovery;
-pub mod runtime;
+pub(crate) mod runtime;
 mod store;
+#[doc(hidden)]
 pub mod testing;
-pub mod wire;
+pub(crate) mod wire;
+
+/// The semantic application-facing conversation runtime.
+pub use runtime::{
+    ChannelView, ConversationRuntime, ConversationRuntimeError, ConversationSyncState, MessageView,
+};
+pub use wire::{MAX_CHANNEL_NAME_BYTES, MAX_MARKDOWN_BYTES};
 
 use std::fmt;
 

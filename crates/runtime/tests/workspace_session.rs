@@ -5,7 +5,7 @@ use std::{
 };
 
 use resonance_runtime::{
-    conversations::{
+    conversations::testing::{
         authority::ConversationAuthority,
         wire::{ConversationRecordV1, ExactRecordV1},
     },

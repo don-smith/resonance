@@ -44,12 +44,21 @@ function semanticDiagnostics(
       output.push({ path, message: `exceeds ${limit} UTF-8 bytes` });
     }
   };
+  const addChannelNameFormat = (value: string, path: string) => {
+    if (!value.startsWith("#") || value.length === 1) {
+      output.push({
+        path,
+        message: "must include a public channel name after '#'.",
+      });
+    }
+  };
   if (envelope.kind === "request") {
     if (
       envelope.value.operation === "create-channel" ||
       envelope.value.operation === "rename-channel"
     ) {
       addUtf8Limit(envelope.value.name, "/value/name", 80);
+      addChannelNameFormat(envelope.value.name, "/value/name");
     }
     if (envelope.value.operation === "post-message") {
       addUtf8Limit(envelope.value.markdown, "/value/markdown", 16_384);
@@ -70,11 +79,9 @@ function semanticDiagnostics(
         });
       }
       channelIds.add(channel.channelId);
-      addUtf8Limit(
-        channel.name,
-        `/value/${"snapshot" in envelope.value ? `snapshot/channels/${index}` : "channel"}/name`,
-        80,
-      );
+      const channelNamePath = `/value/${"snapshot" in envelope.value ? `snapshot/channels/${index}` : "channel"}/name`;
+      addUtf8Limit(channel.name, channelNamePath, 80);
+      addChannelNameFormat(channel.name, channelNamePath);
     }
     const messages =
       "page" in envelope.value

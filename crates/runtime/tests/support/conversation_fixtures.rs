@@ -1,7 +1,7 @@
 use resonance_runtime::{
-    conversations::{
+    conversations::testing::{
+        self,
         crypto::{EpochEnvelopeContextV1, MessageHeaderInputV1},
-        testing,
         wire::{
             AcknowledgementV1, AddressNoticeV1, ChannelOperationV1, ChannelRecordV1,
             ConversationRecordV1, EpochRecipientV1, EpochRecordV1, ExactRecordV1,

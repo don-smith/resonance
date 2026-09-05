@@ -106,6 +106,33 @@ describe("conversations v1 semantic contract", () => {
     ).toMatchObject({ kind: "invalid" });
   });
 
+  it("requires display-ready public channel names at the package boundary", () => {
+    expect(
+      validateConversationsRequest({
+        operation: "create-channel",
+        name: "planning",
+      }),
+    ).toMatchObject({ kind: "invalid" });
+    expect(
+      validateConversationsResponse({
+        operation: "snapshot",
+        snapshot: {
+          workspaceId: "workspace",
+          synchronization: "current",
+          channels: [
+            {
+              channelId: "general",
+              name: "general",
+              archived: false,
+              unreadCount: 0,
+              canManage: false,
+            },
+          ],
+        },
+      }),
+    ).toMatchObject({ kind: "invalid" });
+  });
+
   it("validates request, response, and invalidation values independently", () => {
     expect(
       validateConversationsRequest({ operation: "snapshot" }),

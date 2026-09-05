@@ -4,16 +4,18 @@ mod fixtures;
 use std::{cell::Cell, fs};
 
 use resonance_runtime::conversations::{
-    crypto::{
-        decode_validate_and_open_message, open_message, seal_message, unwrap_epoch_key,
-        wrap_epoch_key, AuthenticatedMessageOpener, EpochEnvelopeContextV1, EpochKey,
-        EpochKeyLookup, HpkeEpochEnvelopeV1, MessageAuthority, MessageHeaderInputV1,
-        RecipientPrivateKey,
-    },
-    testing,
-    wire::{
-        ConversationRecordV1, ExactRecordV1, MessageRecordV1, MESSAGE_BODY_FORMAT_MARKDOWN_V1,
-        MESSAGE_FAMILY,
+    testing::{
+        self,
+        crypto::{
+            decode_validate_and_open_message, open_message, seal_message, unwrap_epoch_key,
+            wrap_epoch_key, AuthenticatedMessageOpener, EpochEnvelopeContextV1, EpochKey,
+            EpochKeyLookup, HpkeEpochEnvelopeV1, MessageAuthority, MessageHeaderInputV1,
+            RecipientPrivateKey,
+        },
+        wire::{
+            ConversationRecordV1, ExactRecordV1, MessageRecordV1, MESSAGE_BODY_FORMAT_MARKDOWN_V1,
+            MESSAGE_FAMILY,
+        },
     },
     ConversationError,
 };

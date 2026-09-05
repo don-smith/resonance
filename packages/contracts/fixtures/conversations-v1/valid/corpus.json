@@ -11,14 +11,14 @@
   },
   {
     "kind": "request",
-    "value": { "operation": "create-channel", "name": "planning" }
+    "value": { "operation": "create-channel", "name": "#planning" }
   },
   {
     "kind": "request",
     "value": {
       "operation": "rename-channel",
       "channelId": "000102030405060708090a0b0c0d0e0f",
-      "name": "roadmap"
+      "name": "#roadmap"
     }
   },
   {
@@ -54,7 +54,7 @@
         "channels": [
           {
             "channelId": "0102",
-            "name": "general",
+            "name": "#general",
             "archived": false,
             "unreadCount": 1,
             "canManage": true
@@ -92,7 +92,7 @@
       "operation": "create-channel",
       "channel": {
         "channelId": "0102",
-        "name": "planning",
+        "name": "#planning",
         "archived": false,
         "unreadCount": 0,
         "canManage": true
@@ -105,7 +105,7 @@
       "operation": "rename-channel",
       "channel": {
         "channelId": "0102",
-        "name": "roadmap",
+        "name": "#roadmap",
         "archived": false,
         "unreadCount": 0,
         "canManage": true
@@ -118,7 +118,7 @@
       "operation": "archive-channel",
       "channel": {
         "channelId": "0102",
-        "name": "roadmap",
+        "name": "#roadmap",
         "archived": true,
         "unreadCount": 0,
         "canManage": true

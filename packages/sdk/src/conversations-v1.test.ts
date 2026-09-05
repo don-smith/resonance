@@ -11,14 +11,14 @@ function snapshot(): ConversationsSnapshot {
     channels: [
       {
         channelId: "general",
-        name: "general",
+        name: "#general",
         archived: false,
         unreadCount: 1,
         canManage: true,
       },
       {
         channelId: "peer",
-        name: "peer channel",
+        name: "#peer-channel",
         archived: false,
         unreadCount: 0,
         canManage: false,
@@ -32,8 +32,8 @@ describe("in-memory conversations v1", () => {
     const adapter = new InMemoryConversationsV1(snapshot());
     const invalidated = vi.fn();
     const unsubscribe = adapter.subscribe(invalidated);
-    const channel = await adapter.createChannel("planning");
-    await adapter.renameChannel(channel.channelId, "roadmap");
+    const channel = await adapter.createChannel("#planning");
+    await adapter.renameChannel(channel.channelId, "#roadmap");
     const first = await adapter.postMessage(channel.channelId, "**one**");
     await adapter.postMessage(channel.channelId, "two");
     const page = await adapter.messages(channel.channelId, null, 1);

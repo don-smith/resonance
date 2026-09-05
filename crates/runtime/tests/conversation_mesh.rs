@@ -5,13 +5,13 @@ use std::{
 };
 
 use resonance_runtime::{
-    conversations::{
+    conversations::testing::{
+        self,
         lookup::ConversationLookup,
         mesh::{
             ConversationMeshError, ConversationMeshEvent, InMemoryConversationMesh,
             ProductionConversationMesh,
         },
-        testing,
         wire::{
             AcknowledgementV1, AddressNoticeV1, ConversationRecordV1, ExactRecordV1,
             RecoveryRequestV1, MAX_RECORD_BYTES,

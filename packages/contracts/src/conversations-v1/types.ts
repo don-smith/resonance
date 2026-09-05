@@ -7,6 +7,7 @@ export type ConversationSynchronizationState =
 
 export type ConversationChannel = Readonly<{
   channelId: string;
+  /** Display-ready public channel name, including its leading `#`. */
   name: string;
   archived: boolean;
   unreadCount: number;

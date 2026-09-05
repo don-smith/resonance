@@ -5,6 +5,36 @@
 
 use crate::identity::InstallationIdentity;
 
+/// Non-production access for deterministic runtime integration fixtures.
+///
+/// The normal runtime surface is exposed from [`super`]. Wire, cryptography,
+/// authority, lookup, and mesh seams remain private to the runtime; these
+/// re-exports keep the crate's compatibility fixtures outside its production
+/// module boundary.
+pub mod authority {
+    pub use super::super::authority::*;
+}
+
+pub mod crypto {
+    pub use super::super::crypto::*;
+}
+
+pub mod lookup {
+    pub use super::super::lookup::*;
+}
+
+pub mod mesh {
+    pub use super::super::mesh::*;
+}
+
+pub mod runtime {
+    pub use super::super::runtime::*;
+}
+
+pub mod wire {
+    pub use super::super::wire::*;
+}
+
 use super::{
     crypto::{
         seal_message_with_nonce, wrap_epoch_key_with_randomness, EpochEnvelopeContextV1, EpochKey,

@@ -106,7 +106,7 @@ fn malformed_or_missing_after_use_recipient_custody_never_rotates() {
 }
 
 fn recipient_public_key(identity: &InstallationIdentity) -> [u8; 32] {
-    use resonance_runtime::conversations::{
+    use resonance_runtime::conversations::testing::{
         authority::ConversationAuthority, wire::ConversationRecordV1,
     };
     let root = tempfile::tempdir().expect("temporary directory");

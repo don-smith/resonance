@@ -2,15 +2,18 @@ use std::path::{Path, PathBuf};
 
 use resonance_runtime::{
     conversations::{
-        authority::{ConversationAuthority, EpochMaterialProvider},
-        crypto::{
-            self, EpochEnvelopeContextV1, EpochKey, HpkeEpochEnvelopeV1, RecipientPrivateKey,
+        testing::{
+            self,
+            authority::{ConversationAuthority, EpochMaterialProvider},
+            crypto::{
+                self, EpochEnvelopeContextV1, EpochKey, HpkeEpochEnvelopeV1, RecipientPrivateKey,
+            },
+            runtime::{
+                ConversationRuntime, ConversationSyncState, MessageCommitOutcome,
+                SparseRecoveryRange,
+            },
+            wire::{ConversationRecordV1, ExactRecordV1},
         },
-        runtime::{
-            ConversationRuntime, ConversationSyncState, MessageCommitOutcome, SparseRecoveryRange,
-        },
-        testing,
-        wire::{ConversationRecordV1, ExactRecordV1},
         ConversationError,
     },
     identity::{InMemoryKeyCustody, InstallationIdentity},

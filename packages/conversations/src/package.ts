@@ -9,6 +9,12 @@ import {
 
 import { synchronizationLabel, unreadLabel } from "./view.js";
 
+const GENERAL_CHANNEL_NAME = "#general";
+
+function channelNameForAuthoring(name: string): string {
+  return name.startsWith("#") ? name : `#${name}`;
+}
+
 export class ConversationsPackage implements PackageInstance {
   readonly #root: HTMLElement;
   readonly #conversations: ConversationsV1;
@@ -72,7 +78,7 @@ export class ConversationsPackage implements PackageInstance {
           ({ channelId, archived }) => channelId === current && !archived,
         ) ??
         snapshot.channels.find(
-          ({ name, archived }) => name === "general" && !archived,
+          ({ name, archived }) => name === GENERAL_CHANNEL_NAME && !archived,
         ) ??
         snapshot.channels.find(({ archived }) => !archived) ??
         snapshot.channels[0];
@@ -142,7 +148,7 @@ export class ConversationsPackage implements PackageInstance {
       button.dataset.action = "select-channel";
       button.dataset.channelId = channel.channelId;
       button.disabled = channel.archived;
-      button.textContent = `#${channel.name}${channel.archived ? " (archived)" : ""}`;
+      button.textContent = `${channel.name}${channel.archived ? " (archived)" : ""}`;
       const unread = document.createElement("span");
       unread.textContent = unreadLabel(channel.unreadCount);
       item.append(button, unread);
@@ -158,7 +164,7 @@ export class ConversationsPackage implements PackageInstance {
     input.name = "name";
     input.required = true;
     input.maxLength = 80;
-    input.placeholder = "New public channel";
+    input.placeholder = "#new-public-channel";
     const button = document.createElement("button");
     button.type = "submit";
     button.textContent = "Create channel";
@@ -172,7 +178,7 @@ export class ConversationsPackage implements PackageInstance {
     channel: ConversationChannel,
   ): void {
     const title = document.createElement("h3");
-    title.textContent = `#${channel.name}`;
+    title.textContent = channel.name;
     section.append(title);
     if (channel.canManage && !channel.archived) {
       const controls = document.createElement("div");
@@ -210,7 +216,7 @@ export class ConversationsPackage implements PackageInstance {
     if (this.#messages.length === 0) {
       const empty = document.createElement("p");
       empty.textContent =
-        channel.name === "general"
+        channel.name === GENERAL_CHANNEL_NAME
           ? "#general is ready for the first message."
           : "This channel has no messages yet.";
       section.append(empty);
@@ -257,13 +263,13 @@ export class ConversationsPackage implements PackageInstance {
     await this.#mutate(async () => {
       if (action === "create-channel") {
         const channel = await this.#conversations.createChannel(
-          String(values.get("name") ?? ""),
+          channelNameForAuthoring(String(values.get("name") ?? "")),
         );
         this.#selectedChannelId = channel.channelId;
       } else if (action === "rename-channel" && this.#selectedChannelId) {
         await this.#conversations.renameChannel(
           this.#selectedChannelId,
-          String(values.get("name") ?? ""),
+          channelNameForAuthoring(String(values.get("name") ?? "")),
         );
       } else if (action === "post-message" && this.#selectedChannelId) {
         await this.#conversations.postMessage(
@@ -288,16 +294,7 @@ export class ConversationsPackage implements PackageInstance {
       this.#selectedChannelId &&
       this.#nextCursor
     ) {
-      const version = this.#version;
-      const page = await this.#conversations.messages(
-        this.#selectedChannelId,
-        this.#nextCursor,
-        100,
-      );
-      if (version !== this.#version || this.#disposed) return;
-      this.#messages = [...this.#messages, ...page.messages];
-      this.#nextCursor = page.nextCursor;
-      this.#render();
+      await this.#loadMore();
     } else if (action === "archive-channel" && this.#selectedChannelId) {
       await this.#mutate(() =>
         this.#conversations.archiveChannel(this.#selectedChannelId!),
@@ -313,6 +310,28 @@ export class ConversationsPackage implements PackageInstance {
           button.dataset.messageId!,
         ),
       );
+    }
+  }
+
+  async #loadMore(): Promise<void> {
+    const version = this.#version;
+    try {
+      const page = await this.#conversations.messages(
+        this.#selectedChannelId!,
+        this.#nextCursor,
+        100,
+      );
+      if (version !== this.#version || this.#disposed) return;
+      this.#messages = [...this.#messages, ...page.messages];
+      this.#nextCursor = page.nextCursor;
+      this.#message = null;
+      this.#render();
+    } catch (error) {
+      if (version !== this.#version || this.#disposed) return;
+      this.#message = isConversationsError(error)
+        ? error.message
+        : "More messages could not be loaded.";
+      this.#render();
     }
   }
 

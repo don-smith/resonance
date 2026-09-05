@@ -17,7 +17,7 @@ function snapshot(
     channels: [
       {
         channelId: "general",
-        name: "general",
+        name: "#general",
         archived: false,
         unreadCount: 0,
         canManage: true,

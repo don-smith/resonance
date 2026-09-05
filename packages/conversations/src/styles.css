@@ -1,0 +1,91 @@
+[data-package-id="resonance.conversations"] {
+  color: var(--resonance-color-foreground);
+}
+
+[data-package-id="resonance.conversations"] .conversations-heading,
+[data-package-id="resonance.conversations"] .conversations-controls,
+[data-package-id="resonance.conversations"] form {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+[data-package-id="resonance.conversations"] .conversations-heading {
+  justify-content: space-between;
+}
+
+[data-package-id="resonance.conversations"] .conversations-sync,
+[data-package-id="resonance.conversations"] .conversations-channels span {
+  color: var(--resonance-color-muted);
+}
+
+[data-package-id="resonance.conversations"] .conversations-notice {
+  color: #ffd18a;
+}
+
+[data-package-id="resonance.conversations"] .conversations-layout {
+  display: grid;
+  grid-template-columns: minmax(12rem, 17rem) minmax(20rem, 1fr);
+  gap: var(--resonance-spacing);
+}
+
+[data-package-id="resonance.conversations"] aside,
+[data-package-id="resonance.conversations"] section {
+  padding: var(--resonance-spacing);
+  border: 1px solid var(--resonance-color-border);
+  border-radius: 0.5rem;
+  background: var(--resonance-color-panel);
+}
+
+[data-package-id="resonance.conversations"] .conversations-channels,
+[data-package-id="resonance.conversations"] .conversations-messages {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0;
+  list-style: none;
+}
+
+[data-package-id="resonance.conversations"] .conversations-channels li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+[data-package-id="resonance.conversations"] .conversations-channels button {
+  border: 0;
+  color: var(--resonance-color-accent);
+  background: transparent;
+  text-align: left;
+}
+
+[data-package-id="resonance.conversations"] .conversations-controls {
+  margin-bottom: 1rem;
+}
+
+[data-package-id="resonance.conversations"] .conversations-messages li {
+  padding: 0.75rem;
+  border: 1px solid var(--resonance-color-border);
+  border-radius: 0.4rem;
+}
+
+[data-package-id="resonance.conversations"] .conversations-markdown {
+  margin-bottom: 0;
+  white-space: pre-wrap;
+}
+
+[data-package-id="resonance.conversations"] textarea {
+  min-height: 7rem;
+  flex: 1;
+}
+
+@media (max-width: 760px) {
+  [data-package-id="resonance.conversations"] .conversations-layout {
+    grid-template-columns: 1fr;
+  }
+
+  [data-package-id="resonance.conversations"] .conversations-controls,
+  [data-package-id="resonance.conversations"] form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

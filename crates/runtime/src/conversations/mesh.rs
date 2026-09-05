@@ -6,7 +6,10 @@ use std::{
     net::{SocketAddr, TcpListener},
     num::NonZeroUsize,
     panic::{self, AssertUnwindSafe},
-    sync::mpsc::{self, Receiver as EventReceiver, SyncSender},
+    sync::{
+        mpsc::{self, Receiver as EventReceiver, SyncSender},
+        Mutex,
+    },
     thread::{self, JoinHandle},
 };
 
@@ -100,7 +103,7 @@ enum MeshCommand {
 
 pub struct ProductionConversationMesh {
     commands: Option<tokio_mpsc::Sender<MeshCommand>>,
-    events: EventReceiver<ConversationMeshEvent>,
+    events: Mutex<EventReceiver<ConversationMeshEvent>>,
     thread: Option<JoinHandle<()>>,
     listen_addr: SocketAddr,
 }
@@ -156,7 +159,7 @@ impl ProductionConversationMesh {
             .map_err(|error| ConversationMeshError::Startup(error.to_string()))?;
         Ok(Self {
             commands: Some(commands),
-            events,
+            events: Mutex::new(events),
             thread: Some(thread),
             listen_addr,
         })
@@ -194,14 +197,14 @@ impl ProductionConversationMesh {
     }
 
     pub fn try_event(&self) -> Option<ConversationMeshEvent> {
-        self.events.try_recv().ok()
+        self.events.lock().ok()?.try_recv().ok()
     }
 
     pub fn recv_event_timeout(
         &self,
         timeout: std::time::Duration,
     ) -> Option<ConversationMeshEvent> {
-        self.events.recv_timeout(timeout).ok()
+        self.events.lock().ok()?.recv_timeout(timeout).ok()
     }
 
     pub fn stop(&mut self) -> Result<(), ConversationMeshError> {

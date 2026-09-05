@@ -1,6 +1,6 @@
 // Generated from schema/manifest.v2.json. Do not edit.
 export const manifestSchemaSha256 =
-  "4c41c465507f4870f37f4534c2ef89a9e6229c43bb39c30a35fd27ad000b8591";
+  "e0cd21f49eb88151a51e3eb31d901b87eb4fc7bca65e321c4b34e1b70a586e89";
 export const roles = ["viewer", "contributor", "developer"] as const;
 export const semanticCapabilities = [
   "documents:read",
@@ -9,6 +9,7 @@ export const semanticCapabilities = [
   "repository:read",
   "telemetry:write",
   "workspace-files:v1",
+  "conversations:v1",
 ] as const;
 export const semanticCapabilityProperties = {
   "documents:read": "documentsRead",
@@ -17,6 +18,7 @@ export const semanticCapabilityProperties = {
   "repository:read": "repositoryRead",
   "telemetry:write": "telemetryWrite",
   "workspace-files:v1": "workspaceFilesV1",
+  "conversations:v1": "conversationsV1",
 } as const;
 export const semanticAgentPermissions = [
   "read",

@@ -9,6 +9,7 @@
     "core:event:allow-unlisten",
     "allow-workspace-view",
     "allow-workspace-files-v1",
+    "allow-conversations-v1",
     "allow-create-workspace",
     "allow-create-workspace-invite",
     "allow-join-workspace",

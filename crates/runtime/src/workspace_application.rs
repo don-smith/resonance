@@ -214,6 +214,34 @@ impl WorkspaceApplication {
         view
     }
 
+    pub fn conversation(&self) -> Option<&ConversationRuntime> {
+        self.conversation.as_ref()
+    }
+
+    pub fn conversation_mut(&mut self) -> Option<&mut ConversationRuntime> {
+        self.conversation.as_mut()
+    }
+
+    pub fn conversation_synchronization_state(
+        &mut self,
+    ) -> Result<
+        crate::conversations::runtime::ConversationSyncState,
+        crate::conversations::runtime::ConversationRuntimeError,
+    > {
+        let has_direct_candidate = self
+            .conversation_lookup
+            .as_mut()
+            .is_some_and(|lookup| lookup.another_member_has_candidate(unix_seconds()));
+        let has_usable_peer = self
+            .conversation_lookup
+            .as_ref()
+            .is_some_and(|lookup| lookup.has_recent_usable_peer(unix_seconds()));
+        self.conversation
+            .as_ref()
+            .ok_or(crate::conversations::runtime::ConversationRuntimeError::InvalidWorkspace)?
+            .network_synchronization_state(has_direct_candidate, has_usable_peer)
+    }
+
     pub fn take_transitions(&mut self) -> Vec<WorkspaceTransition> {
         self.session
             .as_mut()

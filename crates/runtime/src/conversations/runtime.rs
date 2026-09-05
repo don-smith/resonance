@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    channels::{membership_id, require_current_channel, ChannelProjection, ChannelView},
+    channels::{membership_id, require_current_channel, ChannelProjection},
     crypto::{
         self, EpochEnvelopeContextV1, EpochKey, HpkeEpochEnvelopeV1, MessageHeaderInputV1,
         RecipientPublicKey,
@@ -26,7 +26,9 @@ use super::{
     ConversationError,
 };
 
-pub use super::{recovery::SparseRecoveryRange, store::MessageCommitOutcome};
+pub use super::{
+    channels::ChannelView, recovery::SparseRecoveryRange, store::MessageCommitOutcome,
+};
 
 #[derive(Debug)]
 pub enum ConversationRuntimeError {

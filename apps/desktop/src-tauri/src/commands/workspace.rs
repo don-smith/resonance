@@ -136,6 +136,15 @@ pub struct PeerView {
     pub connection: PeerConnectionView,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ConversationInvalidationView {
+    pub workspace_id: String,
+    pub channel_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PeerConnectionView {
@@ -189,6 +198,16 @@ impl RetryJoinRequest {
     }
 }
 
+fn encode_identifier(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
 fn valid_text(value: &str, max_length: usize) -> bool {
     !value.trim().is_empty() && value.chars().count() <= max_length
 }
@@ -227,6 +246,9 @@ impl ManagedWorkspaceState {
                 match update {
                     WorkspaceApplicationUpdate::View => workspace.emit_view().await,
                     WorkspaceApplicationUpdate::Files => workspace.emit_files_changed(),
+                    WorkspaceApplicationUpdate::Conversations => {
+                        workspace.emit_conversations_changed().await
+                    }
                 }
             });
         });
@@ -279,6 +301,47 @@ impl ManagedWorkspace {
 
     pub(super) fn emit_files_changed(&self) {
         let _ = self.app.emit("workspace-files:changed", ());
+    }
+
+    pub(super) async fn emit_conversations_changed(&self) {
+        let invalidations = {
+            let mut application = self.application.lock().await;
+            let workspace_id = application
+                .view()
+                .workspace
+                .map(|workspace| workspace.id.as_str().to_owned());
+            match (workspace_id, application.conversation()) {
+                (Some(workspace_id), Some(conversation)) => conversation
+                    .channels()
+                    .into_iter()
+                    .map(|channel| ConversationInvalidationView {
+                        workspace_id: workspace_id.clone(),
+                        channel_id: encode_identifier(&channel.channel_id),
+                        message_id: None,
+                    })
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            }
+        };
+        for invalidation in invalidations {
+            let _ = self.app.emit("conversations:changed", invalidation);
+        }
+    }
+
+    pub(super) fn emit_conversation_changed(
+        &self,
+        workspace_id: String,
+        channel_id: String,
+        message_id: Option<String>,
+    ) {
+        let _ = self.app.emit(
+            "conversations:changed",
+            ConversationInvalidationView {
+                workspace_id,
+                channel_id,
+                message_id,
+            },
+        );
     }
 
     pub(super) async fn refresh_file_runtime(&self) {

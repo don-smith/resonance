@@ -1,0 +1,233 @@
+[
+  { "kind": "request", "value": { "operation": "snapshot" } },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "messages",
+      "channelId": "000102030405060708090a0b0c0d0e0f",
+      "cursor": null,
+      "limit": 50
+    }
+  },
+  {
+    "kind": "request",
+    "value": { "operation": "create-channel", "name": "planning" }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "rename-channel",
+      "channelId": "000102030405060708090a0b0c0d0e0f",
+      "name": "roadmap"
+    }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "archive-channel",
+      "channelId": "000102030405060708090a0b0c0d0e0f"
+    }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "post-message",
+      "channelId": "000102030405060708090a0b0c0d0e0f",
+      "markdown": "**Hello**, team."
+    }
+  },
+  {
+    "kind": "request",
+    "value": {
+      "operation": "mark-read",
+      "channelId": "000102030405060708090a0b0c0d0e0f",
+      "messageId": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    }
+  },
+  { "kind": "request", "value": { "operation": "synchronization-state" } },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "snapshot",
+      "snapshot": {
+        "workspaceId": "workspace",
+        "channels": [
+          {
+            "channelId": "0102",
+            "name": "general",
+            "archived": false,
+            "unreadCount": 1,
+            "canManage": true
+          }
+        ],
+        "synchronization": "current"
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "messages",
+      "page": {
+        "channelId": "0102",
+        "messages": [
+          {
+            "messageId": "aabb",
+            "channelId": "0102",
+            "author": {
+              "publicIdentity": "ed25519-public",
+              "displayName": "Alice"
+            },
+            "createdAt": 1720000000,
+            "markdown": "**Hello**, team."
+          }
+        ],
+        "nextCursor": null
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "create-channel",
+      "channel": {
+        "channelId": "0102",
+        "name": "planning",
+        "archived": false,
+        "unreadCount": 0,
+        "canManage": true
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "rename-channel",
+      "channel": {
+        "channelId": "0102",
+        "name": "roadmap",
+        "archived": false,
+        "unreadCount": 0,
+        "canManage": true
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "archive-channel",
+      "channel": {
+        "channelId": "0102",
+        "name": "roadmap",
+        "archived": true,
+        "unreadCount": 0,
+        "canManage": true
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "post-message",
+      "message": {
+        "messageId": "aabb",
+        "channelId": "0102",
+        "author": {
+          "publicIdentity": "ed25519-public",
+          "displayName": "Alice"
+        },
+        "createdAt": 1720000000,
+        "markdown": "**Hello**, team."
+      }
+    }
+  },
+  {
+    "kind": "response",
+    "value": { "operation": "mark-read", "channelId": "0102", "unreadCount": 0 }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "synchronization-state",
+      "synchronization": "offline"
+    }
+  },
+  {
+    "kind": "response",
+    "value": {
+      "operation": "synchronization-state",
+      "synchronization": "waiting-to-sync"
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "unavailable-capability",
+      "message": "Conversations are unavailable."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "invalid-request",
+      "message": "The conversations request is invalid."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "missing-channel",
+      "message": "That channel is unavailable."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "archived-channel",
+      "message": "That channel is archived."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "unauthorized",
+      "message": "You cannot perform that conversation action."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "missing-epoch",
+      "message": "Conversation encryption is not ready yet."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "authoring-blocked",
+      "message": "Conversation authoring is waiting for membership to update."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "size-limit",
+      "message": "The conversations size limit was exceeded."
+    }
+  },
+  {
+    "kind": "error",
+    "value": {
+      "code": "internal",
+      "message": "Conversations could not complete the request."
+    }
+  },
+  {
+    "kind": "invalidation",
+    "value": {
+      "workspaceId": "workspace",
+      "channelId": "0102",
+      "messageId": "aabb"
+    }
+  }
+]

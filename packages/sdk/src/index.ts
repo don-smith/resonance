@@ -1,3 +1,4 @@
+export * from "./conversations-v1.js";
 export * from "./immutable.js";
 export * from "./package-lifecycle.js";
 export * from "./workspace-files-v1.js";

@@ -5,6 +5,30 @@ export const bundledPackageCatalog = [
     manifest: {
       manifestVersion: 2,
       source: "bundled",
+      id: "resonance.conversations",
+      name: "Conversations",
+      description:
+        "Public workspace channels and attributed Markdown messages.",
+      nav: {
+        label: "Conversations",
+        icon: "messages",
+      },
+      content: {
+        entry: "src/index.ts",
+      },
+      events: {
+        emits: [],
+        consumes: ["conversations:changed"],
+      },
+      minRole: "viewer",
+      capabilities: ["conversations:v1"],
+    },
+    load: () => import("../../../../packages/conversations/src/index"),
+  },
+  {
+    manifest: {
+      manifestVersion: 2,
+      source: "bundled",
       id: "resonance.reference",
       name: "Reference package",
       description: "A worked manifest and declared-event example.",

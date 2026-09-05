@@ -73,7 +73,8 @@
           "workspace:read",
           "repository:read",
           "telemetry:write",
-          "workspace-files:v1"
+          "workspace-files:v1",
+          "conversations:v1"
         ]
       }
     },
@@ -111,7 +112,7 @@
   "$defs": {
     "eventName": {
       "type": "string",
-      "pattern": "^(repo:changed|doc:updated|doc:opened|message:received|peer:joined|peer:left|peer:connection|workspace:member-added|workspace:member-removed|agent-context:[a-z][a-z0-9-]*|[a-z][a-z0-9-]*:[a-z][a-z0-9-]*)$"
+      "pattern": "^(repo:changed|doc:updated|doc:opened|message:received|peer:joined|peer:left|peer:connection|workspace:member-added|workspace:member-removed|conversations:changed|agent-context:[a-z][a-z0-9-]*|[a-z][a-z0-9-]*:[a-z][a-z0-9-]*)$"
     }
   }
 }

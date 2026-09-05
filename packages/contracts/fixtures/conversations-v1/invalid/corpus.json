@@ -1,0 +1,193 @@
+[
+  {
+    "name": "unknown request field",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "extra": true }
+    }
+  },
+  {
+    "name": "oversized identifier",
+    "value": {
+      "kind": "request",
+      "value": {
+        "operation": "archive-channel",
+        "channelId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  },
+  {
+    "name": "oversized page",
+    "value": {
+      "kind": "request",
+      "value": {
+        "operation": "messages",
+        "channelId": "channel",
+        "cursor": null,
+        "limit": 101
+      }
+    }
+  },
+  {
+    "name": "secret-bearing key",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "epochKey": "secret" }
+    }
+  },
+  {
+    "name": "recipient key",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "recipientPublicKey": "secret" }
+    }
+  },
+  {
+    "name": "raw record",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "exactRecord": [1, 2, 3] }
+    }
+  },
+  {
+    "name": "signature",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "signature": "private" }
+    }
+  },
+  {
+    "name": "address",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "socketAddress": "192.0.2.1:9000" }
+    }
+  },
+  {
+    "name": "membership snapshot",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "members": [] }
+    }
+  },
+  {
+    "name": "authority head",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "membershipHead": "head" }
+    }
+  },
+  {
+    "name": "SQLite value",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "rowid": 1 }
+    }
+  },
+  {
+    "name": "workspace token",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "workspaceToken": "secret" }
+    }
+  },
+  {
+    "name": "transport handle",
+    "value": {
+      "kind": "request",
+      "value": { "operation": "snapshot", "transportHandle": 4 }
+    }
+  },
+  {
+    "name": "undeclared thread",
+    "value": {
+      "kind": "request",
+      "value": {
+        "operation": "post-message",
+        "channelId": "channel",
+        "markdown": "hello",
+        "parentMessageId": "message"
+      }
+    }
+  },
+  {
+    "name": "unsafe response authority",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "synchronization-state",
+        "synchronization": "current",
+        "authority": {}
+      }
+    }
+  },
+  {
+    "name": "unsafe response address",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "synchronization-state",
+        "synchronization": "current",
+        "addresses": []
+      }
+    }
+  },
+  {
+    "name": "unsafe error details",
+    "value": {
+      "kind": "error",
+      "value": {
+        "code": "internal",
+        "message": "Conversations could not complete the request.",
+        "database": "/private/workspace.sqlite"
+      }
+    }
+  },
+  {
+    "name": "unsafe invalidation record",
+    "value": {
+      "kind": "invalidation",
+      "value": {
+        "workspaceId": "workspace",
+        "channelId": "channel",
+        "record": [1, 2]
+      }
+    }
+  },
+  {
+    "name": "unsafe invalidation membership",
+    "value": {
+      "kind": "invalidation",
+      "value": {
+        "workspaceId": "workspace",
+        "channelId": "channel",
+        "members": []
+      }
+    }
+  },
+  {
+    "name": "message channel mismatch",
+    "value": {
+      "kind": "response",
+      "value": {
+        "operation": "messages",
+        "page": {
+          "channelId": "one",
+          "messages": [
+            {
+              "messageId": "message",
+              "channelId": "two",
+              "author": {
+                "publicIdentity": "identity",
+                "displayName": "Alice"
+              },
+              "createdAt": 1,
+              "markdown": "hello"
+            }
+          ],
+          "nextCursor": null
+        }
+      }
+    }
+  }
+]

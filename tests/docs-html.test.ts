@@ -7,7 +7,11 @@ import { describe, expect, it } from "vitest";
 type Node = DefaultTreeAdapterMap["node"];
 type Element = DefaultTreeAdapterMap["element"];
 
-const documents = ["docs/html/index.html", "docs/html/workspace-files.html"];
+const documents = [
+  "docs/html/index.html",
+  "docs/html/workspace-files.html",
+  "docs/html/conversations.html",
+];
 
 function elements(node: Node): Element[] {
   const children = "childNodes" in node ? node.childNodes : [];

@@ -4,6 +4,7 @@ import {
   DeclaredPackageEvents,
   PackageMountError,
   packageDesignTokens,
+  type ConversationsV1,
   type PackageContext,
   type PackageEventTransport,
   type WorkspaceFilesV1,
@@ -12,10 +13,17 @@ import {
   semanticCapabilityProperties,
   type SemanticCapability,
 } from "@resonance/contracts";
+import { ConversationsTauriAdapter } from "./conversations-tauri-adapter.js";
 import { WorkspaceFilesTauriAdapter } from "./workspace-files-tauri-adapter.js";
 import type { BundledPackageManifest } from "./package-host.js";
 
+let conversationsAdapter: ConversationsTauriAdapter | null = null;
 let workspaceFilesAdapter: WorkspaceFilesTauriAdapter | null = null;
+
+function conversationsCapability(): ConversationsV1 {
+  conversationsAdapter ??= new ConversationsTauriAdapter();
+  return conversationsAdapter;
+}
 
 function workspaceFilesCapability(): WorkspaceFilesV1 {
   workspaceFilesAdapter ??= new WorkspaceFilesTauriAdapter();
@@ -31,6 +39,7 @@ const tauriEvents: PackageEventTransport = {
 };
 
 type PackageContextDependencies = Readonly<{
+  conversations?: ConversationsV1;
   events?: PackageEventTransport;
   workspaceFiles?: WorkspaceFilesV1;
 }>;
@@ -49,18 +58,24 @@ export function createPackageContext(
   dependencies: PackageContextDependencies = {},
 ): PackageContext {
   const declared = manifest.capabilities ?? [];
+  const conversations = dependencies.conversations
+    ? () => dependencies.conversations
+    : conversationsCapability;
   const workspaceFiles = dependencies.workspaceFiles
     ? () => dependencies.workspaceFiles
     : workspaceFilesCapability;
   const capabilities: Record<string, unknown> = {};
   for (const capability of declared) {
-    if (capability !== "workspace-files:v1") {
+    if (capability === "conversations:v1") {
+      capabilities[semanticCapabilityProperties[capability]] = conversations();
+    } else if (capability === "workspace-files:v1") {
+      capabilities[semanticCapabilityProperties[capability]] = workspaceFiles();
+    } else {
       throw new PackageMountError(
         new UnsupportedPackageCapabilityError(manifest.id, capability).message,
         () => undefined,
       );
     }
-    capabilities[semanticCapabilityProperties[capability]] = workspaceFiles();
   }
 
   const events = new DeclaredPackageEvents(
@@ -76,7 +91,9 @@ export function createPackageContext(
 }
 
 export async function disposePackageContexts(): Promise<void> {
-  const adapter = workspaceFilesAdapter;
+  const conversations = conversationsAdapter;
+  const workspaceFiles = workspaceFilesAdapter;
+  conversationsAdapter = null;
   workspaceFilesAdapter = null;
-  await adapter?.dispose();
+  await Promise.all([conversations?.dispose(), workspaceFiles?.dispose()]);
 }

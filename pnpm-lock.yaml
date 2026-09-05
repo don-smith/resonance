@@ -59,6 +59,16 @@ importers:
         specifier: 8.17.1
         version: 8.17.1
 
+  packages/conversations:
+    dependencies:
+      "@resonance/package-sdk":
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      vitest:
+        specifier: 3.1.3
+        version: 3.1.3(@types/node@22.15.3)
+
   packages/reference-package:
     dependencies:
       "@resonance/package-sdk":

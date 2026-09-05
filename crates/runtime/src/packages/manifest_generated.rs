@@ -3,7 +3,7 @@
 use serde::Deserialize;
 
 pub const MANIFEST_SCHEMA_SHA256: &str =
-    "4c41c465507f4870f37f4534c2ef89a9e6229c43bb39c30a35fd27ad000b8591";
+    "e0cd21f49eb88151a51e3eb31d901b87eb4fc7bca65e321c4b34e1b70a586e89";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum ManifestRole {
@@ -29,6 +29,8 @@ pub enum SemanticCapability {
     TelemetryWrite,
     #[serde(rename = "workspace-files:v1")]
     WorkspaceFilesV1,
+    #[serde(rename = "conversations:v1")]
+    ConversationsV1,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]

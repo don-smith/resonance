@@ -264,6 +264,19 @@ impl IrohTransport {
         .await?)
     }
 
+    pub async fn direct_socket_candidates(&self) -> Vec<std::net::SocketAddr> {
+        self.endpoint.online().await;
+        self.endpoint
+            .addr()
+            .addrs
+            .into_iter()
+            .filter_map(|address| match address {
+                iroh::TransportAddr::Ip(address) if !address.ip().is_unspecified() => Some(address),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Returns a base58, postcard-encoded Iroh node address for an invite.
     pub async fn bootstrap_hint(&self) -> Result<String, IrohTransportError> {
         self.endpoint.online().await;
@@ -469,8 +482,15 @@ impl IrohTransport {
         &self,
         session: &mut WorkspaceSession<FakeDeliveryPort>,
     ) -> Result<(), IrohSessionAdapterError> {
-        for message in session.delivery_mut().take_outbound() {
+        session.queue_iroh_publication_duties()?;
+        let mut messages = session.delivery_mut().take_outbound();
+        messages.sort();
+        messages.dedup();
+        for message in messages {
+            let envelope =
+                crate::protocol::Envelope::decode(&message).map_err(WorkspaceSessionError::from)?;
             self.broadcast(message).await?;
+            session.mark_iroh_publication_delivered(&envelope.body)?;
         }
         Ok(())
     }

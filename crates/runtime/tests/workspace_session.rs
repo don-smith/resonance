@@ -11,6 +11,7 @@ use resonance_runtime::{
     },
     identity::{InMemoryKeyCustody, InstallationIdentity},
     invite::Invite,
+    membership_log::{MembershipOperationBody, SignedMembershipOperation},
     protocol::{Envelope, EnvelopeBody},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{PeerConnection, WorkspaceLifecycle},
@@ -764,6 +765,135 @@ fn creator_processes_a_persisted_interval_bound_departure_atomically() {
         final_view.local_public_identity
     );
     assert_eq!(store.lookup_peer_set_version().expect("version"), 3);
+
+    fs::remove_dir_all(creator_directory).expect("creator directory removes");
+    fs::remove_dir_all(requester_directory).expect("requester directory removes");
+}
+
+#[test]
+fn durable_iroh_departure_control_survives_both_restarts_and_creates_one_epoch() {
+    let creator_directory = temporary_directory("departure-control-creator");
+    let requester_directory = temporary_directory("departure-control-requester");
+    let creator_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![91; 32]))
+            .expect("creator identity");
+    let requester_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![92; 32]))
+            .expect("requester identity");
+    let mut creator = WorkspaceSession::new(
+        creator_identity.clone(),
+        WorkspaceCatalog::open(&creator_directory).expect("creator catalog"),
+        FakeDeliveryPort::default(),
+    );
+    let created = creator
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let invite = creator.create_invite("bootstrap").expect("invite");
+    let mut requester = WorkspaceSession::new(
+        requester_identity.clone(),
+        WorkspaceCatalog::open(&requester_directory).expect("requester catalog"),
+        FakeDeliveryPort::default(),
+    );
+    requester
+        .join_workspace(&invite, "Lin")
+        .expect("join starts");
+    let join = requester
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("join request");
+    creator.receive(&join).expect("creator admits");
+    let admission = creator
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("admission");
+    requester.receive(&admission).expect("requester admitted");
+    let request_id = requester
+        .request_departure(3)
+        .expect("request persists")
+        .request_id()
+        .expect("request ID");
+    drop(requester);
+
+    let mut requester = WorkspaceSession::new(
+        requester_identity.clone(),
+        WorkspaceCatalog::open(&requester_directory).expect("requester restart catalog"),
+        FakeDeliveryPort::default(),
+    );
+    requester
+        .activate_active_workspace()
+        .expect("requester restarts");
+    requester
+        .queue_iroh_publication_duties()
+        .expect("durable request queues");
+    let request_envelope = requester
+        .delivery_mut()
+        .take_outbound()
+        .into_iter()
+        .find(|bytes| {
+            Envelope::decode(bytes)
+                .is_ok_and(|envelope| matches!(envelope.body, EnvelopeBody::DepartureRequest(_)))
+        })
+        .expect("departure control queues after restart");
+    drop(creator);
+
+    let mut creator = WorkspaceSession::new(
+        creator_identity.clone(),
+        WorkspaceCatalog::open(&creator_directory).expect("creator restart catalog"),
+        FakeDeliveryPort::default(),
+    );
+    creator
+        .activate_active_workspace()
+        .expect("creator restarts before control");
+    creator
+        .receive(&request_envelope)
+        .expect("creator automatically commits request and epoch");
+    assert_eq!(creator.view().expect("creator view").members.len(), 1);
+    creator
+        .receive(&request_envelope)
+        .expect_err("removed requester cannot replay control as a member");
+
+    let creator_store = WorkspaceCatalog::open(&creator_directory)
+        .expect("creator inspection catalog")
+        .open_workspace(&created.workspace.id)
+        .expect("creator store");
+    let duties = creator_store
+        .durable_publication_duties()
+        .expect("duties remain durable");
+    let removal_duties = duties
+        .iter()
+        .filter(|duty| duty.transport == "iroh-membership")
+        .filter(|duty| {
+            SignedMembershipOperation::decode(&duty.exact_bytes).is_ok_and(|operation| {
+                matches!(
+                    operation.operation.body,
+                    MembershipOperationBody::RemoveMember { .. }
+                )
+            })
+        })
+        .count();
+    let next_epoch_duties = duties
+        .iter()
+        .filter(|duty| duty.transport == "commonware-record")
+        .filter(|duty| {
+            ExactRecordV1::decode(&duty.exact_bytes)
+                .is_ok_and(|record| matches!(record.record(), ConversationRecordV1::Epoch(_)))
+        })
+        .count();
+    assert_eq!(removal_duties, 1);
+    assert_eq!(
+        next_epoch_duties, 3,
+        "genesis, admission, and removal each have one epoch"
+    );
+    assert_eq!(
+        requester
+            .request_departure(99)
+            .expect("pending request remains exact until removal arrives")
+            .request_id()
+            .expect("request ID remains"),
+        request_id
+    );
 
     fs::remove_dir_all(creator_directory).expect("creator directory removes");
     fs::remove_dir_all(requester_directory).expect("requester directory removes");

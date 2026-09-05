@@ -6073,6 +6073,7 @@ dependencies = [
  "commonware-cryptography",
  "commonware-p2p",
  "commonware-runtime",
+ "commonware-utils",
  "getrandom 0.3.4",
  "hpke",
  "iroh",

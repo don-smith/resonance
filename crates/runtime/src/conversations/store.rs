@@ -470,6 +470,99 @@ impl WorkspaceStore {
             .optional()?)
     }
 
+    pub(crate) fn acknowledge_commonware_records(
+        &self,
+        record_ids: &[RecordId],
+        acknowledged_at: i64,
+    ) -> Result<(), WorkspaceStoreError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        for record_id in record_ids {
+            transaction.execute(
+                "UPDATE publication_duties SET delivered_at = ?1
+                 WHERE transport = 'commonware-record' AND record_id = ?2
+                   AND invalidated = 0",
+                params![acknowledged_at, record_id.as_slice()],
+            )?;
+            transaction.execute(
+                "DELETE FROM conversation_outbox WHERE record_id = ?1",
+                [record_id.as_slice()],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn recovery_heads(&self) -> Result<Vec<([u8; 32], u64)>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT author, author_sequence FROM conversation_message_archive
+             WHERE disposition = 'accepted' ORDER BY author, author_sequence",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                let author: Vec<u8> = row.get(0)?;
+                let author = author.try_into().map_err(|_| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Blob,
+                        "message author has the wrong length".into(),
+                    )
+                })?;
+                Ok((author, row.get::<_, u64>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut heads = Vec::new();
+        let mut current = None;
+        let mut dense_next = 0_u64;
+        let mut dense_ended = false;
+        for (author, sequence) in rows {
+            if current != Some(author) {
+                if let Some(previous) = current {
+                    if dense_next > 0 {
+                        heads.push((previous, dense_next - 1));
+                    }
+                }
+                current = Some(author);
+                dense_next = 0;
+                dense_ended = false;
+            }
+            if !dense_ended && sequence == dense_next {
+                dense_next = dense_next.saturating_add(1);
+            } else if sequence > dense_next {
+                dense_ended = true;
+            }
+        }
+        if let Some(author) = current {
+            if dense_next > 0 {
+                heads.push((author, dense_next - 1));
+            }
+        }
+        Ok(heads)
+    }
+
+    pub(crate) fn pending_commonware_duties(&self) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection.prepare(
+            "SELECT exact_bytes FROM publication_duties
+             WHERE transport = 'commonware-record' AND delivered_at IS NULL
+               AND invalidated = 0 ORDER BY record_id",
+        )?;
+        let records = statement
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<Vec<u8>>, _>>()?;
+        Ok(records)
+    }
+
     pub(crate) fn sparse_recovery_gaps(
         &self,
         maximum_ranges: usize,

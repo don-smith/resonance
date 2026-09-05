@@ -18,8 +18,10 @@ use super::{
     recovery,
     store::MessageDisposition,
     wire::{
-        ChannelId, ChannelOperationV1, ChannelRecordV1, ConversationRecordV1, EpochRecordV1,
-        ExactRecordV1, MembershipHead, MessageRecordV1, RecordId, WorkspaceId,
+        AcknowledgementV1, ChannelId, ChannelOperationV1, ChannelRecordV1, ConversationRecordV1,
+        EpochRecordV1, ExactRecordV1, MembershipHead, MessageRecordV1, RecordId, RecoveryHeadV1,
+        RecoveryRangeV1, RecoveryRequestV1, RecoveryResponseV1, WorkspaceId,
+        MAX_RECOVERY_RESPONSE_RECORDS,
     },
     ConversationError,
 };
@@ -73,6 +75,7 @@ impl From<WorkspaceStoreError> for ConversationRuntimeError {
 pub enum ConversationSyncState {
     Current,
     WaitingToSync,
+    Offline,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -489,6 +492,263 @@ impl ConversationRuntime {
         Ok(recovery::gaps(&self.store)?)
     }
 
+    pub fn recovery_request(&self) -> Result<ExactRecordV1, ConversationRuntimeError> {
+        let heads = self
+            .store
+            .recovery_heads()?
+            .into_iter()
+            .map(|(author, highest_sequence)| RecoveryHeadV1 {
+                author,
+                highest_sequence,
+            })
+            .collect();
+        let missing_ranges = recovery::gaps(&self.store)?
+            .into_iter()
+            .flat_map(|(author, ranges)| {
+                ranges.into_iter().map(move |range| RecoveryRangeV1 {
+                    author,
+                    first_sequence: range.first_sequence,
+                    last_sequence: range.last_sequence,
+                })
+            })
+            .collect();
+        Ok(ExactRecordV1::author(
+            ConversationRecordV1::RecoveryRequest(RecoveryRequestV1 {
+                workspace_id: self.workspace_bytes,
+                sender: *self.identity.public_identity().as_bytes(),
+                heads,
+                missing_ranges,
+            }),
+            &self.identity,
+        )?)
+    }
+
+    pub fn answer_recovery_request(
+        &self,
+        authenticated_peer: PublicIdentity,
+        bytes: &[u8],
+    ) -> Result<ExactRecordV1, ConversationRuntimeError> {
+        let exact = ExactRecordV1::decode(bytes)?;
+        let ConversationRecordV1::RecoveryRequest(request) = exact.record() else {
+            return Err(
+                ConversationError::UnauthorizedData("record is not a recovery request").into(),
+            );
+        };
+        self.require_authenticated_current_peer(
+            authenticated_peer,
+            request.sender,
+            request.workspace_id,
+        )?;
+        let heads = request
+            .heads
+            .iter()
+            .map(|head| (head.author, head.highest_sequence))
+            .collect::<BTreeMap<_, _>>();
+        let mut records = self
+            .records_eligible_for(authenticated_peer)?
+            .into_iter()
+            .filter(|bytes| {
+                let Ok(exact) = ExactRecordV1::decode(bytes) else {
+                    return false;
+                };
+                let ConversationRecordV1::Message(message) = exact.record() else {
+                    return false;
+                };
+                let beyond_head = heads
+                    .get(&message.author)
+                    .is_none_or(|highest| message.author_sequence > *highest);
+                let explicitly_missing = request.missing_ranges.iter().any(|range| {
+                    range.author == message.author
+                        && (range.first_sequence..=range.last_sequence)
+                            .contains(&message.author_sequence)
+                });
+                beyond_head || explicitly_missing
+            })
+            .collect::<Vec<_>>();
+        records.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
+        records.dedup();
+        records.truncate(MAX_RECOVERY_RESPONSE_RECORDS);
+        let accepted_channels = self.channels.accepted_ids();
+        let mut channels = self
+            .channel_records
+            .iter()
+            .filter(|record| accepted_channels.contains(record.id()))
+            .map(|record| record.bytes().to_vec())
+            .collect::<Vec<_>>();
+        channels.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
+        records.extend(
+            channels
+                .into_iter()
+                .take(MAX_RECOVERY_RESPONSE_RECORDS - records.len()),
+        );
+        records.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
+        Ok(ExactRecordV1::author(
+            ConversationRecordV1::RecoveryResponse(RecoveryResponseV1 {
+                workspace_id: self.workspace_bytes,
+                sender: *self.identity.public_identity().as_bytes(),
+                records,
+            }),
+            &self.identity,
+        )?)
+    }
+
+    pub fn accept_recovery_response(
+        &mut self,
+        authenticated_peer: PublicIdentity,
+        bytes: &[u8],
+    ) -> Result<Vec<RecordId>, ConversationRuntimeError> {
+        let exact = ExactRecordV1::decode(bytes)?;
+        let ConversationRecordV1::RecoveryResponse(response) = exact.record() else {
+            return Err(
+                ConversationError::UnauthorizedData("record is not a recovery response").into(),
+            );
+        };
+        self.require_authenticated_current_peer(
+            authenticated_peer,
+            response.sender,
+            response.workspace_id,
+        )?;
+        let nested = response
+            .records
+            .iter()
+            .map(|bytes| ExactRecordV1::decode(bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut committed = Vec::new();
+        for record in nested {
+            match record.record() {
+                ConversationRecordV1::Epoch(_) => self.accept_epoch_record(record.bytes())?,
+                ConversationRecordV1::Channel(_) => {
+                    if !self.accept_channel_record(record.bytes())? {
+                        return Err(ConversationError::UnauthorizedData(
+                            "recovered channel record lost deterministic replay",
+                        )
+                        .into());
+                    }
+                }
+                ConversationRecordV1::Message(_) => {
+                    self.accept_message_record(record.bytes())?;
+                }
+                _ => {
+                    return Err(ConversationError::UnauthorizedData(
+                        "recovery response contains a control record",
+                    )
+                    .into());
+                }
+            }
+            committed.push(*record.id());
+        }
+        Ok(committed)
+    }
+
+    pub fn acknowledgement(
+        &self,
+        mut record_ids: Vec<RecordId>,
+    ) -> Result<ExactRecordV1, ConversationRuntimeError> {
+        record_ids.sort();
+        record_ids.dedup();
+        Ok(ExactRecordV1::author(
+            ConversationRecordV1::Acknowledgement(AcknowledgementV1 {
+                workspace_id: self.workspace_bytes,
+                sender: *self.identity.public_identity().as_bytes(),
+                record_ids,
+            }),
+            &self.identity,
+        )?)
+    }
+
+    pub fn accept_acknowledgement(
+        &self,
+        authenticated_peer: PublicIdentity,
+        bytes: &[u8],
+        acknowledged_at: i64,
+    ) -> Result<(), ConversationRuntimeError> {
+        let exact = ExactRecordV1::decode(bytes)?;
+        let ConversationRecordV1::Acknowledgement(acknowledgement) = exact.record() else {
+            return Err(
+                ConversationError::UnauthorizedData("record is not an acknowledgement").into(),
+            );
+        };
+        self.require_authenticated_current_peer(
+            authenticated_peer,
+            acknowledgement.sender,
+            acknowledgement.workspace_id,
+        )?;
+        let eligible = self
+            .pending_commonware_records_for(authenticated_peer)?
+            .into_iter()
+            .filter_map(|bytes| ExactRecordV1::decode(&bytes).ok())
+            .map(|record| *record.id())
+            .collect::<BTreeSet<_>>();
+        let acknowledged = acknowledgement
+            .record_ids
+            .iter()
+            .filter(|record_id| eligible.contains(*record_id))
+            .copied()
+            .collect::<Vec<_>>();
+        self.store
+            .acknowledge_commonware_records(&acknowledged, acknowledged_at)?;
+        Ok(())
+    }
+
+    pub fn pending_commonware_records_for(
+        &self,
+        peer: PublicIdentity,
+    ) -> Result<Vec<Vec<u8>>, ConversationRuntimeError> {
+        if !self
+            .membership
+            .projection(&self.workspace_id)
+            .contains(&peer)
+        {
+            return Err(ConversationError::UnauthorizedData(
+                "conversation delivery target is not a current member",
+            )
+            .into());
+        }
+        Ok(self
+            .store
+            .pending_commonware_duties()?
+            .into_iter()
+            .filter(|bytes| {
+                let Ok(exact) = ExactRecordV1::decode(bytes) else {
+                    return false;
+                };
+                match exact.record() {
+                    ConversationRecordV1::Epoch(epoch) => epoch
+                        .recipients
+                        .iter()
+                        .any(|recipient| recipient.member == *peer.as_bytes()),
+                    ConversationRecordV1::Message(message) => recovery::requester_is_eligible(
+                        &self.membership,
+                        &self.workspace_id,
+                        peer,
+                        message,
+                    ),
+                    ConversationRecordV1::Channel(_) => true,
+                    _ => false,
+                }
+            })
+            .collect())
+    }
+
+    pub fn network_synchronization_state(
+        &self,
+        has_direct_candidate: bool,
+        has_usable_peer: bool,
+    ) -> Result<ConversationSyncState, ConversationRuntimeError> {
+        let projection = self.membership.projection(&self.workspace_id);
+        if projection.members.len() > 1 && !has_direct_candidate {
+            return Ok(ConversationSyncState::Offline);
+        }
+        let local = self.synchronization_state()?;
+        if !has_usable_peer
+            && (local == ConversationSyncState::WaitingToSync
+                || !self.store.pending_commonware_duties()?.is_empty())
+        {
+            return Ok(ConversationSyncState::WaitingToSync);
+        }
+        Ok(local)
+    }
+
     pub fn synchronization_state(&self) -> Result<ConversationSyncState, ConversationRuntimeError> {
         let projection = self.membership.projection(&self.workspace_id);
         let pending = !self.store.conversation_outbox()?.is_empty();
@@ -660,6 +920,34 @@ impl ConversationRuntime {
             .into_iter()
             .find(|channel| channel.channel_id == channel_id)
             .ok_or(ConversationError::UnauthorizedData("channel is not active").into())
+    }
+
+    fn require_authenticated_current_peer(
+        &self,
+        authenticated_peer: PublicIdentity,
+        signed_sender: [u8; 32],
+        workspace_id: [u8; 32],
+    ) -> Result<(), ConversationRuntimeError> {
+        if signed_sender != *authenticated_peer.as_bytes() {
+            return Err(ConversationError::UnauthorizedData(
+                "record signer does not match authenticated connection",
+            )
+            .into());
+        }
+        if workspace_id != self.workspace_bytes {
+            return Err(ConversationError::UnauthorizedData("wrong workspace").into());
+        }
+        if !self
+            .membership
+            .projection(&self.workspace_id)
+            .contains(&authenticated_peer)
+        {
+            return Err(ConversationError::UnauthorizedData(
+                "authenticated peer is not a current member",
+            )
+            .into());
+        }
+        Ok(())
     }
 
     fn validate_and_open_epoch(

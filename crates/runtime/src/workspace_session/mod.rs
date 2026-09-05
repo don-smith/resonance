@@ -7,7 +7,11 @@ use std::{
 };
 
 use crate::{
-    conversations::authority::{ConversationAuthority, ConversationAuthorityError},
+    conversations::{
+        authority::{ConversationAuthority, ConversationAuthorityError},
+        wire::{ConversationRecordV1, ExactRecordV1},
+        ConversationError, ADDRESS_NOTICE_MAX_TTL_SECONDS,
+    },
     identity::{InstallationIdentity, PublicIdentity},
     invite::{validate_relay_override, Invite, InviteError},
     membership_log::{
@@ -61,6 +65,14 @@ pub struct ActiveWorkspaceView {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConversationControl {
+    AddressNotice {
+        authenticated_sender: PublicIdentity,
+        exact_bytes: Vec<u8>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WorkspaceTransition {
     WorkspaceChanged(ActiveWorkspaceView),
     MemberJoined(Member),
@@ -76,6 +88,7 @@ pub enum WorkspaceSessionError {
     Invite(InviteError),
     Protocol(ProtocolError),
     ConversationAuthority(ConversationAuthorityError),
+    Conversation(ConversationError),
     NoActiveWorkspace,
     InvalidInviteAdmission(&'static str),
     ClockUnavailable,
@@ -99,6 +112,7 @@ impl fmt::Display for WorkspaceSessionError {
                     "conversation membership coordination failed: {error}"
                 )
             }
+            Self::Conversation(error) => write!(formatter, "conversation control failed: {error}"),
             Self::NoActiveWorkspace => formatter.write_str("there is no active workspace"),
             Self::InvalidInviteAdmission(reason) => formatter.write_str(reason),
             Self::ClockUnavailable => formatter.write_str("system clock is unavailable"),
@@ -139,6 +153,11 @@ impl From<ProtocolError> for WorkspaceSessionError {
         Self::Protocol(error)
     }
 }
+impl From<ConversationError> for WorkspaceSessionError {
+    fn from(error: ConversationError) -> Self {
+        Self::Conversation(error)
+    }
+}
 impl From<ConversationAuthorityError> for WorkspaceSessionError {
     fn from(error: ConversationAuthorityError) -> Self {
         Self::ConversationAuthority(error)
@@ -151,6 +170,7 @@ pub struct WorkspaceSession<D: DeliveryPort> {
     delivery: D,
     active: Option<ActiveWorkspace>,
     transitions: Vec<WorkspaceTransition>,
+    conversation_controls: Vec<ConversationControl>,
 }
 
 struct ActiveWorkspace {
@@ -188,6 +208,7 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             delivery,
             active: None,
             transitions: Vec::new(),
+            conversation_controls: Vec::new(),
         }
     }
 
@@ -544,6 +565,79 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         self.send(EnvelopeBody::MembershipSyncRequest, workspace_id)
     }
 
+    #[doc(hidden)]
+    pub fn queue_iroh_publication_duties(&mut self) -> Result<(), WorkspaceSessionError> {
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&self.active()?.summary.id)?;
+        let workspace_id = self.active()?.summary.id.as_str().to_owned();
+        for duty in store.durable_publication_duties()? {
+            let body = match duty.transport.as_str() {
+                "iroh-membership" => EnvelopeBody::MembershipOperation(duty.exact_bytes),
+                "iroh-departure" => EnvelopeBody::DepartureRequest(duty.exact_bytes),
+                _ => continue,
+            };
+            self.send(body, workspace_id.clone())?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn mark_iroh_publication_delivered(
+        &self,
+        body: &EnvelopeBody,
+    ) -> Result<(), WorkspaceSessionError> {
+        let (transport, record_id) = match body {
+            EnvelopeBody::MembershipOperation(bytes) => {
+                let operation = SignedMembershipOperation::decode(bytes)?;
+                ("iroh-membership", operation.operation_id()?.into_bytes())
+            }
+            EnvelopeBody::DepartureRequest(bytes) => {
+                let request = SignedSelfRemovalRequestV1::decode(bytes)?;
+                (
+                    "iroh-departure",
+                    request.request_id()?.as_str().as_bytes().to_vec(),
+                )
+            }
+            _ => return Ok(()),
+        };
+        let store = self
+            .catalog
+            .open_workspace_for_initialization(&self.active()?.summary.id)?;
+        store.mark_publication_delivered(transport, &record_id, now()?)?;
+        Ok(())
+    }
+
+    pub fn announce_address_notice(
+        &mut self,
+        exact_bytes: Vec<u8>,
+    ) -> Result<(), WorkspaceSessionError> {
+        let exact = ExactRecordV1::decode(&exact_bytes)?;
+        let ConversationRecordV1::AddressNotice(record) = exact.record() else {
+            return Err(ConversationError::UnauthorizedData("not an address notice").into());
+        };
+        if record.sender != *self.identity.public_identity().as_bytes()
+            || record.workspace_id
+                != decode_membership_head(self.active()?.summary.id.as_str()).ok_or(
+                    WorkspaceSessionError::InvalidInviteAdmission(
+                        "address notice workspace is malformed",
+                    ),
+                )?
+        {
+            return Err(ConversationError::UnauthorizedData("local address notice binding").into());
+        }
+        let workspace_id = self.active()?.summary.id.as_str().to_owned();
+        self.send(EnvelopeBody::AddressNotice(exact_bytes), workspace_id)
+    }
+
+    pub fn announce_recipient_key(&mut self) -> Result<(), WorkspaceSessionError> {
+        let (identity, workspace_id, store) = self.conversation_authority_context()?;
+        let exact = ConversationAuthority::open(identity, &workspace_id, store)?
+            .local_recipient_record()
+            .bytes()
+            .to_vec();
+        self.send(EnvelopeBody::RecipientKey(exact), workspace_id)
+    }
+
     pub fn announce_file_history(
         &mut self,
         operation_ids: Vec<String>,
@@ -763,6 +857,93 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                 }
                 self.mark_file_history_recovery_needed()?;
             }
+            EnvelopeBody::DepartureRequest(bytes) => {
+                if !sender_is_member {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "departure request is not from a current member",
+                    ));
+                }
+                let request = SignedSelfRemovalRequestV1::decode(&bytes)?;
+                if request.request.requester != envelope.sender
+                    || request.request.workspace_id != envelope.workspace_id
+                {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "departure request sender or workspace does not match its envelope",
+                    ));
+                }
+                let creator =
+                    projection
+                        .creator
+                        .ok_or(WorkspaceSessionError::InvalidInviteAdmission(
+                            "departure request has no canonical creator",
+                        ))?;
+                if request.request.genesis_creator != *creator.as_bytes()
+                    || projection
+                        .interval_id(&sender_identity)
+                        .map(|interval| interval.as_str())
+                        != Some(request.request.membership_interval_id.as_str())
+                {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "departure request is stale or names another creator",
+                    ));
+                }
+                if creator == self.identity.public_identity() {
+                    let prepared = self.prepare_requested_departure(request, now()?)?;
+                    let (identity, workspace_id, store) = self.conversation_authority_context()?;
+                    ConversationAuthority::open(identity, &workspace_id, store)?
+                        .commit_transition(&prepared)?;
+                    self.finalize_prepared_transition(&prepared)?;
+                }
+            }
+            EnvelopeBody::AddressNotice(bytes) => {
+                if !sender_is_member {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "address notice is not from a current member",
+                    ));
+                }
+                let exact = ExactRecordV1::decode(&bytes)?;
+                let ConversationRecordV1::AddressNotice(notice) = exact.record() else {
+                    return Err(ConversationError::UnauthorizedData(
+                        "Iroh address control has another record family",
+                    )
+                    .into());
+                };
+                if notice.sender != envelope.sender
+                    || notice.workspace_id
+                        != decode_membership_head(&envelope.workspace_id).ok_or(
+                            WorkspaceSessionError::InvalidInviteAdmission(
+                                "address notice workspace is malformed",
+                            ),
+                        )?
+                    || projection
+                        .canonical_head
+                        .as_ref()
+                        .and_then(|head| decode_membership_head(head.as_str()))
+                        != Some(notice.observed_membership_head)
+                    || notice.expires_at <= now()?
+                    || notice.expires_at > now()?.saturating_add(ADDRESS_NOTICE_MAX_TTL_SECONDS)
+                {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "address notice binding or expiry is invalid",
+                    ));
+                }
+                self.conversation_controls
+                    .push(ConversationControl::AddressNotice {
+                        authenticated_sender: sender_identity,
+                        exact_bytes: exact.bytes().to_vec(),
+                    });
+            }
+            EnvelopeBody::RecipientKey(bytes) => {
+                if !sender_is_member {
+                    return Err(WorkspaceSessionError::InvalidInviteAdmission(
+                        "recipient key is not from a current member",
+                    ));
+                }
+                let current_members = projection.members.clone();
+                let (identity, workspace_id, store) = self.conversation_authority_context()?;
+                ConversationAuthority::open(identity, &workspace_id, store)?
+                    .accept_recipient_record(&bytes, &current_members)?;
+            }
             EnvelopeBody::Heartbeat { sent_at } => {
                 // An inviter can be connected before its genesis/member record
                 // reaches a pending joiner. Its early heartbeat grants no
@@ -810,6 +991,10 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
         std::mem::take(&mut self.transitions)
     }
 
+    pub fn take_conversation_controls(&mut self) -> Vec<ConversationControl> {
+        std::mem::take(&mut self.conversation_controls)
+    }
+
     pub(crate) fn pending_transition_count(&self) -> usize {
         self.transitions.len()
     }
@@ -827,6 +1012,20 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
             active.summary.id.as_str().to_owned(),
             self.catalog
                 .open_workspace_for_initialization(&active.summary.id)?,
+        ))
+    }
+
+    pub(crate) fn conversation_runtime_context(
+        &self,
+    ) -> Result<(InstallationIdentity, String, WorkspaceStore, MembershipLog), WorkspaceSessionError>
+    {
+        let active = self.active()?;
+        Ok((
+            self.identity.clone(),
+            active.summary.id.as_str().to_owned(),
+            self.catalog
+                .open_workspace_for_initialization(&active.summary.id)?,
+            active.log.clone(),
         ))
     }
 

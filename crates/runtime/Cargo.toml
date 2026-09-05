@@ -16,6 +16,7 @@ commonware-codec = { version = "=2026.7.1", default-features = false, features =
 commonware-cryptography = { version = "=2026.7.1", default-features = false, features = ["std"] }
 commonware-p2p = { version = "=2026.7.1", default-features = false }
 commonware-runtime = { version = "=2026.7.1", default-features = false }
+commonware-utils = { version = "=2026.7.1", default-features = false, features = ["std"] }
 getrandom = "0.3.4"
 hpke = { version = "=0.14.0", default-features = false, features = ["alloc", "getrandom", "x25519", "chacha"] }
 iroh = "=1.0.3"

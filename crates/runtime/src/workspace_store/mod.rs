@@ -896,6 +896,24 @@ impl WorkspaceStore {
         Ok(duties)
     }
 
+    pub fn mark_publication_delivered(
+        &self,
+        transport: &str,
+        record_id: &[u8],
+        delivered_at: i64,
+    ) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute(
+            "UPDATE publication_duties SET delivered_at = ?1
+             WHERE transport = ?2 AND record_id = ?3 AND invalidated = 0",
+            params![delivered_at, transport, record_id],
+        )?;
+        Ok(())
+    }
+
     pub fn exact_epoch_for_head(
         &self,
         head: &RecordId,
@@ -924,6 +942,65 @@ impl WorkspaceStore {
             [],
             |row| row.get(0),
         )?)
+    }
+
+    pub fn next_conversation_address_generation(&self) -> Result<u64, WorkspaceStoreError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "UPDATE conversation_mesh_state
+             SET local_address_generation = local_address_generation + 1
+             WHERE singleton = 1",
+            [],
+        )?;
+        let generation = transaction.query_row(
+            "SELECT local_address_generation FROM conversation_mesh_state WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        transaction.commit()?;
+        Ok(generation)
+    }
+
+    pub fn record_conversation_address_notice(
+        &self,
+        sender: &[u8; 32],
+        generation: u64,
+        expires_at: i64,
+        exact_record: &[u8],
+    ) -> Result<(), WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        connection.execute(
+            "INSERT INTO conversation_address_notices
+               (sender, generation, expires_at, exact_record)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(sender) DO UPDATE SET
+               generation = excluded.generation,
+               expires_at = excluded.expires_at,
+               exact_record = excluded.exact_record
+             WHERE excluded.generation > conversation_address_notices.generation",
+            params![sender.as_slice(), generation, expires_at, exact_record],
+        )?;
+        Ok(())
+    }
+
+    pub fn conversation_address_notices(&self) -> Result<Vec<Vec<u8>>, WorkspaceStoreError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| WorkspaceStoreError::LockPoisoned)?;
+        let mut statement = connection
+            .prepare("SELECT exact_record FROM conversation_address_notices ORDER BY sender")?;
+        let records = statement
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<Vec<u8>>, _>>()?;
+        Ok(records)
     }
 
     pub fn invalidate_conversation_head(
@@ -1367,6 +1444,9 @@ fn migrate_steps(connection: &Connection) -> Result<(), WorkspaceStoreError> {
     }
     if version == 11 && !table_exists(connection, "conversation_message_archive")? {
         connection.execute_batch(include_str!("../../migrations/0011_conversation_state.sql"))?;
+    }
+    if version == 11 && !table_exists(connection, "conversation_mesh_state")? {
+        connection.execute_batch(include_str!("../../migrations/0011_conversation_mesh.sql"))?;
     }
     if version != CURRENT_SCHEMA_VERSION {
         return Err(WorkspaceStoreError::InvalidIdentifier("schema"));

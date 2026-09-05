@@ -1,9 +1,13 @@
 //! Canonical conversation records and cryptography kept behind the runtime boundary.
 
+mod address_directory;
 pub mod authority;
 mod channels;
 pub mod crypto;
+mod framing;
 mod key_custody;
+pub mod lookup;
+pub mod mesh;
 mod recovery;
 pub mod runtime;
 mod store;
@@ -11,6 +15,8 @@ pub mod testing;
 pub mod wire;
 
 use std::fmt;
+
+pub(crate) use address_directory::ADDRESS_NOTICE_MAX_TTL_SECONDS;
 
 /// Finite refusal reasons at the conversation wire and cryptography boundary.
 #[derive(Clone, Debug, PartialEq, Eq)]

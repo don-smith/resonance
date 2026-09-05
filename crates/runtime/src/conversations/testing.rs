@@ -10,6 +10,7 @@ use super::{
         seal_message_with_nonce, wrap_epoch_key_with_randomness, EpochEnvelopeContextV1, EpochKey,
         HpkeEpochEnvelopeV1, MessageHeaderInputV1, RecipientPrivateKey, RecipientPublicKey,
     },
+    mesh::{ConversationMeshError, ProductionConversationMesh},
     runtime::{ConversationRuntime, ConversationRuntimeError},
     wire::ExactRecordV1,
     ConversationError,
@@ -89,6 +90,12 @@ pub fn records_eligible_for(
     requester: crate::identity::PublicIdentity,
 ) -> Result<Vec<Vec<u8>>, ConversationRuntimeError> {
     runtime.records_eligible_for(requester)
+}
+
+pub fn force_mesh_thread_panic(
+    mesh: &ProductionConversationMesh,
+) -> Result<(), ConversationMeshError> {
+    mesh.force_thread_panic()
 }
 
 pub fn wrap_epoch_key(

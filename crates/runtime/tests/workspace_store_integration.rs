@@ -238,6 +238,16 @@ fn completes_conversation_state_for_an_existing_phase3_schema_v11_workspace() {
             .expect("conversation archive exists"),
         0
     );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT local_address_generation FROM conversation_mesh_state WHERE singleton = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("conversation mesh state exists"),
+        0
+    );
     fs::remove_dir_all(root).expect("temporary directory cleans up");
 }
 

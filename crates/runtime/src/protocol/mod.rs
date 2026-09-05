@@ -35,6 +35,9 @@ pub enum EnvelopeBody {
     Heartbeat {
         sent_at: i64,
     },
+    DepartureRequest(Vec<u8>),
+    AddressNotice(Vec<u8>),
+    RecipientKey(Vec<u8>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -46,6 +49,7 @@ pub enum ProtocolError {
     InvalidSignature,
     InvalidJoinRequest,
     InvalidFileHistoryNotice,
+    InvalidConversationControl,
 }
 
 impl fmt::Display for ProtocolError {
@@ -65,6 +69,9 @@ impl fmt::Display for ProtocolError {
             Self::InvalidJoinRequest => formatter.write_str("workspace join request is invalid"),
             Self::InvalidFileHistoryNotice => {
                 formatter.write_str("workspace file-history notice is invalid")
+            }
+            Self::InvalidConversationControl => {
+                formatter.write_str("workspace conversation control is invalid")
             }
         }
     }
@@ -170,6 +177,16 @@ fn validate_unsigned(envelope: &UnsignedEnvelope) -> Result<(), ProtocolError> {
                 }) =>
         {
             Err(ProtocolError::InvalidFileHistoryNotice)
+        }
+        EnvelopeBody::DepartureRequest(bytes)
+            if bytes.is_empty() || bytes.len() > crate::conversations::wire::MAX_RECORD_BYTES =>
+        {
+            Err(ProtocolError::InvalidConversationControl)
+        }
+        EnvelopeBody::AddressNotice(bytes) | EnvelopeBody::RecipientKey(bytes)
+            if bytes.is_empty() || bytes.len() > crate::conversations::wire::MAX_RECORD_BYTES =>
+        {
+            Err(ProtocolError::InvalidConversationControl)
         }
         _ => Ok(()),
     }

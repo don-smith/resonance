@@ -94,10 +94,9 @@ impl ConversationsRequest {
                         .is_none_or(|value| decode_identifier::<32>(value).is_some())
                     && (1..=MAX_PAGE_SIZE).contains(limit)
             }
-            Self::CreateChannel { name } => valid_text(name, MAX_CHANNEL_NAME_BYTES),
+            Self::CreateChannel { name } => valid_channel_name(name),
             Self::RenameChannel { channel_id, name } => {
-                decode_identifier::<16>(channel_id).is_some()
-                    && valid_text(name, MAX_CHANNEL_NAME_BYTES)
+                decode_identifier::<16>(channel_id).is_some() && valid_channel_name(name)
             }
             Self::ArchiveChannel { channel_id } => decode_identifier::<16>(channel_id).is_some(),
             Self::PostMessage {
@@ -203,7 +202,7 @@ pub struct ConversationChannelView {
 
 impl ConversationChannelView {
     fn validate(&self) -> bool {
-        valid_identifier(&self.channel_id) && valid_text(&self.name, MAX_CHANNEL_NAME_BYTES)
+        valid_identifier(&self.channel_id) && valid_channel_name(&self.name)
     }
 }
 
@@ -650,6 +649,10 @@ fn valid_identifier(value: &str) -> bool {
 fn valid_text(value: &str, max_bytes: usize) -> bool {
     !value.trim().is_empty() && value.len() <= max_bytes
 }
+
+fn valid_channel_name(value: &str) -> bool {
+    value.starts_with('#') && value.len() > 1 && valid_text(value, MAX_CHANNEL_NAME_BYTES)
+}
 fn sync_view(state: ConversationSyncState) -> SynchronizationView {
     match state {
         ConversationSyncState::Offline => SynchronizationView::Offline,
@@ -743,6 +746,24 @@ mod tests {
             "name": "é".repeat(41)
         }))
         .is_err());
+        assert!(ConversationsRequest::parse(serde_json::json!({
+            "operation": "create-channel",
+            "name": "planning"
+        }))
+        .is_err());
+        assert!(ConversationsRequest::parse(serde_json::json!({
+            "operation": "create-channel",
+            "name": "#planning"
+        }))
+        .is_ok());
+        assert!(!ConversationChannelView {
+            channel_id: "000102030405060708090a0b0c0d0e0f".to_owned(),
+            name: "general".to_owned(),
+            archived: false,
+            unread_count: 0,
+            can_manage: false,
+        }
+        .validate());
         assert!(ConversationsRequest::parse(serde_json::json!({
             "operation": "post-message",
             "channelId": "000102030405060708090a0b0c0d0e0f",

@@ -10,7 +10,12 @@
   ],
   "$defs": {
     "identifier": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "channelName": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "channelName": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 80,
+      "pattern": "^#"
+    },
     "markdown": { "type": "string", "maxLength": 16384 },
     "safeInteger": {
       "type": "integer",

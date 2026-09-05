@@ -6,11 +6,11 @@ Role: owns the technical contracts that all subsystems must satisfy, and coordin
 
 ## Assumptions
 
-- **RS.SYS-A01 Tokio is the async runtime.** The Tauri backend uses Tokio. All Rust subsystems compose on Tokio's async executor. Blocking operations are offloaded to blocking thread pools.
+- **RS.SYS-A01 Tokio is the application async runtime.** The Tauri backend and ordinary Rust subsystems compose on Tokio. The production Commonware conversation adapter is the bounded exception: it owns Commonware's blocking Tokio runner on one named OS thread and communicates with the application through bounded queues. SQLite, authority replay, and conversation cryptography remain outside that thread.
 
 - **RS.SYS-A02 The webview is the UI layer.** All user interface is implemented in the system webview. Rust provides capability (commands, events) but never renders UI directly.
 
-- **RS.SYS-A03 SQLite is the local persistence store.** Structured data (conversation history, workspace member list, workspace-file history, registered repositories, telemetry) is persisted in a local SQLite database via `rusqlite`. Immutable workspace-file blobs and message-log compactions are stored as private files.
+- **RS.SYS-A03 SQLite is the local persistence store.** Structured data, including conversation archives, workspace member lists, workspace-file history, registered repositories, and telemetry, is persisted in a local SQLite database via `rusqlite`. Immutable workspace-file blobs are stored as private files.
 
 ---
 
@@ -18,7 +18,7 @@ Role: owns the technical contracts that all subsystems must satisfy, and coordin
 
 ### Subsystem boundaries
 
-- **RS.SYS-R01 Subsystems communicate through defined interfaces.** The identity subsystem exposes functions; the transport subsystem exposes connection and gossip APIs; the document subsystem exposes document handles. Subsystems do not reach into each other's internal state. `refines: RS-R10`
+- **RS.SYS-R01 Subsystems communicate through defined interfaces.** Identity owns installation signing and recipient-key custody; workspace membership owns canonical authority; Iroh transport owns workspace delivery; conversation runtime owns canonical records, cryptography, storage, and its Commonware mesh. Subsystems do not reach into each other's internal state or expose infrastructure handles to packages. `refines: RS-R10`
 
 - **RS.SYS-R02 The event bus is the cross-package boundary.** Rust-to-webview communication uses Tauri events for notifications and Tauri commands for request/response. Package-to-package communication uses events only. `refines: RS-R08, RS-R10`
 
@@ -48,7 +48,7 @@ Role: owns the technical contracts that all subsystems must satisfy, and coordin
 
 - **RS.SYS-R11 Package filesystem access is bounded.** Packages access the filesystem through explicit Tauri commands, not direct filesystem APIs. The runtime enforces path containment. A package may not traverse above its declared root.
 
-- **RS.SYS-R12 Credentials are never passed to packages.** The runtime does not expose the member's private key or workspace token to the webview. Signing operations are performed in Rust; packages receive only the public key and signed results.
+- **RS.SYS-R12 Credentials are never passed to packages.** The runtime does not expose installation signing secrets, conversation recipient private keys, epoch keys, workspace tokens, or raw signed records to the webview. Signing, wrapping, sealing, and authenticated opening are performed in Rust; packages receive bounded semantic views only.
 
 ### Persistence
 

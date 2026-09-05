@@ -25,7 +25,7 @@ Problems with Tauri integration:
 Iroh is a Rust P2P networking library from n0 (formerly the Dat/Hypercore team). It provides:
 - `iroh::Endpoint` — QUIC-based connections with hole-punching and relay fallback.
 - `iroh-blobs` — content-addressed blob replication.
-- `iroh-gossip` — pub/sub over a topic key, suitable for workspace membership, channel discovery, and lightweight message gossip.
+- `iroh-gossip` — pub/sub over a topic key, suitable for workspace membership, presence, and bounded workspace-file or conversation-bootstrap notices.
 
 Iroh integrates as a Rust crate in the Tauri backend. No sidecar, no cross-runtime IPC.
 
@@ -47,6 +47,6 @@ Tradeoffs accepted:
 ## Consequences
 
 - Copland's Holepunch code is not reused. Its protocol design decisions are reference material.
-- The Iroh integration is a Tauri plugin (a Rust crate). It exposes Tauri commands for peer connection, document sync, and channel messaging.
+- The Iroh integration is a Tauri plugin (a Rust crate). It exposes Tauri commands for peer connection and workspace-file synchronization. RFC 0011 supersedes the original channel-messaging consequence: conversations use a runtime-owned Commonware mesh over validated directly reachable routes. Iroh carries only membership and bounded secret-free conversation bootstrap control; it is not a message, epoch, acknowledgement, or recovery fallback.
 - Yjs (not Autobase) handles multi-writer document convergence. Iroh provides the transport only.
 - Teams that want to self-host a relay can run `iroh-relay` (available from the Iroh project).

@@ -33,7 +33,7 @@ A bundled manifest has these fields:
 - `minRole`, one of `viewer`, `contributor`, or `developer`;
 - optional semantic `capabilities` and agent configuration.
 
-Manifest and capability versions are independent. For example, `workspace-files:v1` can evolve without changing manifest v2. The catalog rejects duplicate IDs, absolute entries, traversal, symlink escapes, missing entries, and unknown manifest fields.
+Manifest and capability versions are independent. For example, `workspace-files:v1` and `conversations:v1` can evolve without changing manifest v2. The catalog rejects duplicate IDs, absolute entries, traversal, symlink escapes, missing entries, and unknown manifest fields.
 
 ## Lifecycle
 
@@ -55,7 +55,7 @@ If `mount` allocates a resource and then fails, clean it before throwing or thro
 
 Import package interfaces from `@resonance/package-sdk`. `PackageContext` contains immutable package identity, declared-event access, shell design-token names, and only the capabilities declared by the validated manifest.
 
-A package may emit and consume only declared events. Privileged work uses a semantic capability such as `context.capabilities.workspaceFilesV1`; packages never receive command names, raw Tauri transport, desktop state, local paths, keys, tokens, persistence details, signed operations, blobs, watcher state, SQL details, or Iroh handles.
+A package may emit and consume only declared events. Privileged work uses a semantic capability such as `context.capabilities.workspaceFilesV1` or `context.capabilities.conversationsV1`; packages never receive command names, raw Tauri transport, desktop state, local paths, keys, tokens, persistence details, signed operations, blobs, watcher state, SQL details, Iroh handles, or Commonware handles.
 
 Request a new runtime capability only when the operation needs host or Rust authority and cannot be implemented from existing SDK methods. The proposal must define one versioned semantic interface, bounded secret-free request and result shapes, finite safe errors, production and test adapters, shared TypeScript/Rust fixtures, cleanup, and authorization behavior. Do not add a generic invoke escape hatch.
 

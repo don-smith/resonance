@@ -26,9 +26,13 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 **Workspace file.** An ordinary file or directory in the workspace file tree, never in a Git repository by virtue of workspace synchronization. Its authority is the signed file-operation history and immutable content blobs; each member may bind that tree to a different private local root. A Markdown workspace file can be opened through the rendered editor. `See: 02-system/03-documents/`
 
-**Conversation.** An append-only log of messages organized into named channels. Messages are attributed to a member by cryptographic signature. `See: 02-system/04-conversations/`
+**Conversation.** An append-only log of encrypted, attributed Markdown messages organized into named public channels. The runtime authorizes records from the canonical historical workspace membership lineage and assigns each canonical head a conversation authorization epoch. `See: 02-system/04-conversations/`
 
-**Channel.** A named conversation within a workspace. Channels are workspace-scoped, not repository-scoped.
+**Conversation authorization epoch.** The encryption and authorization boundary named by a canonical membership head. Admission and removal open a new epoch; historical epochs remain eligible only for installations whose membership intervals and retained keys permit them.
+
+**Membership interval.** One installation's contiguous period of canonical workspace membership, identified by the `AddMember` operation that opened it. Re-admission always opens a fresh interval, so old departure requests and absent-interval recovery rights do not carry forward.
+
+**Channel.** A named workspace-public conversation. Any current member may create one, while its creator alone may rename or archive it. Channels are workspace-scoped, not repository-scoped.
 
 ---
 
@@ -54,11 +58,13 @@ Canonical terminology for the Resonance system. When a term here conflicts with 
 
 ## Sync and transport
 
-**P2P transport.** The Iroh-based layer that manages peer connections, hole-punching, relay fallback, blob replication, and gossip. Used for authenticated workspace-file recovery, conversation replication, and workspace membership. `See: 02-system/02-transport/`
+**P2P transport.** The Iroh-based layer that manages workspace lifecycle, peer connections, hole-punching, relay fallback, blob replication, and gossip. It supports membership and authenticated workspace-file recovery. `See: 02-system/02-transport/`
 
-**Gossip topic.** An Iroh gossip channel identified by a domain-separated digest of the workspace token. Used for membership delivery/recovery, signed presence, workspace-file history notices, and chat channel discovery. It is not the membership authority or durable file history.
+**Gossip topic.** An Iroh gossip channel identified by a domain-separated digest of the workspace token. Used for membership delivery and recovery, signed presence, workspace-file history notices, and bounded secret-free conversation departure, address, and recipient-public-key control. It is not membership authority, durable file history, or conversation-record transport.
 
-**Relay.** A Resonance-operated (or team-operated) QUIC relay that forwards encrypted traffic between peers who cannot connect directly. The relay carries no plaintext content and holds no content authority. `See: RS-T01`
+**Conversation mesh.** The Commonware authenticated lookup mesh that carries epoch, channel, encrypted-message, acknowledgement, and recovery records over validated directly reachable LAN, VPN, Tailscale, or equivalent private-network addresses. It has no rendezvous, NAT traversal, or relay fallback in v1. `See: 02-system/04-conversations/`
+
+**Relay.** A Resonance-operated (or team-operated) QUIC relay that forwards encrypted traffic between peers who cannot connect directly. The relay carries no plaintext content and holds no content authority. It is not a fallback for the v1 conversation mesh. `See: RS-T01`
 
 **Hole-punching.** A technique for establishing a direct P2P connection between two peers behind NAT. Iroh handles hole-punching; relay is the fallback.
 

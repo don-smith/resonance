@@ -1,12 +1,12 @@
 # Transport — Requirements
 
-Role: owns the Iroh P2P layer: endpoint management, peer connection, hole-punching, relay fallback, gossip topics, and blob replication. Provides the transport substrate for identity gossip, authenticated workspace-file recovery, and conversation replication.
+Role: owns the Iroh P2P layer: endpoint management, peer connection, hole-punching, relay fallback, gossip topics, and blob replication. It provides membership delivery, identity presence, authenticated workspace-file recovery, and bounded secret-free conversation bootstrap control; the conversation domain owns its direct Commonware replication.
 
 ---
 
 ## Assumptions
 
-- **RS.SYS.TRNS-A01 Iroh is the transport implementation.** See decision 0003. The transport layer does not expose Iroh-specific types to packages; packages interact with transport through the event bus and Tauri commands.
+- **RS.SYS.TRNS-A01 Iroh is the workspace transport implementation.** See decisions 0003 and 0011. Iroh owns workspace lifecycle, membership delivery and recovery, presence, workspace-file transport, and bounded secret-free conversation bootstrap control. Conversation records use a separately managed direct Commonware mesh. Neither transport exposes raw types to packages; packages interact through semantic capabilities, events, and Tauri commands.
 
 - **RS.SYS.TRNS-A02 The workspace token is the primary discovery key.** Peers find each other by joining the Iroh gossip topic derived from the workspace token.
 
@@ -24,7 +24,7 @@ Role: owns the Iroh P2P layer: endpoint management, peer connection, hole-punchi
 
 ### Gossip
 
-- **RS.SYS.TRNS-R04 Each workspace uses one root gossip topic.** The root topic ID is a domain-separated digest of the 32-byte workspace token. It carries membership operations/recovery, signed presence, channel discovery, and bounded workspace-file history notices or recovery requests. File history and bytes use authenticated streams; high-frequency conversation data uses per-channel sub-topics.
+- **RS.SYS.TRNS-R04 Each workspace uses one root gossip topic.** The root topic ID is a domain-separated digest of the 32-byte workspace token. It carries membership operations and recovery, signed presence, workspace-file history notices or recovery requests, and bounded signed conversation departure requests, direct-address notices, and recipient-public-key records. File history and bytes use authenticated streams. Iroh never carries conversation channel, message, epoch, acknowledgement, recovery, wrapped-key, or epoch-secret bytes.
 
 - **RS.SYS.TRNS-R05 Gossip messages are signed.** Every normal gossip message includes the sender's public key and a domain-separated signature. Receivers verify the signature and check the sender against the canonical member list before processing; the named-inviter join request is the narrow onboarding exception. `refines: RS.SYS.ID-R09`
 
@@ -32,10 +32,10 @@ Role: owns the Iroh P2P layer: endpoint management, peer connection, hole-punchi
 
 - **RS.SYS.TRNS-R06 Blobs are content-addressed.** Workspace-file revision bytes and other static content are stored and transferred as content-addressed blobs. Receiving peers verify the declared hash before accepting.
 
-- **RS.SYS.TRNS-R07 Blob transfer is on-demand.** Peers request blobs when they need them (e.g., on channel join, on workspace join). The runtime does not proactively push blobs to new peers; it responds to requests.
+- **RS.SYS.TRNS-R07 Blob transfer is on-demand.** Peers request workspace-file blobs when needed. Conversation records and recovery responses are not Iroh blobs. The runtime does not proactively push workspace-file blobs to new peers; it responds to authorized requests.
 
 ### Relay
 
 - **RS.SYS.TRNS-R08 Relay URL is configurable.** The optional relay URL is persisted in workspace configuration and carried by signed invites, not compiled into the app. Its absence selects Iroh's public production relay mode. Teams may self-host `iroh-relay` and configure the URL in their fork. `refines: RS-T01`
 
-- **RS.SYS.TRNS-R09 Relay carries no content authority.** The relay forwards encrypted QUIC traffic. It cannot read message content or document data. Relay operators can observe connection metadata (who connected to whom, when) but not content.
+- **RS.SYS.TRNS-R09 Relay carries no content authority.** The Iroh relay forwards encrypted QUIC traffic for Iroh duties. It cannot read workspace-file content and is not a fallback for v1 Commonware conversations. Relay operators can observe connection metadata (who connected to whom, when) but not encrypted Iroh content.

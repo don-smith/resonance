@@ -1,5 +1,7 @@
 //! Installation-key custody behind a native credential-store boundary.
 
+use commonware_codec::DecodeExt;
+use commonware_cryptography::{ed25519, Signer as _};
 use iroh::SecretKey;
 
 mod domain;
@@ -40,19 +42,23 @@ impl InstallationIdentity {
                 let bytes: [u8; 32] = bytes
                     .try_into()
                     .map_err(|_| IdentityError::MalformedStoredSecret)?;
-                Ok(Self {
-                    secret_key: SecretKey::from_bytes(&bytes),
-                })
+                Self::from_secret_key(SecretKey::from_bytes(&bytes))
             }
             Err(CustodyError::Missing) => {
                 let secret_key = SecretKey::generate();
                 custody
                     .write_secret(&secret_key.to_bytes())
                     .map_err(|_| IdentityError::StoreUnavailable)?;
-                Ok(Self { secret_key })
+                Self::from_secret_key(secret_key)
             }
             Err(CustodyError::Unavailable) => Err(IdentityError::StoreUnavailable),
         }
+    }
+
+    fn from_secret_key(secret_key: SecretKey) -> Result<Self, IdentityError> {
+        let identity = Self { secret_key };
+        identity.commonware_signer()?;
+        Ok(identity)
     }
 
     pub fn load_or_create_native() -> Result<Self, IdentityError> {
@@ -70,6 +76,45 @@ impl InstallationIdentity {
 
     pub(crate) fn transport_secret_key(&self) -> SecretKey {
         self.secret_key.clone()
+    }
+
+    /// Reconstructs Commonware's signer from the installation secret already in memory.
+    /// No second signing secret is generated or persisted.
+    pub(crate) fn commonware_signer(&self) -> Result<ed25519::PrivateKey, IdentityError> {
+        let secret = self.secret_key.to_bytes();
+        let signer = ed25519::PrivateKey::decode(secret.as_slice())
+            .map_err(|_| IdentityError::MalformedStoredSecret)?;
+        if signer.public_key().as_ref() != self.public_identity().as_bytes() {
+            return Err(IdentityError::MalformedStoredSecret);
+        }
+        Ok(signer)
+    }
+}
+
+#[cfg(test)]
+mod commonware_identity_tests {
+    use commonware_cryptography::{Signer as _, Verifier as _};
+
+    use super::{InMemoryKeyCustody, InstallationIdentity};
+
+    #[test]
+    fn reconstructs_commonware_signer_from_the_installation_secret() {
+        let custody = InMemoryKeyCustody::with_secret(vec![41; 32]);
+        let identity = InstallationIdentity::load_or_create(&custody).expect("identity loads");
+
+        let signer = identity
+            .commonware_signer()
+            .expect("commonware signer reconstructs");
+        let signature = signer.sign(b"resonance.identity.test", b"same key");
+
+        assert_eq!(
+            signer.public_key().as_ref(),
+            identity.public_identity().as_bytes()
+        );
+        assert!(signer
+            .public_key()
+            .verify(b"resonance.identity.test", b"same key", &signature));
+        assert_eq!(custody.stored_secret_len(), Some(32));
     }
 }
 

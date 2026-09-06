@@ -20,12 +20,16 @@ export class ConversationsPackage implements PackageInstance {
   readonly #conversations: ConversationsV1;
   readonly #submit = (event: Event) => void this.#handleSubmit(event);
   readonly #click = (event: Event) => void this.#handleClick(event);
+  readonly #input = (event: Event) => this.#rememberDraft(event);
   #unsubscribe: (() => void) | null;
   #snapshot: ConversationsSnapshot | null = null;
   #messages: readonly ConversationMessage[] = [];
   #nextCursor: string | null = null;
   #selectedChannelId: string | null = null;
+  #renderedChannelId: string | null = null;
   #message: string | null = null;
+  #drafts = new Map<string, string>();
+  #focusedDraft: string | null = null;
   #version = 0;
   #active = false;
   #disposed = false;
@@ -35,12 +39,13 @@ export class ConversationsPackage implements PackageInstance {
     this.#conversations = conversations;
     this.#root.addEventListener("submit", this.#submit);
     this.#root.addEventListener("click", this.#click);
+    this.#root.addEventListener("input", this.#input);
     this.#unsubscribe = conversations.subscribe((invalidation) => {
       if (
         !this.#disposed &&
         invalidation.workspaceId === this.#snapshot?.workspaceId
       )
-        void this.#refresh(invalidation.channelId);
+        void this.#refresh();
     });
   }
 
@@ -63,16 +68,22 @@ export class ConversationsPackage implements PackageInstance {
     this.#unsubscribe = null;
     this.#root.removeEventListener("submit", this.#submit);
     this.#root.removeEventListener("click", this.#click);
+    this.#root.removeEventListener("input", this.#input);
     this.#root.replaceChildren();
   }
 
-  async #refresh(preferredChannelId?: string): Promise<void> {
+  async #refresh(forceRender = false): Promise<void> {
     const version = ++this.#version;
     try {
       const snapshot = await this.#conversations.snapshot();
       if (version !== this.#version || this.#disposed) return;
+      const previousSnapshot = this.#snapshot;
+      const previousMessages = this.#messages;
+      const previousCursor = this.#nextCursor;
+      const hadMessage = this.#message !== null;
       this.#snapshot = snapshot;
-      const current = preferredChannelId ?? this.#selectedChannelId;
+      this.#message = null;
+      const current = this.#selectedChannelId;
       const selected =
         snapshot.channels.find(
           ({ channelId, archived }) => channelId === current && !archived,
@@ -89,7 +100,13 @@ export class ConversationsPackage implements PackageInstance {
       this.#messages = page?.messages ?? [];
       this.#nextCursor = page?.nextCursor ?? null;
       if (version !== this.#version || this.#disposed) return;
-      if (this.#active) this.#render();
+      const viewChanged =
+        hadMessage ||
+        this.#renderedChannelId !== this.#selectedChannelId ||
+        previousCursor !== this.#nextCursor ||
+        JSON.stringify(previousSnapshot) !== JSON.stringify(this.#snapshot) ||
+        JSON.stringify(previousMessages) !== JSON.stringify(this.#messages);
+      if (this.#active && (forceRender || viewChanged)) this.#render();
     } catch (error) {
       if (version !== this.#version || this.#disposed) return;
       this.#message = isConversationsError(error)
@@ -136,6 +153,8 @@ export class ConversationsPackage implements PackageInstance {
     }
     layout.append(sidebar, conversation);
     this.#root.append(layout);
+    this.#renderedChannelId = selected?.channelId ?? null;
+    this.#restoreFocusedDraft();
   }
 
   #channelList(document: Document): HTMLElement {
@@ -165,6 +184,7 @@ export class ConversationsPackage implements PackageInstance {
     input.required = true;
     input.maxLength = 80;
     input.placeholder = "#new-public-channel";
+    this.#restoreDraft("create-channel", input);
     const button = document.createElement("button");
     button.type = "submit";
     button.textContent = "Create channel";
@@ -190,6 +210,7 @@ export class ConversationsPackage implements PackageInstance {
       input.value = channel.name;
       input.required = true;
       input.maxLength = 80;
+      this.#restoreDraft("rename-channel", input);
       const submit = document.createElement("button");
       submit.type = "submit";
       submit.textContent = "Rename";
@@ -246,6 +267,7 @@ export class ConversationsPackage implements PackageInstance {
       markdown.maxLength = 16_384;
       markdown.required = true;
       markdown.placeholder = "Write Markdown";
+      this.#restoreDraft("post-message", markdown);
       const send = document.createElement("button");
       send.type = "submit";
       send.textContent = "Post message";
@@ -254,13 +276,50 @@ export class ConversationsPackage implements PackageInstance {
     }
   }
 
+  #rememberDraft(event: Event): void {
+    const target = event.target;
+    if (
+      !(
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement
+      )
+    )
+      return;
+    const action = target.form?.dataset.action;
+    if (!action || !target.name) return;
+    const key = `${action}:${target.name}`;
+    this.#drafts.set(key, target.value);
+    this.#focusedDraft = key;
+  }
+
+  #restoreDraft(
+    action: string,
+    control: HTMLInputElement | HTMLTextAreaElement,
+  ): void {
+    const value = this.#drafts.get(`${action}:${control.name}`);
+    if (value !== undefined) control.value = value;
+  }
+
+  #restoreFocusedDraft(): void {
+    if (!this.#focusedDraft) return;
+    const [action, name] = this.#focusedDraft.split(":", 2);
+    const root = this.#root as unknown as {
+      querySelector?: (
+        selector: string,
+      ) => HTMLInputElement | HTMLTextAreaElement | null;
+    };
+    root
+      .querySelector?.(`form[data-action="${action}"] [name="${name}"]`)
+      ?.focus();
+  }
+
   async #handleSubmit(event: Event): Promise<void> {
     const form = event.target as HTMLFormElement;
     const action = form.dataset.action;
     if (!action) return;
     event.preventDefault();
     const values = new FormData(form);
-    await this.#mutate(async () => {
+    await this.#mutate(action, async () => {
       if (action === "create-channel") {
         const channel = await this.#conversations.createChannel(
           channelNameForAuthoring(String(values.get("name") ?? "")),
@@ -288,7 +347,7 @@ export class ConversationsPackage implements PackageInstance {
     const action = button.dataset.action;
     if (action === "select-channel") {
       this.#selectedChannelId = button.dataset.channelId ?? null;
-      await this.#refresh();
+      await this.#refresh(true);
     } else if (
       action === "load-more" &&
       this.#selectedChannelId &&
@@ -296,7 +355,7 @@ export class ConversationsPackage implements PackageInstance {
     ) {
       await this.#loadMore();
     } else if (action === "archive-channel" && this.#selectedChannelId) {
-      await this.#mutate(() =>
+      await this.#mutate("archive-channel", () =>
         this.#conversations.archiveChannel(this.#selectedChannelId!),
       );
     } else if (
@@ -304,7 +363,7 @@ export class ConversationsPackage implements PackageInstance {
       this.#selectedChannelId &&
       button.dataset.messageId
     ) {
-      await this.#mutate(() =>
+      await this.#mutate("mark-read", () =>
         this.#conversations.markRead(
           this.#selectedChannelId!,
           button.dataset.messageId!,
@@ -335,16 +394,37 @@ export class ConversationsPackage implements PackageInstance {
     }
   }
 
-  async #mutate(operation: () => Promise<unknown>): Promise<void> {
+  async #mutate(
+    action: string,
+    operation: () => Promise<unknown>,
+  ): Promise<void> {
     try {
       await operation();
+      const clearedDrafts = this.#clearDrafts(action);
       this.#message = null;
       await this.#refresh();
+      if (clearedDrafts && this.#active) this.#render();
     } catch (error) {
       this.#message = isConversationsError(error)
         ? error.message
         : "The conversation action failed.";
       this.#render();
     }
+  }
+
+  #clearDrafts(action: string): boolean {
+    const prefix = `${action}:`;
+    let cleared = false;
+    for (const key of this.#drafts.keys()) {
+      if (key.startsWith(prefix)) {
+        this.#drafts.delete(key);
+        cleared = true;
+      }
+    }
+    if (this.#focusedDraft?.startsWith(prefix)) {
+      this.#focusedDraft = null;
+      cleared = true;
+    }
+    return cleared;
   }
 }

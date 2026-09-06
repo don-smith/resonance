@@ -3,7 +3,7 @@
 //! This is the only runtime module that imports Iroh or Gossip types. Callers
 //! exchange signed protocol bytes and secret-free peer observations.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, net::SocketAddr};
 
 mod file_stream;
 
@@ -264,17 +264,21 @@ impl IrohTransport {
         .await?)
     }
 
-    pub async fn direct_socket_candidates(&self) -> Vec<std::net::SocketAddr> {
+    pub async fn direct_socket_candidates(&self) -> Vec<SocketAddr> {
         self.endpoint.online().await;
-        self.endpoint
-            .addr()
-            .addrs
-            .into_iter()
-            .filter_map(|address| match address {
-                iroh::TransportAddr::Ip(address) if !address.ip().is_unspecified() => Some(address),
-                _ => None,
-            })
-            .collect()
+        canonical_direct_socket_candidates(
+            self.endpoint
+                .addr()
+                .addrs
+                .into_iter()
+                .filter_map(|address| match address {
+                    iroh::TransportAddr::Ip(address) if !address.ip().is_unspecified() => {
+                        Some(address)
+                    }
+                    _ => None,
+                })
+                .collect(),
+        )
     }
 
     /// Returns a base58, postcard-encoded Iroh node address for an invite.
@@ -568,6 +572,12 @@ impl IrohTransport {
             PeerPath::Unknown
         }
     }
+}
+
+fn canonical_direct_socket_candidates(mut candidates: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates
 }
 
 fn decode_endpoint_addr(encoded: &str) -> Result<EndpointAddr, IrohTransportError> {

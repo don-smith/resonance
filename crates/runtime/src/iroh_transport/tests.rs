@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
-use super::{IrohTransport, TransportEvent};
+use super::{canonical_direct_socket_candidates, IrohTransport, TransportEvent};
 use crate::workspace_file_transport::{
     FileRecoveryService, FileRequest, FileResponse, MAX_BLOB_CHUNK_BYTES,
 };
@@ -10,6 +10,23 @@ use crate::{
     workspace_catalog::WorkspaceCatalog,
     workspace_session::{FakeDeliveryPort, WorkspaceSession},
 };
+
+#[test]
+fn direct_socket_candidates_are_canonical_for_signed_address_notices() {
+    let candidates = canonical_direct_socket_candidates(vec![
+        "127.0.0.1:4002".parse::<SocketAddr>().unwrap(),
+        "127.0.0.1:4001".parse::<SocketAddr>().unwrap(),
+        "127.0.0.1:4002".parse::<SocketAddr>().unwrap(),
+    ]);
+
+    assert_eq!(
+        candidates,
+        vec![
+            "127.0.0.1:4001".parse::<SocketAddr>().unwrap(),
+            "127.0.0.1:4002".parse::<SocketAddr>().unwrap(),
+        ],
+    );
+}
 
 fn identity() -> InstallationIdentity {
     InstallationIdentity::load_or_create(&InMemoryKeyCustody::default())

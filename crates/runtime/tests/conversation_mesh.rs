@@ -362,6 +362,42 @@ fn address_controls_reject_wrong_sender_workspace_member_expiry_and_stale_genera
     member_lookup.stop().expect("member stops");
 }
 
+#[test]
+fn local_address_notice_canonicalizes_candidates_after_port_assignment() {
+    let creator = identity(61);
+    let member = identity(62);
+    let workspace = "ab".repeat(32);
+    let membership = two_member_log(&workspace, &creator, &member);
+    let mut lookup = ConversationLookup::start(
+        member,
+        &workspace,
+        membership,
+        "127.0.0.1:0".parse().expect("listener address parses"),
+    )
+    .expect("lookup starts");
+    let port = lookup.mesh().listen_addr().port();
+    let mut addresses = vec![
+        "127.0.0.1:4002"
+            .parse::<SocketAddr>()
+            .expect("candidate parses"),
+        "127.0.0.1:4001"
+            .parse::<SocketAddr>()
+            .expect("candidate parses"),
+    ];
+    for address in &mut addresses {
+        address.set_port(port);
+    }
+
+    let notice = lookup
+        .local_address_notice_with_addresses(1, 100, addresses)
+        .expect("address notice signs");
+    let ConversationRecordV1::AddressNotice(record) = notice.record() else {
+        panic!("notice has the expected family");
+    };
+    assert_eq!(record.addresses, vec![format!("127.0.0.1:{port}")]);
+    lookup.stop().expect("lookup stops");
+}
+
 fn valid_head(membership: &MembershipLog, workspace: &str) -> [u8; 32] {
     workspace_bytes(
         membership

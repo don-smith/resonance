@@ -531,6 +531,61 @@ fn restores_pending_join_admission_after_a_session_restart() {
 }
 
 #[test]
+fn admitted_join_retry_resends_membership_without_readding_the_member() {
+    let inviter_directory = temporary_directory("admitted-retry-inviter");
+    let joiner_directory = temporary_directory("admitted-retry-joiner");
+    let mut inviter = session(&inviter_directory);
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let invite = inviter.create_invite("bootstrap").expect("invite creates");
+    let mut joiner = session(&joiner_directory);
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    let initial_request = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("initial request sends");
+    inviter
+        .receive(&initial_request)
+        .expect("inviter admits joiner");
+    let _lost_response = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("initial response sends");
+
+    assert!(joiner.retry_join("Lin").expect("join retry sends"));
+    let retry_request = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("retry request sends");
+    inviter
+        .receive(&retry_request)
+        .expect("inviter resends membership");
+    let retry_response = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("retry response sends");
+    let EnvelopeBody::MembershipSyncResponse(operations) = Envelope::decode(&retry_response)
+        .expect("response decodes")
+        .body
+    else {
+        panic!("retry response contains membership sync");
+    };
+    assert_eq!(operations.len(), 2);
+
+    joiner
+        .receive(&retry_response)
+        .expect("joiner applies retried membership");
+    assert_eq!(joiner.view().expect("view").members.len(), 2);
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
 fn keeps_joining_retryable_and_recovers_the_full_operation_set() {
     let inviter_directory = temporary_directory("retry-inviter");
     let joiner_directory = temporary_directory("retry-joiner");

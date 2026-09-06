@@ -265,7 +265,12 @@ impl IrohTransport {
     }
 
     pub async fn direct_socket_candidates(&self) -> Vec<SocketAddr> {
+        #[cfg(feature = "debug-local-profiles")]
+        return debug_local_socket_candidates();
+
+        #[cfg(not(feature = "debug-local-profiles"))]
         self.endpoint.online().await;
+        #[cfg(not(feature = "debug-local-profiles"))]
         canonical_direct_socket_candidates(
             self.endpoint
                 .addr()
@@ -574,6 +579,12 @@ impl IrohTransport {
     }
 }
 
+#[cfg(feature = "debug-local-profiles")]
+fn debug_local_socket_candidates() -> Vec<SocketAddr> {
+    vec![SocketAddr::from(([127, 0, 0, 1], 0))]
+}
+
+#[cfg(any(not(feature = "debug-local-profiles"), test))]
 fn canonical_direct_socket_candidates(mut candidates: Vec<SocketAddr>) -> Vec<SocketAddr> {
     candidates.sort_unstable();
     candidates.dedup();

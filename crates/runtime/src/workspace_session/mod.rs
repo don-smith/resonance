@@ -796,6 +796,15 @@ impl<D: DeliveryPort> WorkspaceSession<D> {
                         "join request is not addressed to this installation",
                     ));
                 }
+                if sender_is_member {
+                    self.send(
+                        EnvelopeBody::MembershipSyncResponse(
+                            self.active()?.log.encoded_operations()?,
+                        ),
+                        envelope.workspace_id,
+                    )?;
+                    return Ok(());
+                }
                 let prepared = self.prepare_add_member(envelope.sender, display_name, now()?)?;
                 let store = self
                     .catalog

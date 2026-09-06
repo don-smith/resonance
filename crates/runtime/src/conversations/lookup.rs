@@ -176,10 +176,7 @@ impl ConversationLookup {
                 observed_membership_head: head,
                 generation,
                 expires_at,
-                addresses: addresses
-                    .into_iter()
-                    .map(|address| address.to_string())
-                    .collect(),
+                addresses: canonical_direct_notice_addresses(addresses),
             }),
             &self.identity,
         )?)
@@ -331,6 +328,16 @@ impl ConversationLookup {
         );
         routes.into_values().collect()
     }
+}
+
+fn canonical_direct_notice_addresses(addresses: Vec<SocketAddr>) -> Vec<String> {
+    let mut addresses = addresses
+        .into_iter()
+        .map(|address| address.to_string())
+        .collect::<Vec<_>>();
+    addresses.sort_unstable();
+    addresses.dedup();
+    addresses
 }
 
 fn decode_hex_32(value: &str) -> Option<[u8; 32]> {

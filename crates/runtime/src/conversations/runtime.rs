@@ -190,6 +190,24 @@ impl ConversationRuntime {
             }
         }
         self.membership = membership;
+        self.recipient_records.clear();
+        for bytes in self.store.all_recipient_key_records()? {
+            let exact = ExactRecordV1::decode(&bytes)?;
+            let ConversationRecordV1::RecipientKey(record) = exact.record() else {
+                return Err(ConversationRuntimeError::InvalidEpoch(
+                    "recipient directory contains another record family",
+                ));
+            };
+            if record.workspace_id == self.workspace_bytes {
+                self.recipient_records.insert(*exact.id(), exact);
+            }
+        }
+        for bytes in self.store.conversation_epoch_records()? {
+            let exact = ExactRecordV1::decode(&bytes)?;
+            let (head, key) = self.validate_and_open_epoch(&exact)?;
+            self.epoch_keys.insert(head, key);
+            self.epoch_records.insert(head, exact);
+        }
         self.local_authoring_blocked = departure_blocks_authoring(
             &self.store,
             &self.membership,

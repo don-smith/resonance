@@ -39,6 +39,7 @@ use crate::{
 pub const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 pub const TRANSPORT_POLL_INTERVAL: Duration = Duration::from_millis(500);
 const RETRY_BACKOFF: Duration = Duration::from_millis(250);
+const MAX_CONVERSATION_MESH_EVENTS_PER_POLL: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkspaceApplicationUpdate {
@@ -398,9 +399,12 @@ impl WorkspaceApplication {
                     }
                 }
                 let conversation_start = async {
-                    let candidates = active.direct_socket_candidates().await;
                     let (identity, workspace, store, membership) =
                         session.conversation_runtime_context()?;
+                    if !conversation_membership_is_ready(&identity, &workspace, &membership) {
+                        return Ok::<_, WorkspaceSessionError>(None);
+                    }
+                    let candidates = active.direct_socket_candidates().await;
                     if self.conversation.is_none() {
                         self.conversation = Some(
                             ConversationRuntime::open(
@@ -464,11 +468,12 @@ impl WorkspaceApplication {
                         })?;
                     session.announce_address_notice(notice.bytes().to_vec())?;
                     session.announce_recipient_key()?;
-                    Ok::<_, WorkspaceSessionError>(lookup)
+                    Ok::<_, WorkspaceSessionError>(Some(lookup))
                 }
                 .await;
                 match conversation_start {
-                    Ok(lookup) => self.conversation_lookup = Some(lookup),
+                    Ok(Some(lookup)) => self.conversation_lookup = Some(lookup),
+                    Ok(None) => self.health.network = None,
                     Err(error) => self.health.network = Some(error.to_string()),
                 }
                 if let Err(error) = active.flush_session(session).await {
@@ -483,128 +488,143 @@ impl WorkspaceApplication {
     }
 
     pub async fn poll_transport(&mut self) -> bool {
-        let Some(transport) = self.transport.as_mut() else {
-            return false;
-        };
-        let Some(session) = self.session.as_mut() else {
-            return false;
-        };
-        let result = time::timeout(
-            TRANSPORT_POLL_INTERVAL,
-            transport.apply_next_session_event(session),
-        )
-        .await;
-        match result {
-            Ok(Ok(view_changed)) => {
-                let mut changed = view_changed;
-                if let Err(error) = transport.flush_session(session).await {
-                    self.health.network = Some(network_delivery_message(error));
-                    changed = true;
-                }
-                match transport.recover_file_history(session).await {
-                    Ok(recovered) => changed |= recovered,
-                    Err(error) => {
+        let mut changed = {
+            let Some(transport) = self.transport.as_mut() else {
+                return false;
+            };
+            let Some(session) = self.session.as_mut() else {
+                return false;
+            };
+            let result = time::timeout(
+                TRANSPORT_POLL_INTERVAL,
+                transport.apply_next_session_event(session),
+            )
+            .await;
+            match result {
+                Ok(Ok(view_changed)) => {
+                    let mut changed = view_changed;
+                    if let Err(error) = transport.flush_session(session).await {
                         self.health.network = Some(network_delivery_message(error));
                         changed = true;
                     }
-                }
-                let controls = session.take_conversation_controls();
-                if let Ok((_, _, store, membership)) = session.conversation_runtime_context() {
-                    if let Some(conversation) = self.conversation.as_mut() {
-                        if conversation.replace_membership(membership.clone()).is_err() {
-                            self.health.network = Some(
-                                "Conversation authority could not apply current membership."
-                                    .to_owned(),
-                            );
+                    match transport.recover_file_history(session).await {
+                        Ok(recovered) => changed |= recovered,
+                        Err(error) => {
+                            self.health.network = Some(network_delivery_message(error));
+                            changed = true;
                         }
                     }
-                    if let Some(lookup) = self.conversation_lookup.as_mut() {
-                        let peer_update_failed =
-                            store.lookup_peer_set_version().ok().is_none_or(|version| {
-                                lookup
-                                    .replace_membership(membership, version, unix_seconds())
-                                    .is_err()
-                            });
-                        if peer_update_failed {
-                            self.health.network =
-                                Some("Conversation peer set could not be updated.".to_owned());
-                        }
-                        for control in controls {
-                            let ConversationControl::AddressNotice {
-                                authenticated_sender,
-                                exact_bytes,
-                            } = control;
-                            if lookup
-                                .accept_address_notice(
-                                    authenticated_sender,
-                                    &exact_bytes,
-                                    unix_seconds(),
-                                )
-                                .is_err()
-                            {
-                                self.health.network =
-                                    Some("Conversation address control was rejected.".to_owned());
+                    let controls = session.take_conversation_controls();
+                    if let Ok((_, _, store, membership)) = session.conversation_runtime_context() {
+                        if let Some(conversation) = self.conversation.as_mut() {
+                            if conversation.replace_membership(membership.clone()).is_err() {
+                                self.health.network = Some(
+                                    "Conversation authority could not apply current membership."
+                                        .to_owned(),
+                                );
                             }
                         }
-                    }
-                }
-                if view_changed {
-                    let conversation_port = self
-                        .conversation_lookup
-                        .as_ref()
-                        .map(|lookup| lookup.mesh().listen_addr().port());
-                    if let Some(port) = conversation_port {
-                        let mut advertised = transport
-                            .direct_socket_candidates()
-                            .await
-                            .into_iter()
-                            .map(|mut address| {
-                                address.set_port(port);
-                                address
-                            })
-                            .collect::<Vec<_>>();
-                        if advertised.is_empty() {
-                            advertised.push(SocketAddr::from(([127, 0, 0, 1], port)));
-                        }
-                        self.conversation_address_generation = session
-                            .conversation_runtime_context()
-                            .ok()
-                            .and_then(|(_, _, store, _)| {
-                                store.next_conversation_address_generation().ok()
-                            })
-                            .unwrap_or_else(|| {
-                                self.conversation_address_generation.saturating_add(1)
-                            });
-                        self.conversation_address_expires_at = unix_seconds().saturating_add(60);
-                        if let Some(lookup) = self.conversation_lookup.as_ref() {
-                            if let Ok(notice) = lookup.local_address_notice_with_addresses(
-                                self.conversation_address_generation,
-                                self.conversation_address_expires_at,
-                                advertised,
-                            ) {
-                                if session
-                                    .announce_address_notice(notice.bytes().to_vec())
-                                    .is_ok()
+                        if let Some(lookup) = self.conversation_lookup.as_mut() {
+                            let peer_update_failed =
+                                store.lookup_peer_set_version().ok().is_none_or(|version| {
+                                    lookup
+                                        .replace_membership(membership, version, unix_seconds())
+                                        .is_err()
+                                });
+                            if peer_update_failed {
+                                self.health.network =
+                                    Some("Conversation peer set could not be updated.".to_owned());
+                            }
+                            for control in controls {
+                                let ConversationControl::AddressNotice {
+                                    authenticated_sender,
+                                    exact_bytes,
+                                } = control;
+                                if lookup
+                                    .accept_address_notice(
+                                        authenticated_sender,
+                                        &exact_bytes,
+                                        unix_seconds(),
+                                    )
+                                    .is_err()
                                 {
-                                    let _ = transport.flush_session(session).await;
+                                    self.health.network = Some(
+                                        "Conversation address control was rejected.".to_owned(),
+                                    );
                                 }
                             }
                         }
                     }
+                    if self.conversation_lookup.is_none()
+                        && session.conversation_runtime_context().is_ok_and(
+                            |(identity, workspace, _, membership)| {
+                                conversation_membership_is_ready(&identity, &workspace, &membership)
+                            },
+                        )
+                    {
+                        self.restart_transport().await;
+                        return true;
+                    }
+                    if view_changed {
+                        let conversation_port = self
+                            .conversation_lookup
+                            .as_ref()
+                            .map(|lookup| lookup.mesh().listen_addr().port());
+                        if let Some(port) = conversation_port {
+                            let mut advertised = transport
+                                .direct_socket_candidates()
+                                .await
+                                .into_iter()
+                                .map(|mut address| {
+                                    address.set_port(port);
+                                    address
+                                })
+                                .collect::<Vec<_>>();
+                            if advertised.is_empty() {
+                                advertised.push(SocketAddr::from(([127, 0, 0, 1], port)));
+                            }
+                            self.conversation_address_generation = session
+                                .conversation_runtime_context()
+                                .ok()
+                                .and_then(|(_, _, store, _)| {
+                                    store.next_conversation_address_generation().ok()
+                                })
+                                .unwrap_or_else(|| {
+                                    self.conversation_address_generation.saturating_add(1)
+                                });
+                            self.conversation_address_expires_at =
+                                unix_seconds().saturating_add(60);
+                            if let Some(lookup) = self.conversation_lookup.as_ref() {
+                                if let Ok(notice) = lookup.local_address_notice_with_addresses(
+                                    self.conversation_address_generation,
+                                    self.conversation_address_expires_at,
+                                    advertised,
+                                ) {
+                                    if session
+                                        .announce_address_notice(notice.bytes().to_vec())
+                                        .is_ok()
+                                    {
+                                        let _ = transport.flush_session(session).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    changed
                 }
-                changed |= self.poll_conversation_mesh();
-                if changed {
-                    self.refresh_file_runtime().ok();
+                Err(_) => false,
+                Ok(Err(error)) => {
+                    self.health.network = Some(network_delivery_message(error));
+                    self.transport.take();
+                    true
                 }
-                changed
             }
-            Err(_) => false,
-            Ok(Err(error)) => {
-                self.health.network = Some(network_delivery_message(error));
-                self.transport.take();
-                true
-            }
+        };
+        changed |= self.poll_conversation_mesh();
+        if changed {
+            self.refresh_file_runtime().ok();
         }
+        changed
     }
 
     fn poll_conversation_mesh(&mut self) -> bool {
@@ -615,7 +635,10 @@ impl WorkspaceApplication {
             return false;
         };
         let mut changed = false;
-        while let Some(event) = lookup.mesh().try_event() {
+        for _ in 0..MAX_CONVERSATION_MESH_EVENTS_PER_POLL {
+            let Some(event) = lookup.mesh().try_event() else {
+                break;
+            };
             match event {
                 ConversationMeshEvent::Received {
                     authenticated_peer,
@@ -674,6 +697,11 @@ impl WorkspaceApplication {
                     };
                     match result {
                         Ok(record_ids) => {
+                            if self.health.network.as_deref().is_some_and(|message| {
+                                message.starts_with("conversation epoch is invalid")
+                            }) {
+                                self.health.network = None;
+                            }
                             if !record_ids.is_empty() {
                                 if let Ok(acknowledgement) =
                                     conversation.acknowledgement(record_ids)
@@ -803,58 +831,72 @@ impl WorkspaceApplication {
 
     pub async fn send_heartbeat_and_expire(&mut self) -> bool {
         let now = unix_seconds();
-        let Some(session) = self.session.as_mut() else {
-            return false;
-        };
-        let mut changed = match session.expire_presence(now) {
-            Ok(changed) => changed,
-            Err(_) => {
-                self.health.storage_unavailable = true;
-                true
-            }
-        };
-        if let Some(transport) = self.transport.as_ref() {
-            if now.saturating_add(15) >= self.conversation_address_expires_at {
-                let conversation_port = self
-                    .conversation_lookup
-                    .as_ref()
-                    .map(|lookup| lookup.mesh().listen_addr().port());
-                if let Some(port) = conversation_port {
-                    let mut advertised = transport
-                        .direct_socket_candidates()
-                        .await
-                        .into_iter()
-                        .map(|mut address| {
-                            address.set_port(port);
-                            address
-                        })
-                        .collect::<Vec<_>>();
-                    if advertised.is_empty() {
-                        advertised.push(SocketAddr::from(([127, 0, 0, 1], port)));
-                    }
-                    self.conversation_address_generation = session
-                        .conversation_runtime_context()
-                        .ok()
-                        .and_then(|(_, _, store, _)| {
-                            store.next_conversation_address_generation().ok()
-                        })
-                        .unwrap_or_else(|| self.conversation_address_generation.saturating_add(1));
-                    self.conversation_address_expires_at = now.saturating_add(60);
-                    if let Some(lookup) = self.conversation_lookup.as_ref() {
-                        if let Ok(notice) = lookup.local_address_notice_with_addresses(
-                            self.conversation_address_generation,
-                            self.conversation_address_expires_at,
-                            advertised,
-                        ) {
-                            let _ = session.announce_address_notice(notice.bytes().to_vec());
+        let (presence_expired, changed) = {
+            let Some(session) = self.session.as_mut() else {
+                return false;
+            };
+            let presence_expired = match session.expire_presence(now) {
+                Ok(expired) => expired,
+                Err(_) => {
+                    self.health.storage_unavailable = true;
+                    false
+                }
+            };
+            let mut changed = presence_expired;
+            if let Some(transport) = self.transport.as_ref() {
+                if now.saturating_add(15) >= self.conversation_address_expires_at {
+                    let conversation_port = self
+                        .conversation_lookup
+                        .as_ref()
+                        .map(|lookup| lookup.mesh().listen_addr().port());
+                    if let Some(port) = conversation_port {
+                        let mut advertised = transport
+                            .direct_socket_candidates()
+                            .await
+                            .into_iter()
+                            .map(|mut address| {
+                                address.set_port(port);
+                                address
+                            })
+                            .collect::<Vec<_>>();
+                        if advertised.is_empty() {
+                            advertised.push(SocketAddr::from(([127, 0, 0, 1], port)));
+                        }
+                        self.conversation_address_generation = session
+                            .conversation_runtime_context()
+                            .ok()
+                            .and_then(|(_, _, store, _)| {
+                                store.next_conversation_address_generation().ok()
+                            })
+                            .unwrap_or_else(|| {
+                                self.conversation_address_generation.saturating_add(1)
+                            });
+                        self.conversation_address_expires_at = now.saturating_add(60);
+                        if let Some(lookup) = self.conversation_lookup.as_ref() {
+                            if let Ok(notice) = lookup.local_address_notice_with_addresses(
+                                self.conversation_address_generation,
+                                self.conversation_address_expires_at,
+                                advertised,
+                            ) {
+                                let _ = session.announce_address_notice(notice.bytes().to_vec());
+                            }
                         }
                     }
                 }
+                if session.is_ready().unwrap_or(false) {
+                    let _ = session.announce_recipient_key();
+                }
+                if let Err(error) = transport.send_session_heartbeat(session).await {
+                    self.health.network = Some(network_delivery_message(error));
+                    changed = true;
+                }
             }
-            if let Err(error) = transport.send_session_heartbeat(session).await {
-                self.health.network = Some(network_delivery_message(error));
-                changed = true;
-            }
+            (presence_expired, changed)
+        };
+        if presence_expired {
+            // Gossip can retain a live endpoint while losing every topic neighbor. Recreate the
+            // control subscription from its bootstrap state so address-notice renewal resumes.
+            self.restart_transport().await;
         }
         changed
     }
@@ -899,6 +941,15 @@ impl WorkspaceApplication {
             _ => None,
         }
     }
+}
+
+fn conversation_membership_is_ready(
+    identity: &InstallationIdentity,
+    workspace: &str,
+    membership: &crate::membership_log::MembershipLog,
+) -> bool {
+    let projection = membership.projection(workspace);
+    projection.canonical_head.is_some() && projection.contains(&identity.public_identity())
 }
 
 fn network_start_message(error: IrohSessionAdapterError) -> String {
@@ -956,8 +1007,14 @@ mod tests {
         time::{sleep, Duration},
     };
 
-    use super::{WorkspaceApplication, WorkspaceApplicationUpdate, WorkspaceHealth};
-    use crate::identity::{InMemoryKeyCustody, InstallationIdentity};
+    use super::{
+        conversation_membership_is_ready, WorkspaceApplication, WorkspaceApplicationUpdate,
+        WorkspaceHealth,
+    };
+    use crate::{
+        identity::{InMemoryKeyCustody, InstallationIdentity},
+        membership_log::{MembershipLog, SignedMembershipOperation},
+    };
 
     #[test]
     fn initializes_without_an_active_workspace_as_onboarding_state() {
@@ -983,6 +1040,51 @@ mod tests {
                 identity: Some(_),
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn conversation_waits_for_local_membership_admission() {
+        let workspace = "ab".repeat(32);
+        let creator =
+            InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![1; 32]))
+                .expect("creator identity creates");
+        let joiner =
+            InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![2; 32]))
+                .expect("joiner identity creates");
+        let mut membership = MembershipLog::new();
+        let genesis = SignedMembershipOperation::genesis(&creator, &workspace, "Ada", 1)
+            .expect("genesis signs");
+        membership.insert(genesis).expect("genesis inserts");
+
+        assert!(!conversation_membership_is_ready(
+            &joiner,
+            &workspace,
+            &membership
+        ));
+
+        let addition = SignedMembershipOperation::add_member(
+            &creator,
+            &workspace,
+            membership
+                .projection(&workspace)
+                .canonical_head
+                .expect("genesis head")
+                .as_str(),
+            1,
+            *joiner.public_identity().as_bytes(),
+            "Lin",
+            2,
+        )
+        .expect("member addition signs");
+        membership
+            .insert(addition)
+            .expect("member addition inserts");
+
+        assert!(conversation_membership_is_ready(
+            &joiner,
+            &workspace,
+            &membership
         ));
     }
 

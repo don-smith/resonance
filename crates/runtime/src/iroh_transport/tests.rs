@@ -1,5 +1,7 @@
 use std::{net::SocketAddr, time::Duration};
 
+#[cfg(feature = "debug-local-profiles")]
+use super::debug_local_socket_candidates;
 use super::{canonical_direct_socket_candidates, IrohTransport, TransportEvent};
 use crate::workspace_file_transport::{
     FileRecoveryService, FileRequest, FileResponse, MAX_BLOB_CHUNK_BYTES,
@@ -25,6 +27,15 @@ fn direct_socket_candidates_are_canonical_for_signed_address_notices() {
             "127.0.0.1:4001".parse::<SocketAddr>().unwrap(),
             "127.0.0.1:4002".parse::<SocketAddr>().unwrap(),
         ],
+    );
+}
+
+#[cfg(feature = "debug-local-profiles")]
+#[test]
+fn debug_profiles_advertise_the_local_loopback_candidate() {
+    assert_eq!(
+        debug_local_socket_candidates(),
+        vec!["127.0.0.1:0".parse::<SocketAddr>().unwrap()]
     );
 }
 

@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::{
-    channels::{membership_id, require_current_channel, ChannelProjection},
+    channels::{membership_id, require_current_channel, ChannelProjection, MAX_CHANNEL_SNAPSHOT},
     crypto::{
         self, EpochEnvelopeContextV1, EpochKey, HpkeEpochEnvelopeV1, MessageHeaderInputV1,
         RecipientPublicKey,
@@ -91,6 +91,71 @@ pub struct MessageView {
     pub markdown: String,
 }
 
+struct RecoveryResponsePages {
+    request_id: RecordId,
+    pages: Vec<Vec<Vec<u8>>>,
+    next_page: usize,
+    awaiting: Option<BTreeSet<RecordId>>,
+    empty_completion_pending: bool,
+}
+
+impl RecoveryResponsePages {
+    fn new(request_id: RecordId, pages: Vec<Vec<Vec<u8>>>) -> Self {
+        Self {
+            request_id,
+            pages,
+            next_page: 0,
+            awaiting: None,
+            empty_completion_pending: false,
+        }
+    }
+
+    fn current_page(&mut self) -> Vec<Vec<u8>> {
+        let Some(records) = self.pages.get(self.next_page) else {
+            // A full final page has no wire completion marker. The empty response after all
+            // acknowledged pages lets the requester end its continuation loop.
+            return Vec::new();
+        };
+        if self.awaiting.is_none() {
+            self.awaiting = Some(
+                records
+                    .iter()
+                    .filter_map(|bytes| ExactRecordV1::decode(bytes).ok())
+                    .map(|record| *record.id())
+                    .collect(),
+            );
+        }
+        records.clone()
+    }
+
+    /// Returns true when a short final page has completed and this state can expire.
+    fn acknowledge(&mut self, acknowledged: &[RecordId]) -> bool {
+        let Some(awaiting) = self.awaiting.as_mut() else {
+            return false;
+        };
+        for record_id in acknowledged {
+            awaiting.remove(record_id);
+        }
+        if !awaiting.is_empty() {
+            return false;
+        }
+        let final_page = self.next_page.saturating_add(1) == self.pages.len();
+        let full_final_page = final_page
+            && self
+                .pages
+                .get(self.next_page)
+                .is_some_and(|records| records.len() == MAX_RECOVERY_RESPONSE_RECORDS);
+        self.awaiting = None;
+        self.next_page = self.next_page.saturating_add(1);
+        if full_final_page {
+            self.empty_completion_pending = true;
+            false
+        } else {
+            final_page
+        }
+    }
+}
+
 pub struct ConversationRuntime {
     identity: InstallationIdentity,
     workspace_id: String,
@@ -103,6 +168,7 @@ pub struct ConversationRuntime {
     epoch_keys: BTreeMap<MembershipHead, EpochKey>,
     channel_records: Vec<ExactRecordV1>,
     channels: ChannelProjection,
+    recovery_response_pages: BTreeMap<PublicIdentity, RecoveryResponsePages>,
     local_authoring_blocked: bool,
 }
 
@@ -157,6 +223,7 @@ impl ConversationRuntime {
             epoch_keys: BTreeMap::new(),
             channel_records,
             channels,
+            recovery_response_pages: BTreeMap::new(),
             local_authoring_blocked,
         };
         for bytes in runtime.store.conversation_epoch_records()? {
@@ -190,6 +257,7 @@ impl ConversationRuntime {
             }
         }
         self.membership = membership;
+        self.recovery_response_pages.clear();
         self.recipient_records.clear();
         for bytes in self.store.all_recipient_key_records()? {
             let exact = ExactRecordV1::decode(&bytes)?;
@@ -269,6 +337,13 @@ impl ConversationRuntime {
         name: impl Into<String>,
         created_at: i64,
     ) -> Result<ChannelView, ConversationRuntimeError> {
+        if self.channels.views().len() >= MAX_CHANNEL_SNAPSHOT {
+            return Err(ConversationError::SizeLimit {
+                field: "channel snapshot",
+                limit: MAX_CHANNEL_SNAPSHOT,
+            }
+            .into());
+        }
         let mut channel_id = [0; 16];
         getrandom::fill(&mut channel_id).map_err(|_| ConversationError::RandomnessUnavailable)?;
         self.author_channel_operation(
@@ -544,7 +619,7 @@ impl ConversationRuntime {
     }
 
     pub fn answer_recovery_request(
-        &self,
+        &mut self,
         authenticated_peer: PublicIdentity,
         bytes: &[u8],
     ) -> Result<ExactRecordV1, ConversationRuntimeError> {
@@ -559,57 +634,60 @@ impl ConversationRuntime {
             request.sender,
             request.workspace_id,
         )?;
-        let heads = request
-            .heads
-            .iter()
-            .map(|head| (head.author, head.highest_sequence))
-            .collect::<BTreeMap<_, _>>();
-        let mut records = self
-            .records_eligible_for(authenticated_peer)?
-            .into_iter()
-            .filter(|bytes| {
-                let Ok(exact) = ExactRecordV1::decode(bytes) else {
-                    return false;
-                };
-                let ConversationRecordV1::Message(message) = exact.record() else {
-                    return false;
-                };
-                let beyond_head = heads
-                    .get(&message.author)
-                    .is_none_or(|highest| message.author_sequence > *highest);
-                let explicitly_missing = request.missing_ranges.iter().any(|range| {
-                    range.author == message.author
-                        && (range.first_sequence..=range.last_sequence)
-                            .contains(&message.author_sequence)
-                });
-                beyond_head || explicitly_missing
-            })
-            .collect::<Vec<_>>();
-        records.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
-        records.dedup();
-        records.truncate(MAX_RECOVERY_RESPONSE_RECORDS);
-        let accepted_channels = self.channels.accepted_ids();
-        let mut channels = self
-            .channel_records
-            .iter()
-            .filter(|record| accepted_channels.contains(record.id()))
-            .map(|record| record.bytes().to_vec())
-            .collect::<Vec<_>>();
-        channels.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
-        records.extend(
-            channels
-                .into_iter()
-                .take(MAX_RECOVERY_RESPONSE_RECORDS - records.len()),
-        );
-        records.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
-        Ok(ExactRecordV1::author(
+        let request_id = *exact.id();
+        // Keep retransmitting an unacknowledged page even when receipt of that page changes the
+        // requester's signed heads. Recomputing here could skip records before the peer proves
+        // durable possession with its acknowledgement.
+        let mut expire_after_response = false;
+        let records = if self
+            .recovery_response_pages
+            .get(&authenticated_peer)
+            .is_some_and(|pages| pages.awaiting.is_some())
+        {
+            self.recovery_response_pages
+                .get_mut(&authenticated_peer)
+                .expect("existing awaiting recovery page")
+                .current_page()
+        } else if self
+            .recovery_response_pages
+            .get(&authenticated_peer)
+            .is_some_and(|pages| pages.empty_completion_pending)
+        {
+            // A full final page needs one wire-visible empty response. Remove this local state
+            // after authoring it so later identical requests observe newly available records.
+            expire_after_response = true;
+            Vec::new()
+        } else {
+            let computed_pages = self.recovery_pages_for(authenticated_peer, request)?;
+            if computed_pages.is_empty() {
+                // An initially empty response carries no records to acknowledge and therefore
+                // must not cache a completed page state.
+                Vec::new()
+            } else {
+                let pages = self
+                    .recovery_response_pages
+                    .entry(authenticated_peer)
+                    .or_insert_with(|| {
+                        RecoveryResponsePages::new(request_id, computed_pages.clone())
+                    });
+                if pages.request_id != request_id {
+                    *pages = RecoveryResponsePages::new(request_id, computed_pages);
+                }
+                pages.current_page()
+            }
+        };
+        let response = ExactRecordV1::author(
             ConversationRecordV1::RecoveryResponse(RecoveryResponseV1 {
                 workspace_id: self.workspace_bytes,
                 sender: *self.identity.public_identity().as_bytes(),
                 records,
             }),
             &self.identity,
-        )?)
+        )?;
+        if expire_after_response {
+            self.recovery_response_pages.remove(&authenticated_peer);
+        }
+        Ok(response)
     }
 
     pub fn accept_recovery_response(
@@ -628,26 +706,24 @@ impl ConversationRuntime {
             response.sender,
             response.workspace_id,
         )?;
+        // Decode and classify every nested exact record before any local state changes. This
+        // prevents a malformed trailing record from partially applying a response.
         let nested = response
             .records
             .iter()
             .map(|bytes| ExactRecordV1::decode(bytes))
             .collect::<Result<Vec<_>, _>>()?;
-        let mut committed = Vec::new();
+        let mut epochs = Vec::new();
+        let mut channels = Vec::new();
+        let mut messages = Vec::new();
         for record in nested {
             match record.record() {
-                ConversationRecordV1::Epoch(_) => self.accept_epoch_record(record.bytes())?,
-                ConversationRecordV1::Channel(_) => {
-                    if !self.accept_channel_record(record.bytes())? {
-                        return Err(ConversationError::UnauthorizedData(
-                            "recovered channel record lost deterministic replay",
-                        )
-                        .into());
-                    }
+                ConversationRecordV1::Epoch(_) => {
+                    self.validate_and_open_epoch(&record)?;
+                    epochs.push(record);
                 }
-                ConversationRecordV1::Message(_) => {
-                    self.accept_message_record(record.bytes())?;
-                }
+                ConversationRecordV1::Channel(_) => channels.push(record),
+                ConversationRecordV1::Message(_) => messages.push(record),
                 _ => {
                     return Err(ConversationError::UnauthorizedData(
                         "recovery response contains a control record",
@@ -655,7 +731,25 @@ impl ConversationRuntime {
                     .into());
                 }
             }
-            committed.push(*record.id());
+        }
+
+        let mut committed = Vec::new();
+        for epoch in epochs {
+            self.accept_epoch_record(epoch.bytes())?;
+            committed.push(*epoch.id());
+        }
+        if !channels.is_empty() {
+            committed.extend(self.accept_channel_catalog(channels)?);
+        }
+        // The catalog is now complete for this response, so a message can never be applied
+        // merely because it appeared earlier in the response byte vector.
+        for message in messages {
+            self.validate_message(match message.record() {
+                ConversationRecordV1::Message(record) => record,
+                _ => unreachable!("message group contains messages"),
+            })?;
+            self.accept_message_record(message.bytes())?;
+            committed.push(*message.id());
         }
         Ok(committed)
     }
@@ -677,7 +771,7 @@ impl ConversationRuntime {
     }
 
     pub fn accept_acknowledgement(
-        &self,
+        &mut self,
         authenticated_peer: PublicIdentity,
         bytes: &[u8],
         acknowledged_at: i64,
@@ -707,6 +801,13 @@ impl ConversationRuntime {
             .collect::<Vec<_>>();
         self.store
             .acknowledge_commonware_records(&acknowledged, acknowledged_at)?;
+        let expire_pages = self
+            .recovery_response_pages
+            .get_mut(&authenticated_peer)
+            .is_some_and(|pages| pages.acknowledge(&acknowledgement.record_ids));
+        if expire_pages {
+            self.recovery_response_pages.remove(&authenticated_peer);
+        }
         Ok(())
     }
 
@@ -760,7 +861,8 @@ impl ConversationRuntime {
             return Ok(ConversationSyncState::Offline);
         }
         let local = self.synchronization_state()?;
-        if !has_usable_peer
+        if projection.members.len() > 1
+            && !has_usable_peer
             && (local == ConversationSyncState::WaitingToSync
                 || !self.store.pending_commonware_duties()?.is_empty())
         {
@@ -771,7 +873,23 @@ impl ConversationRuntime {
 
     pub fn synchronization_state(&self) -> Result<ConversationSyncState, ConversationRuntimeError> {
         let projection = self.membership.projection(&self.workspace_id);
-        let pending = !self.store.conversation_outbox()?.is_empty();
+        let mut pending = false;
+        for member in projection
+            .members
+            .iter()
+            .filter(|member| member.public_identity != self.identity.public_identity())
+        {
+            if !self
+                .pending_commonware_records_for(member.public_identity)?
+                .is_empty()
+            {
+                pending = true;
+                break;
+            }
+        }
+        let has_sparse_gaps = recovery::gaps(&self.store)?
+            .values()
+            .any(|ranges| !ranges.is_empty());
         let waiting_for_epoch = projection
             .canonical_head
             .as_ref()
@@ -779,7 +897,7 @@ impl ConversationRuntime {
             .is_some_and(|head| !self.epoch_keys.contains_key(&head));
         if self.local_authoring_blocked
             || waiting_for_epoch
-            || (projection.members.len() > 1 && pending)
+            || (projection.members.len() > 1 && (pending || has_sparse_gaps))
         {
             Ok(ConversationSyncState::WaitingToSync)
         } else {
@@ -850,6 +968,56 @@ impl ConversationRuntime {
         )?)
     }
 
+    pub(crate) fn canonical_membership_head(&self) -> Option<MembershipHead> {
+        self.membership
+            .projection(&self.workspace_id)
+            .canonical_head
+            .as_ref()
+            .and_then(|head| decode_hex_32(head.as_str()))
+    }
+
+    pub(crate) fn has_sparse_recovery_gaps(&self) -> Result<bool, ConversationRuntimeError> {
+        Ok(recovery::gaps(&self.store)?
+            .values()
+            .any(|ranges| !ranges.is_empty()))
+    }
+
+    fn accept_channel_catalog(
+        &mut self,
+        catalog: Vec<ExactRecordV1>,
+    ) -> Result<Vec<RecordId>, ConversationRuntimeError> {
+        let mut records = self.channel_records.clone();
+        for exact in &catalog {
+            if !records.iter().any(|stored| stored.id() == exact.id()) {
+                records.push(exact.clone());
+            }
+        }
+        let projection = ChannelProjection::replay(
+            &records,
+            &self.membership,
+            &self.workspace_id,
+            &self.workspace_bytes,
+        );
+        let accepted = projection.accepted_ids();
+        // A page can end inside a channel chain. Persisting its exact, validated records as
+        // unaccepted diagnostics lets the next catalog page complete the deterministic replay;
+        // they do not become channel views until every predecessor is available.
+        self.store
+            .record_channel_records(&records, &accepted, None)?;
+        for diagnostic_id in projection.diagnostic_ids() {
+            if let Some(record) = records.iter().find(|record| record.id() == diagnostic_id) {
+                self.store.record_conversation_diagnostic(
+                    record.bytes(),
+                    Some(record.id()),
+                    "losing or unauthorized channel record",
+                )?;
+            }
+        }
+        self.channel_records = records;
+        self.channels = projection;
+        Ok(catalog.into_iter().map(|record| *record.id()).collect())
+    }
+
     pub(crate) fn outbox_exact_records(&self) -> Result<Vec<Vec<u8>>, ConversationRuntimeError> {
         Ok(self.store.conversation_outbox()?)
     }
@@ -874,6 +1042,61 @@ impl ConversationRuntime {
                     record,
                 )
                 .then(|| stored.exact.bytes().to_vec())
+            })
+            .collect())
+    }
+
+    fn recovery_pages_for(
+        &self,
+        authenticated_peer: PublicIdentity,
+        request: &RecoveryRequestV1,
+    ) -> Result<Vec<Vec<Vec<u8>>>, ConversationRuntimeError> {
+        let heads = request
+            .heads
+            .iter()
+            .map(|head| (head.author, head.highest_sequence))
+            .collect::<BTreeMap<_, _>>();
+        let mut messages = self
+            .records_eligible_for(authenticated_peer)?
+            .into_iter()
+            .filter(|bytes| {
+                let Ok(exact) = ExactRecordV1::decode(bytes) else {
+                    return false;
+                };
+                let ConversationRecordV1::Message(message) = exact.record() else {
+                    return false;
+                };
+                let beyond_head = heads
+                    .get(&message.author)
+                    .is_none_or(|highest| message.author_sequence > *highest);
+                let explicitly_missing = request.missing_ranges.iter().any(|range| {
+                    range.author == message.author
+                        && (range.first_sequence..=range.last_sequence)
+                            .contains(&message.author_sequence)
+                });
+                beyond_head || explicitly_missing
+            })
+            .collect::<Vec<_>>();
+        messages.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
+        messages.dedup();
+        let accepted_channels = self.channels.accepted_ids();
+        let mut selected = self
+            .channel_records
+            .iter()
+            .filter(|record| accepted_channels.contains(record.id()))
+            .map(|record| record.bytes().to_vec())
+            .collect::<Vec<_>>();
+        selected.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
+        selected.dedup();
+        selected.extend(messages);
+        Ok(selected
+            .chunks(MAX_RECOVERY_RESPONSE_RECORDS)
+            .map(|records| {
+                let mut records = records.to_vec();
+                // v1 fixes response records in a global hash order. Selection remains
+                // channel-chain first, but the final encoded page preserves wire canonicality.
+                records.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
+                records
             })
             .collect())
     }

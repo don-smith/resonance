@@ -8,13 +8,14 @@ mod framing;
 mod key_custody;
 pub(crate) mod lookup;
 pub(crate) mod mesh;
-mod recovery;
+pub(crate) mod recovery;
 pub(crate) mod runtime;
 mod store;
 #[doc(hidden)]
 pub mod testing;
 pub(crate) mod wire;
 
+pub use channels::MAX_CHANNEL_SNAPSHOT;
 /// The semantic application-facing conversation runtime.
 pub use runtime::{
     ChannelView, ConversationRuntime, ConversationRuntimeError, ConversationSyncState, MessageView,

@@ -17,6 +17,8 @@ use super::{
 };
 
 pub const MAX_DIAGNOSTIC_RECORDS: usize = 256;
+/// Maximum channel views retained and exposed by the v1 semantic snapshot.
+pub const MAX_CHANNEL_SNAPSHOT: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChannelView {
@@ -205,6 +207,33 @@ impl ChannelProjection {
                     channels.remove(&channel_id);
                 } else {
                     channels.insert(channel_id, view_from_chain(channel_id, chain));
+                }
+            }
+        }
+
+        // The complete create-record ID supplies a stable replay tie-breaker. Once the semantic
+        // snapshot is full, retain only its first 256 complete chains and classify every later
+        // chain as a diagnostic rather than allowing arrival order to choose visible channels.
+        if channels.len() > MAX_CHANNEL_SNAPSHOT {
+            let mut ranked = chains
+                .iter()
+                .map(|(channel_id, chain)| {
+                    (
+                        *chain.first().expect("channel chain has create").id(),
+                        *channel_id,
+                    )
+                })
+                .collect::<Vec<_>>();
+            ranked.sort_unstable();
+            let excess = ranked
+                .into_iter()
+                .skip(MAX_CHANNEL_SNAPSHOT)
+                .map(|(_, channel_id)| channel_id)
+                .collect::<Vec<_>>();
+            for channel_id in excess {
+                channels.remove(&channel_id);
+                if let Some(chain) = chains.remove(&channel_id) {
+                    diagnostics.extend(chain.iter().map(|record| *record.id()));
                 }
             }
         }

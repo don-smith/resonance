@@ -27,6 +27,10 @@ pub mod mesh {
     pub use super::super::mesh::*;
 }
 
+pub mod recovery {
+    pub use super::super::recovery::*;
+}
+
 pub mod runtime {
     pub use super::super::runtime::*;
 }

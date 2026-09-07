@@ -21,6 +21,7 @@ use crate::{
         authority::ConversationAuthority,
         lookup::ConversationLookup,
         mesh::ConversationMeshEvent,
+        recovery::RecoveryRequestTracker,
         runtime::ConversationRuntime,
         wire::{ConversationRecordV1, ExactRecordV1},
     },
@@ -102,6 +103,7 @@ pub struct WorkspaceApplication {
     transport: Option<IrohTransport>,
     conversation: Option<ConversationRuntime>,
     conversation_lookup: Option<ConversationLookup>,
+    recovery_requests: RecoveryRequestTracker,
     conversation_address_generation: u64,
     conversation_address_expires_at: i64,
     pub(crate) files: Option<WorkspaceFileRuntime>,
@@ -168,6 +170,7 @@ impl WorkspaceApplication {
             transport: None,
             conversation,
             conversation_lookup: None,
+            recovery_requests: RecoveryRequestTracker::default(),
             conversation_address_generation: 0,
             conversation_address_expires_at: 0,
             files,
@@ -326,6 +329,7 @@ impl WorkspaceApplication {
                 )
             })?;
         }
+        self.recovery_requests.reset();
         Ok(())
     }
 
@@ -370,6 +374,7 @@ impl WorkspaceApplication {
                 )
             })?,
         );
+        self.recovery_requests.reset();
         Ok(())
     }
 
@@ -382,6 +387,7 @@ impl WorkspaceApplication {
     }
 
     pub async fn restart_transport(&mut self) {
+        self.recovery_requests.reset();
         if let Some(mut lookup) = self.conversation_lookup.take() {
             let _ = lookup.stop();
         }
@@ -628,12 +634,15 @@ impl WorkspaceApplication {
     }
 
     fn poll_conversation_mesh(&mut self) -> bool {
-        let (Some(lookup), Some(conversation)) = (
-            self.conversation_lookup.as_mut(),
-            self.conversation.as_mut(),
-        ) else {
+        let (lookup, conversation, recovery_requests) = (
+            &mut self.conversation_lookup,
+            &mut self.conversation,
+            &mut self.recovery_requests,
+        );
+        let (Some(lookup), Some(conversation)) = (lookup.as_mut(), conversation.as_mut()) else {
             return false;
         };
+        recovery_requests.reset_for_membership(conversation.canonical_membership_head());
         let mut changed = false;
         for _ in 0..MAX_CONVERSATION_MESH_EVENTS_PER_POLL {
             let Some(event) = lookup.mesh().try_event() else {
@@ -687,7 +696,11 @@ impl WorkspaceApplication {
                                 Ok(Vec::new())
                             }),
                         ConversationRecordV1::RecoveryResponse(_) => conversation
-                            .accept_recovery_response(authenticated_peer, exact.bytes()),
+                            .accept_recovery_response(authenticated_peer, exact.bytes())
+                            .inspect(|record_ids| {
+                                recovery_requests
+                                    .response_completed(authenticated_peer, record_ids.len())
+                            }),
                         ConversationRecordV1::RecipientKey(_)
                         | ConversationRecordV1::AddressNotice(_) => Err(
                             crate::conversations::runtime::ConversationRuntimeError::InvalidEpoch(
@@ -725,16 +738,21 @@ impl WorkspaceApplication {
                 ConversationMeshEvent::Started { .. } | ConversationMeshEvent::Stopped => {}
             }
         }
-        let _ = lookup.maintain_direct_candidates(unix_seconds());
-        let peers = lookup.candidate_peers(unix_seconds());
+        let now = unix_seconds();
+        let _ = lookup.maintain_direct_candidates(now);
+        let peers = lookup.candidate_peers(now);
+        recovery_requests.retain_peers(&peers);
+        let has_sparse_gaps = conversation.has_sparse_recovery_gaps().unwrap_or(false);
         for peer in peers {
             if let Ok(records) = conversation.pending_commonware_records_for(peer) {
                 for record in records {
                     let _ = lookup.mesh().send(Some(peer), &record);
                 }
             }
-            if let Ok(request) = conversation.recovery_request() {
-                let _ = lookup.mesh().send(Some(peer), request.bytes());
+            if recovery_requests.should_request(peer, has_sparse_gaps, now) {
+                if let Ok(request) = conversation.recovery_request() {
+                    let _ = lookup.mesh().send(Some(peer), request.bytes());
+                }
             }
         }
         changed

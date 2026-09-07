@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use resonance_runtime::{
     conversations::{
         ChannelView, ConversationError, ConversationRuntime, ConversationRuntimeError,
-        ConversationSyncState, MessageView, MAX_CHANNEL_NAME_BYTES, MAX_MARKDOWN_BYTES,
+        ConversationSyncState, MessageView, MAX_CHANNEL_NAME_BYTES, MAX_CHANNEL_SNAPSHOT,
+        MAX_MARKDOWN_BYTES,
     },
     identity::PublicIdentity,
 };
@@ -15,7 +16,6 @@ use super::workspace::ManagedWorkspaceState;
 
 const MAX_IDENTIFIER_LENGTH: usize = 128;
 const MAX_PAGE_SIZE: usize = 100;
-const MAX_CHANNELS: usize = 256;
 const MAX_DISPLAY_NAME_LENGTH: usize = 255;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -178,7 +178,7 @@ pub struct ConversationsSnapshot {
 impl ConversationsSnapshot {
     fn validate(&self) -> bool {
         valid_identifier(&self.workspace_id)
-            && self.channels.len() <= MAX_CHANNELS
+            && self.channels.len() <= MAX_CHANNEL_SNAPSHOT
             && self.channels.iter().all(ConversationChannelView::validate)
             && self
                 .channels

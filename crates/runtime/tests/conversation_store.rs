@@ -12,9 +12,12 @@ use resonance_runtime::{
                 ConversationRuntime, ConversationSyncState, MessageCommitOutcome,
                 SparseRecoveryRange,
             },
-            wire::{ConversationRecordV1, ExactRecordV1},
+            wire::{
+                ChannelOperationV1, ChannelRecordV1, ConversationRecordV1, ExactRecordV1,
+                RecoveryResponseV1,
+            },
         },
-        ConversationError,
+        ConversationError, MAX_CHANNEL_SNAPSHOT,
     },
     identity::{InMemoryKeyCustody, InstallationIdentity},
     membership_log::{MembershipLog, SignedMembershipOperation, SignedSelfRemovalRequestV1},
@@ -689,6 +692,105 @@ fn stale_channel_head_is_rejected_and_one_member_outbox_is_locally_current() {
     assert_eq!(
         runtime.synchronization_state().expect("one-member state"),
         ConversationSyncState::Current
+    );
+    assert_eq!(
+        runtime
+            .network_synchronization_state(false, false)
+            .expect("one-member network state"),
+        ConversationSyncState::Current,
+        "local publication duties do not make a one-member workspace wait"
+    );
+}
+
+#[test]
+fn local_channel_snapshot_refuses_the_257th_channel_without_persisting_it() {
+    let fixture = TwoMemberWorkspace::new();
+    let mut runtime = fixture.creator_runtime();
+    for index in 1..MAX_CHANNEL_SNAPSHOT {
+        runtime
+            .create_channel(format!("#channel-{index}"), index as i64)
+            .expect("channel within snapshot limit persists");
+    }
+    assert_eq!(runtime.channels().len(), MAX_CHANNEL_SNAPSHOT);
+    assert!(matches!(
+        runtime.create_channel("#too-many", 999),
+        Err(testing::runtime::ConversationRuntimeError::Conversation(
+            ConversationError::SizeLimit { .. }
+        ))
+    ));
+    drop(runtime);
+    assert_eq!(
+        fixture.creator_runtime().channels().len(),
+        MAX_CHANNEL_SNAPSHOT,
+        "the refused channel has no durable record"
+    );
+}
+
+#[test]
+fn recovered_channel_catalog_refuses_a_deterministic_257th_snapshot_chain() {
+    let fixture = TwoMemberWorkspace::new();
+    let ConversationRecordV1::Epoch(epoch) = fixture.current_epoch.record() else {
+        panic!("current epoch");
+    };
+    let mut remote_chains = Vec::new();
+    let mut remote_records = Vec::new();
+    for index in 0..MAX_CHANNEL_SNAPSHOT {
+        let mut channel_id = [0_u8; 16];
+        channel_id[14..].copy_from_slice(&(index as u16).to_be_bytes());
+        let exact = ExactRecordV1::author(
+            ConversationRecordV1::Channel(ChannelRecordV1 {
+                workspace_id: [0xc1; 32],
+                channel_id,
+                authorization_epoch: epoch.resulting_membership_head,
+                creator: *fixture.member.public_identity().as_bytes(),
+                author: *fixture.member.public_identity().as_bytes(),
+                author_sequence: index as u64,
+                created_at: index as i64,
+                predecessor: None,
+                operation: ChannelOperationV1::Create {
+                    name: format!("#remote-{index}"),
+                },
+            }),
+            &fixture.member,
+        )
+        .expect("remote channel signs");
+        remote_chains.push((*exact.id(), channel_id));
+        remote_records.push(exact.bytes().to_vec());
+    }
+
+    let mut runtime = fixture.creator_runtime();
+    for page in remote_records.chunks(128) {
+        let mut records = page.to_vec();
+        records.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
+        let response = ExactRecordV1::author(
+            ConversationRecordV1::RecoveryResponse(RecoveryResponseV1 {
+                workspace_id: [0xc1; 32],
+                sender: *fixture.member.public_identity().as_bytes(),
+                records,
+            }),
+            &fixture.member,
+        )
+        .expect("catalog response signs");
+        runtime
+            .accept_recovery_response(fixture.member.public_identity(), response.bytes())
+            .expect("catalog page applies");
+    }
+
+    remote_chains.push((*fixture.general.id(), fixture.general_id()));
+    remote_chains.sort_unstable();
+    let refused_channel = remote_chains[MAX_CHANNEL_SNAPSHOT].1;
+    assert_eq!(runtime.channels().len(), MAX_CHANNEL_SNAPSHOT);
+    assert!(
+        !runtime
+            .channels()
+            .iter()
+            .any(|channel| channel.channel_id == refused_channel),
+        "the deterministic overflow chain is not exposed"
+    );
+    assert_eq!(
+        runtime.diagnostic_count().expect("diagnostic count"),
+        1,
+        "the overflow exact record is retained as a bounded diagnostic"
     );
 }
 

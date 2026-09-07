@@ -1,7 +1,8 @@
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 use resonance_runtime::{
     conversations::testing::{
+        self,
         authority::ConversationAuthority,
         recovery::RecoveryRequestTracker,
         runtime::{ConversationRuntime, ConversationSyncState},
@@ -428,6 +429,128 @@ fn recovery_response_capacity_prioritizes_catalog_without_reshuffling_groups() {
         128,
         "the empty completion response is sent exactly once"
     );
+}
+
+#[test]
+fn recovery_stream_state_cannot_retain_all_selected_pages() {
+    let runtime = include_str!("../src/conversations/runtime.rs");
+    assert!(runtime.contains("current_page: Vec<Vec<u8>>"));
+    assert!(
+        !runtime.contains("pages: Vec<Vec<Vec<u8>>>"),
+        "recovery state may retain only its current bounded page"
+    );
+}
+
+#[test]
+fn multi_page_recovery_keeps_its_snapshot_after_acknowledged_follow_up_heads_change() {
+    let fixture = RecoveryFixture::new();
+    let mut creator = fixture.creator_runtime();
+    let mut later_messages = (1..129_u64)
+        .map(|sequence| {
+            testing::seal_runtime_message(
+                &creator,
+                fixture.general_id(),
+                &format!("message-{sequence}"),
+                sequence,
+                sequence.saturating_add(1),
+                sequence as i64,
+                [sequence as u8; 24],
+            )
+            .expect("deterministic message seals")
+        })
+        .collect::<Vec<_>>();
+    let zero = (0..4096_u16)
+        .find_map(|candidate| {
+            let mut nonce = [0_u8; 24];
+            nonce[..2].copy_from_slice(&candidate.to_be_bytes());
+            let exact = testing::seal_runtime_message(
+                &creator,
+                fixture.general_id(),
+                "sequence-zero",
+                0,
+                1,
+                0,
+                nonce,
+            )
+            .ok()?;
+            let zero_order = blake3::hash(exact.bytes()).as_bytes().to_owned();
+            later_messages
+                .iter()
+                .all(|message| zero_order > *blake3::hash(message.bytes()).as_bytes())
+                .then_some(exact)
+        })
+        .expect("fixed fixture finds a sequence-zero record after page one");
+    let zero_id = *zero.id();
+    let mut expected_message_ids = later_messages
+        .iter()
+        .map(|message| *message.id())
+        .collect::<BTreeSet<_>>();
+    expected_message_ids.insert(zero_id);
+    creator
+        .accept_message_record(zero.bytes())
+        .expect("sequence zero stores");
+    for message in later_messages.drain(..) {
+        creator
+            .accept_message_record(message.bytes())
+            .expect("later sequence stores");
+    }
+
+    let mut member = fixture.empty_member_runtime();
+    member
+        .accept_epoch_record(fixture.current_epoch.bytes())
+        .expect("epoch opens");
+    let initial_request = member.recovery_request().expect("initial request signs");
+    let first = creator
+        .answer_recovery_request(fixture.member.public_identity(), initial_request.bytes())
+        .expect("first page signs");
+    let ConversationRecordV1::RecoveryResponse(first_response) = first.record() else {
+        panic!("first page family");
+    };
+    assert_eq!(first_response.records.len(), 128);
+    assert!(
+        !first_response.records.contains(&zero.bytes().to_vec()),
+        "page one omits sequence zero"
+    );
+    let first_ids = first_response
+        .records
+        .iter()
+        .map(|bytes| *ExactRecordV1::decode(bytes).expect("exact").id())
+        .collect::<BTreeSet<_>>();
+    let first_ack = member
+        .acknowledgement(first_ids.iter().copied().collect())
+        .expect("first acknowledgement signs");
+    member
+        .accept_recovery_response(fixture.creator.public_identity(), first.bytes())
+        .expect("first page applies");
+    creator
+        .accept_acknowledgement(fixture.member.public_identity(), first_ack.bytes(), 20)
+        .expect("first acknowledgement applies");
+
+    let follow_up = member.recovery_request().expect("follow-up request signs");
+    assert_ne!(initial_request.id(), follow_up.id());
+    let second = creator
+        .answer_recovery_request(fixture.member.public_identity(), follow_up.bytes())
+        .expect("second page signs");
+    let ConversationRecordV1::RecoveryResponse(second_response) = second.record() else {
+        panic!("second page family");
+    };
+    let second_ids = second_response
+        .records
+        .iter()
+        .map(|bytes| *ExactRecordV1::decode(bytes).expect("exact").id())
+        .collect::<BTreeSet<_>>();
+    assert!(second_ids.contains(&zero_id));
+    assert!(first_ids.is_disjoint(&second_ids));
+    member
+        .accept_recovery_response(fixture.creator.public_identity(), second.bytes())
+        .expect("second page applies");
+    let recovered_ids = member
+        .messages(&fixture.general_id())
+        .expect("messages decrypt")
+        .into_iter()
+        .map(|message| message.message_id)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(recovered_ids, expected_message_ids);
 }
 
 #[test]

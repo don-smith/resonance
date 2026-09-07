@@ -91,68 +91,59 @@ pub struct MessageView {
     pub markdown: String,
 }
 
+#[derive(Clone, Default)]
+struct RecoveryResponseCursor {
+    channel_after: Option<RecordId>,
+    message_after: Option<RecordId>,
+    channels_complete: bool,
+}
+
+/// Per-peer bounded recovery stream state.
+///
+/// The request is the bounded wire snapshot. Only one <=128-record page and its acknowledgement
+/// set are retained; later pages are regenerated from the snapshot and cursor after each ACK.
 struct RecoveryResponsePages {
-    request_id: RecordId,
-    pages: Vec<Vec<Vec<u8>>>,
-    next_page: usize,
+    request: RecoveryRequestV1,
+    cursor: RecoveryResponseCursor,
+    current_page: Vec<Vec<u8>>,
     awaiting: Option<BTreeSet<RecordId>>,
     empty_completion_pending: bool,
 }
 
 impl RecoveryResponsePages {
-    fn new(request_id: RecordId, pages: Vec<Vec<Vec<u8>>>) -> Self {
+    fn new(
+        request: RecoveryRequestV1,
+        cursor: RecoveryResponseCursor,
+        current_page: Vec<Vec<u8>>,
+    ) -> Self {
         Self {
-            request_id,
-            pages,
-            next_page: 0,
+            request,
+            cursor,
+            current_page,
             awaiting: None,
             empty_completion_pending: false,
         }
     }
 
-    fn current_page(&mut self) -> Vec<Vec<u8>> {
-        let Some(records) = self.pages.get(self.next_page) else {
-            // A full final page has no wire completion marker. The empty response after all
-            // acknowledged pages lets the requester end its continuation loop.
-            return Vec::new();
-        };
+    fn send_current_page(&mut self) -> Vec<Vec<u8>> {
         if self.awaiting.is_none() {
             self.awaiting = Some(
-                records
+                self.current_page
                     .iter()
                     .filter_map(|bytes| ExactRecordV1::decode(bytes).ok())
                     .map(|record| *record.id())
                     .collect(),
             );
         }
-        records.clone()
+        self.current_page.clone()
     }
 
-    /// Returns true when a short final page has completed and this state can expire.
-    fn acknowledge(&mut self, acknowledged: &[RecordId]) -> bool {
-        let Some(awaiting) = self.awaiting.as_mut() else {
-            return false;
-        };
-        for record_id in acknowledged {
-            awaiting.remove(record_id);
-        }
-        if !awaiting.is_empty() {
-            return false;
-        }
-        let final_page = self.next_page.saturating_add(1) == self.pages.len();
-        let full_final_page = final_page
-            && self
-                .pages
-                .get(self.next_page)
-                .is_some_and(|records| records.len() == MAX_RECOVERY_RESPONSE_RECORDS);
-        self.awaiting = None;
-        self.next_page = self.next_page.saturating_add(1);
-        if full_final_page {
-            self.empty_completion_pending = true;
-            false
-        } else {
-            final_page
-        }
+    fn awaiting_is_acknowledged(&self, acknowledged: &[RecordId]) -> bool {
+        self.awaiting.as_ref().is_some_and(|awaiting| {
+            awaiting
+                .iter()
+                .all(|record_id| acknowledged.contains(record_id))
+        })
     }
 }
 
@@ -634,48 +625,37 @@ impl ConversationRuntime {
             request.sender,
             request.workspace_id,
         )?;
-        let request_id = *exact.id();
-        // Keep retransmitting an unacknowledged page even when receipt of that page changes the
-        // requester's signed heads. Recomputing here could skip records before the peer proves
-        // durable possession with its acknowledgement.
+        // A stream owns its bounded request snapshot until it has terminally completed. Changed
+        // request IDs cannot replace a retransmitted or ready next page.
         let mut expire_after_response = false;
-        let records = if self
-            .recovery_response_pages
-            .get(&authenticated_peer)
-            .is_some_and(|pages| pages.awaiting.is_some())
-        {
-            self.recovery_response_pages
-                .get_mut(&authenticated_peer)
-                .expect("existing awaiting recovery page")
-                .current_page()
-        } else if self
-            .recovery_response_pages
-            .get(&authenticated_peer)
-            .is_some_and(|pages| pages.empty_completion_pending)
-        {
-            // A full final page needs one wire-visible empty response. Remove this local state
-            // after authoring it so later identical requests observe newly available records.
-            expire_after_response = true;
-            Vec::new()
-        } else {
-            let computed_pages = self.recovery_pages_for(authenticated_peer, request)?;
-            if computed_pages.is_empty() {
-                // An initially empty response carries no records to acknowledge and therefore
-                // must not cache a completed page state.
-                Vec::new()
-            } else {
-                let pages = self
-                    .recovery_response_pages
-                    .entry(authenticated_peer)
-                    .or_insert_with(|| {
-                        RecoveryResponsePages::new(request_id, computed_pages.clone())
-                    });
-                if pages.request_id != request_id {
-                    *pages = RecoveryResponsePages::new(request_id, computed_pages);
+        let records =
+            if let Some(stream) = self.recovery_response_pages.get_mut(&authenticated_peer) {
+                if stream.empty_completion_pending {
+                    // A full final page needs one wire-visible empty response. Remove this local
+                    // state after authoring it so a later request begins a fresh stream.
+                    expire_after_response = true;
+                    Vec::new()
+                } else {
+                    stream.send_current_page()
                 }
-                pages.current_page()
-            }
-        };
+            } else {
+                let (page, cursor) = self.recovery_page_for(
+                    authenticated_peer,
+                    request,
+                    &RecoveryResponseCursor::default(),
+                )?;
+                if page.is_empty() {
+                    // An initially empty response carries no records to acknowledge and therefore
+                    // must not cache a completed stream.
+                    Vec::new()
+                } else {
+                    let mut stream = RecoveryResponsePages::new(request.clone(), cursor, page);
+                    let records = stream.send_current_page();
+                    self.recovery_response_pages
+                        .insert(authenticated_peer, stream);
+                    records
+                }
+            };
         let response = ExactRecordV1::author(
             ConversationRecordV1::RecoveryResponse(RecoveryResponseV1 {
                 workspace_id: self.workspace_bytes,
@@ -801,12 +781,42 @@ impl ConversationRuntime {
             .collect::<Vec<_>>();
         self.store
             .acknowledge_commonware_records(&acknowledged, acknowledged_at)?;
-        let expire_pages = self
-            .recovery_response_pages
-            .get_mut(&authenticated_peer)
-            .is_some_and(|pages| pages.acknowledge(&acknowledgement.record_ids));
-        if expire_pages {
-            self.recovery_response_pages.remove(&authenticated_peer);
+        if let Some(mut stream) = self.recovery_response_pages.remove(&authenticated_peer) {
+            if stream.awaiting_is_acknowledged(&acknowledgement.record_ids) {
+                let full_final_candidate =
+                    stream.current_page.len() == MAX_RECOVERY_RESPONSE_RECORDS;
+                let (next_page, next_cursor) = match self.recovery_page_for(
+                    authenticated_peer,
+                    &stream.request,
+                    &stream.cursor,
+                ) {
+                    Ok(next) => next,
+                    Err(error) => {
+                        self.recovery_response_pages
+                            .insert(authenticated_peer, stream);
+                        return Err(error);
+                    }
+                };
+                if next_page.is_empty() {
+                    if full_final_candidate {
+                        stream.current_page.clear();
+                        stream.awaiting = None;
+                        stream.empty_completion_pending = true;
+                        self.recovery_response_pages
+                            .insert(authenticated_peer, stream);
+                    }
+                    // A short final page has completed and expires immediately.
+                } else {
+                    stream.current_page = next_page;
+                    stream.cursor = next_cursor;
+                    stream.awaiting = None;
+                    self.recovery_response_pages
+                        .insert(authenticated_peer, stream);
+                }
+            } else {
+                self.recovery_response_pages
+                    .insert(authenticated_peer, stream);
+            }
         }
         Ok(())
     }
@@ -1046,59 +1056,84 @@ impl ConversationRuntime {
             .collect())
     }
 
-    fn recovery_pages_for(
+    fn recovery_page_for(
         &self,
         authenticated_peer: PublicIdentity,
         request: &RecoveryRequestV1,
-    ) -> Result<Vec<Vec<Vec<u8>>>, ConversationRuntimeError> {
-        let heads = request
-            .heads
-            .iter()
-            .map(|head| (head.author, head.highest_sequence))
-            .collect::<BTreeMap<_, _>>();
-        let mut messages = self
-            .records_eligible_for(authenticated_peer)?
-            .into_iter()
-            .filter(|bytes| {
-                let Ok(exact) = ExactRecordV1::decode(bytes) else {
-                    return false;
-                };
-                let ConversationRecordV1::Message(message) = exact.record() else {
-                    return false;
-                };
-                let beyond_head = heads
-                    .get(&message.author)
-                    .is_none_or(|highest| message.author_sequence > *highest);
-                let explicitly_missing = request.missing_ranges.iter().any(|range| {
-                    range.author == message.author
-                        && (range.first_sequence..=range.last_sequence)
-                            .contains(&message.author_sequence)
-                });
-                beyond_head || explicitly_missing
-            })
-            .collect::<Vec<_>>();
-        messages.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
-        messages.dedup();
-        let accepted_channels = self.channels.accepted_ids();
-        let mut selected = self
-            .channel_records
-            .iter()
-            .filter(|record| accepted_channels.contains(record.id()))
-            .map(|record| record.bytes().to_vec())
-            .collect::<Vec<_>>();
-        selected.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
-        selected.dedup();
-        selected.extend(messages);
-        Ok(selected
-            .chunks(MAX_RECOVERY_RESPONSE_RECORDS)
-            .map(|records| {
-                let mut records = records.to_vec();
-                // v1 fixes response records in a global hash order. Selection remains
-                // channel-chain first, but the final encoded page preserves wire canonicality.
-                records.sort_by_key(|bytes| blake3::hash(bytes).as_bytes().to_owned());
-                records
-            })
-            .collect())
+        cursor: &RecoveryResponseCursor,
+    ) -> Result<(Vec<Vec<u8>>, RecoveryResponseCursor), ConversationRuntimeError> {
+        let mut next_cursor = cursor.clone();
+        let mut selected = Vec::with_capacity(MAX_RECOVERY_RESPONSE_RECORDS);
+
+        if !next_cursor.channels_complete {
+            let accepted_channels = self.channels.accepted_ids();
+            let mut channels = self
+                .channel_records
+                .iter()
+                .filter(|record| accepted_channels.contains(record.id()))
+                .map(|record| record.bytes().to_vec())
+                .filter(|bytes| {
+                    cursor
+                        .channel_after
+                        .is_none_or(|after| recovery_order(bytes) > after)
+                })
+                .collect::<Vec<_>>();
+            channels.sort_by_key(|bytes| recovery_order(bytes));
+            channels.dedup();
+            let take = channels.len().min(MAX_RECOVERY_RESPONSE_RECORDS);
+            selected.extend(channels.drain(..take));
+            if let Some(last) = selected.last() {
+                next_cursor.channel_after = Some(recovery_order(last));
+            }
+            next_cursor.channels_complete = channels.is_empty();
+        }
+
+        if next_cursor.channels_complete && selected.len() < MAX_RECOVERY_RESPONSE_RECORDS {
+            let heads = request
+                .heads
+                .iter()
+                .map(|head| (head.author, head.highest_sequence))
+                .collect::<BTreeMap<_, _>>();
+            let mut messages = self
+                .records_eligible_for(authenticated_peer)?
+                .into_iter()
+                .filter(|bytes| {
+                    let Ok(exact) = ExactRecordV1::decode(bytes) else {
+                        return false;
+                    };
+                    let ConversationRecordV1::Message(message) = exact.record() else {
+                        return false;
+                    };
+                    let beyond_head = heads
+                        .get(&message.author)
+                        .is_none_or(|highest| message.author_sequence > *highest);
+                    let explicitly_missing = request.missing_ranges.iter().any(|range| {
+                        range.author == message.author
+                            && (range.first_sequence..=range.last_sequence)
+                                .contains(&message.author_sequence)
+                    });
+                    (beyond_head || explicitly_missing)
+                        && cursor
+                            .message_after
+                            .is_none_or(|after| recovery_order(bytes) > after)
+                })
+                .collect::<Vec<_>>();
+            messages.sort_by_key(|bytes| recovery_order(bytes));
+            messages.dedup();
+            let remaining = MAX_RECOVERY_RESPONSE_RECORDS - selected.len();
+            selected.extend(messages.drain(..messages.len().min(remaining)));
+            if let Some(last) = selected.iter().rev().find(|bytes| {
+                ExactRecordV1::decode(bytes)
+                    .is_ok_and(|exact| matches!(exact.record(), ConversationRecordV1::Message(_)))
+            }) {
+                next_cursor.message_after = Some(recovery_order(last));
+            }
+        }
+
+        // v1 fixes response records in a global hash order. Selection remains channel-chain
+        // first, while only this bounded final page is canonically reordered for encoding.
+        selected.sort_by_key(|bytes| recovery_order(bytes));
+        Ok((selected, next_cursor))
     }
 
     fn author_channel_operation(
@@ -1338,6 +1373,10 @@ impl ConversationRuntime {
         }
         Ok(())
     }
+}
+
+fn recovery_order(bytes: &[u8]) -> RecordId {
+    blake3::hash(bytes).as_bytes().to_owned()
 }
 
 fn departure_blocks_authoring(

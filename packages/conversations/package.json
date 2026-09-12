@@ -1,0 +1,12 @@
+{
+  "name": "@resonance/conversations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@resonance/package-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "3.1.3"
+  }
+}

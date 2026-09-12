@@ -88,18 +88,10 @@ Design uncertainties that need resolution before or during implementation. Each 
 
 ## OQ-07 — Chat history replication for late-joining members
 
-**Blocks:** `02-system/04-conversations/` spec, Phase 3 implementation
+**Status:** Resolved (2026-09-04, RFC 0011).
 
 **Question:** When a new member joins a workspace, how do they receive conversation history older than their join date?
 
-**Options:**
-- A: History is replicated via Iroh blob transfer from an online peer. Complete history, requires a peer to be online at join time.
-- B: History is available only from join date forward. Simple, no catch-up problem.
-- C: Periodic compacted snapshots are replicated; members receive the latest snapshot plus live gossip.
+**Decision:** They do not. Admission creates a fresh membership interval and conversation authorization epoch. An admitted member recovers only records eligible for that interval through Commonware over a validated directly reachable route. Existing members may still recover eligible canonical historical-epoch records. The runtime does not expose earlier or absent-interval records or keys to the newly admitted member.
 
-**Considerations:**
-- Option A provides the best new-member experience but requires a peer online at join.
-- Option B is simpler and avoids the "how far back?" question.
-- Teams expect chat history to be available; Option B will be perceived as a missing feature.
-
-**Resolution path:** Implement Option A in Phase 3 with a fallback to Option B (no history) if no peer is online. Document the limitation.
+**Rationale:** The forward-only boundary gives v1 a clear confidentiality rule and avoids treating Iroh blob recovery as conversation authority.

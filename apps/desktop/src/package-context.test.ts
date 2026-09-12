@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  ConversationsV1,
   PackageEventTransport,
   WorkspaceFilesV1,
 } from "@resonance/package-sdk";
@@ -13,6 +14,7 @@ import {
 } from "./package-context.js";
 import type { BundledPackageManifest } from "./package-host.js";
 
+const conversations = {} as ConversationsV1;
 const files = {} as WorkspaceFilesV1;
 
 function manifest(
@@ -52,6 +54,15 @@ describe("package context authority", () => {
       name: "test:emitted",
       payload: { ok: true },
     });
+  });
+
+  it("provisions conversations only when the manifest declares it", () => {
+    const context = createPackageContext(manifest(["conversations:v1"]), {
+      conversations,
+      events: eventTransport(),
+    });
+    expect(context.capabilities.conversationsV1).toBe(conversations);
+    expect(context.capabilities.workspaceFilesV1).toBeUndefined();
   });
 
   it("rejects every declared capability without a provider", () => {

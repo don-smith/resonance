@@ -1,0 +1,90 @@
+//! Canonical conversation records and cryptography kept behind the runtime boundary.
+
+mod address_directory;
+pub(crate) mod authority;
+mod channels;
+pub(crate) mod crypto;
+mod framing;
+mod key_custody;
+pub(crate) mod lookup;
+pub(crate) mod mesh;
+pub(crate) mod recovery;
+pub(crate) mod runtime;
+mod store;
+#[doc(hidden)]
+pub mod testing;
+pub(crate) mod wire;
+
+pub use channels::MAX_CHANNEL_SNAPSHOT;
+/// The semantic application-facing conversation runtime.
+pub use runtime::{
+    ChannelView, ConversationRuntime, ConversationRuntimeError, ConversationSyncState, MessageView,
+};
+pub use wire::{MAX_CHANNEL_NAME_BYTES, MAX_MARKDOWN_BYTES};
+
+use std::fmt;
+
+pub(crate) use address_directory::ADDRESS_NOTICE_MAX_TTL_SECONDS;
+
+/// Finite refusal reasons at the conversation wire and cryptography boundary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConversationError {
+    MalformedBytes(&'static str),
+    UnsupportedFamily(u8),
+    UnsupportedVersion { family: u8, version: u8 },
+    UnsupportedSuite(u8),
+    SizeLimit { field: &'static str, limit: usize },
+    UnauthorizedData(&'static str),
+    MissingKey,
+    RecipientMismatch,
+    InvalidSignature,
+    AuthenticatedOpen,
+    LocalSealingFailure,
+    RandomnessUnavailable,
+}
+
+impl fmt::Display for ConversationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MalformedBytes(reason) => {
+                write!(formatter, "malformed conversation bytes: {reason}")
+            }
+            Self::UnsupportedFamily(family) => {
+                write!(formatter, "unsupported conversation family {family}")
+            }
+            Self::UnsupportedVersion { family, version } => {
+                write!(
+                    formatter,
+                    "unsupported version {version} for family {family}"
+                )
+            }
+            Self::UnsupportedSuite(suite) => {
+                write!(formatter, "unsupported conversation suite {suite}")
+            }
+            Self::SizeLimit { field, limit } => {
+                write!(formatter, "conversation {field} exceeds limit {limit}")
+            }
+            Self::UnauthorizedData(reason) => {
+                write!(formatter, "conversation data is unauthorized: {reason}")
+            }
+            Self::MissingKey => formatter.write_str("conversation key is unavailable"),
+            Self::RecipientMismatch => {
+                formatter.write_str("conversation envelope names a different recipient key")
+            }
+            Self::InvalidSignature => {
+                formatter.write_str("conversation record signature is invalid")
+            }
+            Self::AuthenticatedOpen => {
+                formatter.write_str("conversation authenticated opening failed")
+            }
+            Self::LocalSealingFailure => {
+                formatter.write_str("conversation data could not be sealed locally")
+            }
+            Self::RandomnessUnavailable => {
+                formatter.write_str("operating-system randomness is unavailable")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConversationError {}

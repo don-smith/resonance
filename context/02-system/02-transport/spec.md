@@ -4,7 +4,7 @@
 
 Active.
 
-This spec defines the active-workspace Iroh endpoint/topic lifecycle and its relationship to membership and shell presence. It excludes blob replication and document/conversation subtopics.
+This spec defines the active-workspace Iroh endpoint/topic lifecycle and its relationship to membership and shell presence. It excludes blob replication, document transport, and Commonware conversation traffic.
 
 ## 1. Endpoint lifecycle and relay
 
@@ -16,9 +16,11 @@ The active workspace creates an Iroh Gossip 0.101.0 handler, registers it with t
 
 ## 3. Authenticated delivery and recovery
 
-Membership operations, membership sync/request, and presence heartbeats are versioned protocol envelopes. They are signed by the sender's installation identity with a domain-separated canonical payload. The identity session validates sender membership and envelope signature before processing normal traffic. Join requests are the narrow exception: only their named, current-member inviter may process them.
+Membership operations, membership sync/request, presence heartbeats, and bounded secret-free conversation departure requests, address notices, and recipient-public-key records are versioned protocol envelopes. They are signed by the sender's installation identity with a domain-separated canonical payload. The identity session validates outer signature, sender equality, workspace, current membership where required, limits, generation, expiry, and membership interval before passing safe control values onward. Join requests are the narrow exception: only their named, current-member inviter may process them.
 
-Gossip is delivery, not durable history or membership authority. `Lagged`, workspace activation, and neighbor arrival initiate membership-sync recovery. The transport accepts incoming gossip via its Router and reports neighbor/path observations to the workspace session.
+Iroh never carries conversation channel, message, epoch, acknowledgement, recovery, wrapped-key, or epoch-secret bytes. Those records use Commonware directly. Supporting conversation control cannot add, remove, or retain a member.
+
+Gossip is delivery, not durable history or membership authority. `Lagged`, workspace activation, and neighbor arrival initiate membership-sync recovery. The transport accepts incoming gossip via its Router and reports neighbor/path observations to the workspace session. A valid conversation address is only a direct-dial candidate; failure changes operational state, not membership or message authority.
 
 ## 4. Presence
 

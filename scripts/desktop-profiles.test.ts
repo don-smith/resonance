@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  profileLaunch,
   profileLaunches,
   removeProfileConfigurationsSync,
   resetProfile,
@@ -40,6 +41,14 @@ describe("desktop profile launcher contract", () => {
     expect(configuration.identifier).toBe("com.resonance.desktop.debug.alice");
     removeProfileConfigurationsSync(profiles);
     await expect(readFile(profiles[0].configPath, "utf8")).rejects.toThrow();
+  });
+
+  it("launches one profile with an explicit stable port", () => {
+    const profile = profileLaunch("bob", 1422, process.cwd());
+    expect(profile.name).toBe("bob");
+    expect(profile.port).toBe(1422);
+    expect(profile.devUrl).toBe("http://127.0.0.1:1422");
+    expect(profile.identifier).toBe("com.resonance.desktop.debug.bob");
   });
 
   it("rejects unsafe, duplicate, and incomplete launch input", () => {

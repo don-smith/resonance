@@ -1,9 +1,6 @@
 //! Deterministic projection of signed, causal workspace membership operations.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fmt,
-};
+use std::{collections::BTreeMap, fmt};
 
 use crate::{
     identity::{InstallationIdentity, PublicIdentity},
@@ -12,21 +9,22 @@ use crate::{
 use iroh::{PublicKey, Signature};
 
 const MEMBERSHIP_OPERATION_DOMAIN: &[u8] = b"resonance.membership-op.v1\0";
+const SELF_REMOVAL_REQUEST_DOMAIN: &[u8] = b"resonance.self-removal-request.v1\0";
 pub const MEMBERSHIP_PROTOCOL_VERSION: u8 = 1;
+pub const SELF_REMOVAL_REQUEST_VERSION: u8 = 1;
 
 mod operation;
-pub use operation::{MembershipOperation, MembershipOperationBody, SignedMembershipOperation};
+pub use operation::{
+    MembershipOperation, MembershipOperationBody, RemovalAuthorizationV1, SelfRemovalRequestV1,
+    SignedMembershipOperation, SignedSelfRemovalRequestV1,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MembershipOperationId(String);
 
 impl MembershipOperationId {
     pub fn parse(value: &str) -> Result<Self, MembershipError> {
-        if value.len() == 64
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
+        if valid_operation_id(value) {
             Ok(Self(value.to_owned()))
         } else {
             Err(MembershipError::InvalidOperationId)
@@ -52,7 +50,23 @@ impl fmt::Display for MembershipOperationId {
 }
 
 mod projection;
-pub use projection::{MembershipProjection, MembershipStatus};
+pub use projection::{
+    CanonicalRemoval, MembershipInterval, MembershipProjection, MembershipStatus,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreparedMembershipTransition {
+    pub operation: SignedMembershipOperation,
+    pub operation_id: MembershipOperationId,
+    pub exact_operation: Vec<u8>,
+    pub before_head: Option<MembershipOperationId>,
+    pub resulting_head: MembershipOperationId,
+    pub creator: PublicIdentity,
+    pub author: PublicIdentity,
+    pub additions: Vec<MembershipInterval>,
+    pub removals: Vec<MembershipInterval>,
+    pub resulting_members: Vec<Member>,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum MembershipError {
@@ -60,6 +74,9 @@ pub enum MembershipError {
     Decode,
     InvalidOperationId,
     InvalidSignature,
+    InvalidRequest,
+    UnauthorizedTransition(&'static str),
+    RandomnessUnavailable,
 }
 
 impl fmt::Display for MembershipError {
@@ -71,13 +88,20 @@ impl fmt::Display for MembershipError {
             Self::InvalidSignature => {
                 formatter.write_str("membership operation signature is invalid")
             }
+            Self::InvalidRequest => formatter.write_str("self-removal request is invalid"),
+            Self::UnauthorizedTransition(reason) => {
+                write!(formatter, "membership transition is unauthorized: {reason}")
+            }
+            Self::RandomnessUnavailable => {
+                formatter.write_str("membership request randomness is unavailable")
+            }
         }
     }
 }
 
 impl std::error::Error for MembershipError {}
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct MembershipLog {
     operations: BTreeMap<MembershipOperationId, SignedMembershipOperation>,
 }
@@ -89,7 +113,7 @@ impl MembershipLog {
     }
 
     pub fn insert_bytes(&mut self, bytes: &[u8]) -> Result<String, MembershipError> {
-        let operation = postcard::from_bytes(bytes).map_err(|_| MembershipError::Decode)?;
+        let operation = SignedMembershipOperation::decode(bytes)?;
         self.insert(operation)
     }
 
@@ -97,12 +121,11 @@ impl MembershipLog {
         &mut self,
         operation: SignedMembershipOperation,
     ) -> Result<String, MembershipError> {
-        let operation_id = operation.operation_id()?;
-        let operation_id_value = MembershipOperationId::parse(&operation_id)?;
+        let operation_id = operation.operation_id_value()?;
         self.operations
-            .entry(operation_id_value)
+            .entry(operation_id.clone())
             .or_insert(operation);
-        Ok(operation_id)
+        Ok(operation_id.to_string())
     }
 
     #[must_use]
@@ -123,80 +146,212 @@ impl MembershipLog {
             .collect()
     }
 
+    pub fn prepare(
+        &self,
+        workspace_id: &str,
+        operation: SignedMembershipOperation,
+    ) -> Result<PreparedMembershipTransition, MembershipError> {
+        let before = self.projection(workspace_id);
+        let before_head = before.canonical_head.clone();
+        if operation.operation.parent_operation_id.as_deref()
+            != before_head.as_ref().map(MembershipOperationId::as_str)
+        {
+            return Err(MembershipError::UnauthorizedTransition(
+                "operation does not extend the current canonical head",
+            ));
+        }
+        let operation_id = operation.operation_id_value()?;
+        let exact_operation = operation.encode()?;
+        let mut staged = self.clone();
+        staged.insert(operation.clone())?;
+        let after = staged.projection(workspace_id);
+        if after.canonical_head.as_ref() != Some(&operation_id) {
+            return Err(MembershipError::UnauthorizedTransition(
+                "operation does not produce the canonical membership result",
+            ));
+        }
+        let creator = after
+            .creator
+            .ok_or(MembershipError::UnauthorizedTransition(
+                "canonical genesis creator is unavailable",
+            ))?;
+        let additions = after
+            .intervals
+            .iter()
+            .filter(|(identity, interval)| {
+                before.interval_id(identity) != Some(&interval.interval_id)
+            })
+            .map(|(_, interval)| interval.clone())
+            .collect();
+        let removals = before
+            .intervals
+            .iter()
+            .filter(|(identity, _)| !after.intervals.contains_key(identity))
+            .map(|(_, interval)| interval.clone())
+            .collect();
+        Ok(PreparedMembershipTransition {
+            operation,
+            operation_id: operation_id.clone(),
+            exact_operation,
+            before_head,
+            resulting_head: operation_id,
+            creator,
+            author: PublicIdentity::from_bytes(after_operation_author(&staged, workspace_id)?),
+            additions,
+            removals,
+            resulting_members: after.members,
+        })
+    }
+
+    pub fn projection_at(
+        &self,
+        workspace_id: &str,
+        head: &MembershipOperationId,
+    ) -> Option<MembershipProjection> {
+        let current = self.projection(workspace_id);
+        let position = current
+            .canonical_lineage
+            .iter()
+            .position(|candidate| candidate == head)?;
+        let mut historical = Self::new();
+        for operation_id in &current.canonical_lineage[..=position] {
+            historical.operations.insert(
+                operation_id.clone(),
+                self.operations.get(operation_id)?.clone(),
+            );
+        }
+        Some(historical.projection(workspace_id))
+    }
+
+    pub fn operation_author(&self, operation_id: &MembershipOperationId) -> Option<PublicIdentity> {
+        self.operations
+            .get(operation_id)
+            .map(|signed| PublicIdentity::from_bytes(signed.operation.author))
+    }
+
+    pub fn current_transition(
+        &self,
+        workspace_id: &str,
+    ) -> Result<PreparedMembershipTransition, MembershipError> {
+        let projection = self.projection(workspace_id);
+        let resulting_head =
+            projection
+                .canonical_head
+                .clone()
+                .ok_or(MembershipError::UnauthorizedTransition(
+                    "canonical membership head is unavailable",
+                ))?;
+        let operation = self.operations.get(&resulting_head).cloned().ok_or(
+            MembershipError::UnauthorizedTransition(
+                "canonical membership operation is unavailable",
+            ),
+        )?;
+        let before_head = operation
+            .operation
+            .parent_operation_id
+            .as_deref()
+            .map(MembershipOperationId::parse)
+            .transpose()?;
+        let creator = projection
+            .creator
+            .ok_or(MembershipError::UnauthorizedTransition(
+                "canonical genesis creator is unavailable",
+            ))?;
+        Ok(PreparedMembershipTransition {
+            exact_operation: operation.encode()?,
+            operation_id: resulting_head.clone(),
+            before_head,
+            resulting_head,
+            author: PublicIdentity::from_bytes(operation.operation.author),
+            operation,
+            creator,
+            additions: projection.intervals.values().cloned().collect(),
+            removals: Vec::new(),
+            resulting_members: projection.members,
+        })
+    }
+
     #[must_use]
     pub fn projection(&self, workspace_id: &str) -> MembershipProjection {
-        let mut statuses_by_id = self
+        let mut statuses = self
             .operations
             .keys()
             .cloned()
             .map(|id| (id, MembershipStatus::Rejected))
             .collect::<BTreeMap<_, _>>();
-        let mut members = BTreeMap::new();
-        let mut counters = BTreeMap::new();
+        let mut intervals = BTreeMap::<PublicIdentity, MembershipInterval>::new();
+        let mut latest_removals = BTreeMap::<PublicIdentity, CanonicalRemoval>::new();
+        let mut counters = BTreeMap::<PublicIdentity, u64>::new();
 
-        let mut genesis = self
+        let Some((mut head, genesis)) = self
             .operations
             .iter()
-            .filter(|(_, signed)| valid_genesis(signed, workspace_id))
-            .map(|(id, _)| id.as_str().to_owned())
-            .collect::<Vec<_>>();
-        genesis.sort();
-        let Some(mut head) = genesis.into_iter().next() else {
-            mark_pending_operations(&self.operations, workspace_id, &mut statuses_by_id);
+            .find(|(_, operation)| valid_genesis(operation, workspace_id))
+        else {
+            mark_pending_operations(&self.operations, workspace_id, &mut statuses);
             return MembershipProjection {
                 canonical_head: None,
+                creator: None,
                 members: Vec::new(),
-                statuses: statuses_by_id,
+                intervals,
+                latest_removals,
+                canonical_lineage: Vec::new(),
+                statuses,
             };
         };
-
-        let mut canonical = BTreeSet::new();
-        let first = &self.operations
-            [&MembershipOperationId::parse(&head).expect("stored operation ID must remain valid")];
-        apply_addition(&mut members, &mut counters, first);
-        canonical.insert(head.clone());
-        statuses_by_id.insert(
-            MembershipOperationId::parse(&head).expect("stored operation ID must remain valid"),
-            MembershipStatus::Canonical,
+        let creator = PublicIdentity::from_bytes(genesis.operation.author);
+        apply_operation(
+            head,
+            genesis,
+            &mut intervals,
+            &mut latest_removals,
+            &mut counters,
         );
+        statuses.insert(head.clone(), MembershipStatus::Canonical);
+        let mut lineage = vec![head.clone()];
 
         loop {
-            let candidates = self
-                .operations
-                .iter()
-                .filter(|(_, signed)| {
-                    signed.operation.parent_operation_id.as_deref() == Some(&head)
-                })
-                .filter(|(_, signed)| valid_child(signed, workspace_id, &members, &counters))
-                .map(|(id, _)| id.as_str().to_owned())
-                .collect::<Vec<_>>();
-            let Some(next) = candidates.into_iter().next() else {
+            let next = self.operations.iter().find(|(_, operation)| {
+                operation.operation.parent_operation_id.as_deref() == Some(head.as_str())
+                    && valid_child(
+                        operation,
+                        workspace_id,
+                        creator,
+                        &intervals,
+                        &latest_removals,
+                        &counters,
+                    )
+            });
+            let Some((next_id, operation)) = next else {
                 break;
             };
-            let operation = &self.operations[&MembershipOperationId::parse(&next)
-                .expect("stored operation ID must remain valid")];
-            apply_addition(&mut members, &mut counters, operation);
-            statuses_by_id.insert(
-                MembershipOperationId::parse(&next).expect("stored operation ID must remain valid"),
-                MembershipStatus::Canonical,
+            apply_operation(
+                next_id,
+                operation,
+                &mut intervals,
+                &mut latest_removals,
+                &mut counters,
             );
-            canonical.insert(next.clone());
-            head = next;
+            statuses.insert(next_id.clone(), MembershipStatus::Canonical);
+            lineage.push(next_id.clone());
+            head = next_id;
         }
 
-        mark_pending_operations(&self.operations, workspace_id, &mut statuses_by_id);
-        for id in canonical {
-            statuses_by_id.insert(
-                MembershipOperationId::parse(&id).expect("stored operation ID must remain valid"),
-                MembershipStatus::Canonical,
-            );
+        mark_pending_operations(&self.operations, workspace_id, &mut statuses);
+        for id in &lineage {
+            statuses.insert(id.clone(), MembershipStatus::Canonical);
         }
         MembershipProjection {
-            canonical_head: Some(
-                MembershipOperationId::parse(&head).expect("stored operation ID must remain valid"),
-            ),
-            members: members.into_values().collect(),
-            statuses: statuses_by_id,
+            canonical_head: Some(head.clone()),
+            creator: Some(creator),
+            members: intervals
+                .values()
+                .map(|interval| interval.member.clone())
+                .collect(),
+            intervals,
+            latest_removals,
+            canonical_lineage: lineage,
+            statuses,
         }
     }
 }
@@ -227,6 +382,7 @@ impl SignedMembershipOperation {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_member(
         identity: &InstallationIdentity,
         workspace_id: impl Into<String>,
@@ -234,6 +390,29 @@ impl SignedMembershipOperation {
         author_counter: u64,
         public_identity: [u8; 32],
         display_name: impl Into<String>,
+        added_at: i64,
+    ) -> Result<Self, MembershipError> {
+        Self::add_member_with_role(
+            identity,
+            workspace_id,
+            parent_operation_id,
+            author_counter,
+            public_identity,
+            display_name,
+            "contributor",
+            added_at,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_member_with_role(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        parent_operation_id: impl Into<String>,
+        author_counter: u64,
+        public_identity: [u8; 32],
+        display_name: impl Into<String>,
+        role: impl Into<String>,
         added_at: i64,
     ) -> Result<Self, MembershipError> {
         Self::sign(
@@ -247,8 +426,81 @@ impl SignedMembershipOperation {
                 body: MembershipOperationBody::AddMember {
                     public_identity,
                     display_name: display_name.into(),
-                    role: "contributor".to_owned(),
+                    role: role.into(),
                     added_at,
+                },
+            },
+        )
+    }
+
+    pub fn expel_member(
+        creator: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        parent_operation_id: impl Into<String>,
+        author_counter: u64,
+        public_identity: [u8; 32],
+        membership_interval_id: impl Into<String>,
+        removed_at: i64,
+    ) -> Result<Self, MembershipError> {
+        Self::remove_member(
+            creator,
+            workspace_id,
+            parent_operation_id,
+            author_counter,
+            public_identity,
+            membership_interval_id,
+            removed_at,
+            RemovalAuthorizationV1::CreatorExpulsion,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn remove_member_by_request(
+        creator: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        parent_operation_id: impl Into<String>,
+        author_counter: u64,
+        request: SignedSelfRemovalRequestV1,
+        removed_at: i64,
+    ) -> Result<Self, MembershipError> {
+        let public_identity = request.request.requester;
+        let interval = request.request.membership_interval_id.clone();
+        Self::remove_member(
+            creator,
+            workspace_id,
+            parent_operation_id,
+            author_counter,
+            public_identity,
+            interval,
+            removed_at,
+            RemovalAuthorizationV1::MemberRequest(request),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn remove_member(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        parent_operation_id: impl Into<String>,
+        author_counter: u64,
+        public_identity: [u8; 32],
+        membership_interval_id: impl Into<String>,
+        removed_at: i64,
+        authorization: RemovalAuthorizationV1,
+    ) -> Result<Self, MembershipError> {
+        Self::sign(
+            identity,
+            MembershipOperation {
+                version: MEMBERSHIP_PROTOCOL_VERSION,
+                workspace_id: workspace_id.into(),
+                parent_operation_id: Some(parent_operation_id.into()),
+                author: *identity.public_identity().as_bytes(),
+                author_counter,
+                body: MembershipOperationBody::RemoveMember {
+                    public_identity,
+                    membership_interval_id: membership_interval_id.into(),
+                    removed_at,
+                    authorization,
                 },
             },
         )
@@ -268,27 +520,18 @@ impl SignedMembershipOperation {
 
     pub fn operation_id_value(&self) -> Result<MembershipOperationId, MembershipError> {
         let encoded = self.encode()?;
-        let operation_id = blake3::hash(&encoded).to_hex();
-        MembershipOperationId::parse(operation_id.as_ref())
+        MembershipOperationId::parse(blake3::hash(&encoded).to_hex().as_ref())
     }
 
     pub fn verify(&self) -> Result<(), MembershipError> {
-        let signer = PublicKey::from_bytes(&self.operation.author)
-            .map_err(|_| MembershipError::InvalidSignature)?;
-        let signature: [u8; Signature::LENGTH] = self
-            .signature
-            .as_slice()
-            .try_into()
-            .map_err(|_| MembershipError::InvalidSignature)?;
-        signer
-            .verify(
-                &membership_signing_bytes(&self.operation)?,
-                &Signature::from_bytes(&signature),
-            )
-            .map_err(|_| MembershipError::InvalidSignature)
+        verify_iroh_signature(
+            self.operation.author,
+            &membership_signing_bytes(&self.operation)?,
+            &self.signature,
+        )
     }
 
-    fn sign(
+    pub(crate) fn sign(
         identity: &InstallationIdentity,
         operation: MembershipOperation,
     ) -> Result<Self, MembershipError> {
@@ -300,10 +543,73 @@ impl SignedMembershipOperation {
     }
 }
 
-fn membership_signing_bytes(operation: &MembershipOperation) -> Result<Vec<u8>, MembershipError> {
-    let mut bytes = MEMBERSHIP_OPERATION_DOMAIN.to_vec();
-    bytes.extend(postcard::to_stdvec(operation).map_err(|_| MembershipError::Encode)?);
-    Ok(bytes)
+impl SignedSelfRemovalRequestV1 {
+    pub fn create(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        membership_interval_id: impl Into<String>,
+        genesis_creator: [u8; 32],
+        requested_at: i64,
+    ) -> Result<Self, MembershipError> {
+        let mut nonce = [0; 32];
+        getrandom::fill(&mut nonce).map_err(|_| MembershipError::RandomnessUnavailable)?;
+        Self::create_with_nonce(
+            identity,
+            workspace_id,
+            membership_interval_id,
+            genesis_creator,
+            nonce,
+            requested_at,
+        )
+    }
+
+    #[doc(hidden)]
+    pub fn create_with_nonce(
+        identity: &InstallationIdentity,
+        workspace_id: impl Into<String>,
+        membership_interval_id: impl Into<String>,
+        genesis_creator: [u8; 32],
+        nonce: [u8; 32],
+        requested_at: i64,
+    ) -> Result<Self, MembershipError> {
+        let request = SelfRemovalRequestV1 {
+            version: SELF_REMOVAL_REQUEST_VERSION,
+            workspace_id: workspace_id.into(),
+            requester: *identity.public_identity().as_bytes(),
+            membership_interval_id: membership_interval_id.into(),
+            genesis_creator,
+            nonce,
+            requested_at,
+        };
+        validate_request_fields(&request)?;
+        let signature = identity.sign(&self_removal_signing_bytes(&request)?);
+        Ok(Self {
+            request,
+            signature: signature.to_vec(),
+        })
+    }
+
+    pub fn encode(&self) -> Result<Vec<u8>, MembershipError> {
+        postcard::to_stdvec(self).map_err(|_| MembershipError::Encode)
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, MembershipError> {
+        postcard::from_bytes(bytes).map_err(|_| MembershipError::Decode)
+    }
+
+    pub fn request_id(&self) -> Result<MembershipOperationId, MembershipError> {
+        MembershipOperationId::parse(blake3::hash(&self.encode()?).to_hex().as_ref())
+    }
+
+    pub fn verify(&self) -> Result<(), MembershipError> {
+        validate_request_fields(&self.request)?;
+        verify_iroh_signature(
+            self.request.requester,
+            &self_removal_signing_bytes(&self.request)?,
+            &self.signature,
+        )
+        .map_err(|_| MembershipError::InvalidRequest)
+    }
 }
 
 fn valid_genesis(operation: &SignedMembershipOperation, workspace_id: &str) -> bool {
@@ -312,7 +618,10 @@ fn valid_genesis(operation: &SignedMembershipOperation, workspace_id: &str) -> b
         role,
         display_name,
         ..
-    } = &operation.operation.body;
+    } = &operation.operation.body
+    else {
+        return false;
+    };
     operation.operation.version == MEMBERSHIP_PROTOCOL_VERSION
         && operation.operation.workspace_id == workspace_id
         && operation.operation.parent_operation_id.is_none()
@@ -326,29 +635,156 @@ fn valid_genesis(operation: &SignedMembershipOperation, workspace_id: &str) -> b
 fn valid_child(
     operation: &SignedMembershipOperation,
     workspace_id: &str,
-    members: &BTreeMap<String, Member>,
-    counters: &BTreeMap<String, u64>,
+    creator: PublicIdentity,
+    intervals: &BTreeMap<PublicIdentity, MembershipInterval>,
+    removals: &BTreeMap<PublicIdentity, CanonicalRemoval>,
+    counters: &BTreeMap<PublicIdentity, u64>,
 ) -> bool {
-    let MembershipOperationBody::AddMember {
-        public_identity,
-        display_name,
-        role,
-        ..
-    } = &operation.operation.body;
-    let author = public_identity_text(&operation.operation.author);
-    let added = public_identity_text(public_identity);
-    operation.operation.version == MEMBERSHIP_PROTOCOL_VERSION
-        && operation.operation.workspace_id == workspace_id
-        && operation
-            .operation
-            .parent_operation_id
-            .as_deref()
-            .is_some_and(valid_operation_id)
-        && members.contains_key(&author)
-        && operation.operation.author_counter > counters.get(&author).copied().unwrap_or(0)
-        && !members.contains_key(&added)
-        && valid_member_fields(display_name, role)
-        && operation.verify().is_ok()
+    let author = PublicIdentity::from_bytes(operation.operation.author);
+    if operation.operation.version != MEMBERSHIP_PROTOCOL_VERSION
+        || operation.operation.workspace_id != workspace_id
+        || !intervals.contains_key(&author)
+        || operation.operation.author_counter <= counters.get(&author).copied().unwrap_or(0)
+        || operation.verify().is_err()
+    {
+        return false;
+    }
+    match &operation.operation.body {
+        MembershipOperationBody::AddMember {
+            public_identity,
+            display_name,
+            role,
+            ..
+        } => {
+            let added = PublicIdentity::from_bytes(*public_identity);
+            if intervals.contains_key(&added) || !valid_member_fields(display_name, role) {
+                return false;
+            }
+            match removals.get(&added).map(|removal| &removal.authorization) {
+                None | Some(RemovalAuthorizationV1::MemberRequest(_)) => true,
+                Some(RemovalAuthorizationV1::CreatorExpulsion) => author == creator,
+            }
+        }
+        MembershipOperationBody::RemoveMember {
+            public_identity,
+            membership_interval_id,
+            authorization,
+            ..
+        } => {
+            let target = PublicIdentity::from_bytes(*public_identity);
+            if target == creator
+                || intervals
+                    .get(&target)
+                    .map(|current| current.interval_id.as_str())
+                    != Some(membership_interval_id.as_str())
+                || author != creator
+            {
+                return false;
+            }
+            match authorization {
+                RemovalAuthorizationV1::CreatorExpulsion => true,
+                RemovalAuthorizationV1::MemberRequest(request) => {
+                    request.verify().is_ok()
+                        && request.request.workspace_id == workspace_id
+                        && request.request.requester == *public_identity
+                        && request.request.membership_interval_id == *membership_interval_id
+                        && request.request.genesis_creator == *creator.as_bytes()
+                }
+            }
+        }
+    }
+}
+
+fn apply_operation(
+    operation_id: &MembershipOperationId,
+    operation: &SignedMembershipOperation,
+    intervals: &mut BTreeMap<PublicIdentity, MembershipInterval>,
+    removals: &mut BTreeMap<PublicIdentity, CanonicalRemoval>,
+    counters: &mut BTreeMap<PublicIdentity, u64>,
+) {
+    let author = PublicIdentity::from_bytes(operation.operation.author);
+    match &operation.operation.body {
+        MembershipOperationBody::AddMember {
+            public_identity,
+            display_name,
+            role,
+            added_at,
+        } => {
+            let identity = PublicIdentity::from_bytes(*public_identity);
+            intervals.insert(
+                identity,
+                MembershipInterval {
+                    interval_id: operation_id.clone(),
+                    member: Member::new(identity, display_name, role, author, *added_at),
+                },
+            );
+        }
+        MembershipOperationBody::RemoveMember {
+            public_identity,
+            membership_interval_id,
+            authorization,
+            ..
+        } => {
+            let identity = PublicIdentity::from_bytes(*public_identity);
+            intervals.remove(&identity);
+            removals.insert(
+                identity,
+                CanonicalRemoval {
+                    interval_id: MembershipOperationId::parse(membership_interval_id)
+                        .expect("validated interval ID remains valid"),
+                    authorization: authorization.clone(),
+                },
+            );
+        }
+    }
+    counters.insert(author, operation.operation.author_counter);
+}
+
+fn after_operation_author(
+    staged: &MembershipLog,
+    workspace_id: &str,
+) -> Result<[u8; 32], MembershipError> {
+    let head = staged.projection(workspace_id).canonical_head.ok_or(
+        MembershipError::UnauthorizedTransition("missing resulting head"),
+    )?;
+    Ok(staged.operations[&head].operation.author)
+}
+
+fn membership_signing_bytes(operation: &MembershipOperation) -> Result<Vec<u8>, MembershipError> {
+    let mut bytes = MEMBERSHIP_OPERATION_DOMAIN.to_vec();
+    bytes.extend(postcard::to_stdvec(operation).map_err(|_| MembershipError::Encode)?);
+    Ok(bytes)
+}
+
+fn self_removal_signing_bytes(request: &SelfRemovalRequestV1) -> Result<Vec<u8>, MembershipError> {
+    let mut bytes = SELF_REMOVAL_REQUEST_DOMAIN.to_vec();
+    bytes.extend(postcard::to_stdvec(request).map_err(|_| MembershipError::Encode)?);
+    Ok(bytes)
+}
+
+fn verify_iroh_signature(
+    signer: [u8; 32],
+    bytes: &[u8],
+    signature: &[u8],
+) -> Result<(), MembershipError> {
+    let signer = PublicKey::from_bytes(&signer).map_err(|_| MembershipError::InvalidSignature)?;
+    let signature: [u8; Signature::LENGTH] = signature
+        .try_into()
+        .map_err(|_| MembershipError::InvalidSignature)?;
+    signer
+        .verify(bytes, &Signature::from_bytes(&signature))
+        .map_err(|_| MembershipError::InvalidSignature)
+}
+
+fn validate_request_fields(request: &SelfRemovalRequestV1) -> Result<(), MembershipError> {
+    if request.version != SELF_REMOVAL_REQUEST_VERSION
+        || !valid_operation_id(&request.workspace_id)
+        || !valid_operation_id(&request.membership_interval_id)
+        || request.requester == request.genesis_creator
+    {
+        return Err(MembershipError::InvalidRequest);
+    }
+    Ok(())
 }
 
 fn valid_member_fields(display_name: &str, role: &str) -> bool {
@@ -356,31 +792,6 @@ fn valid_member_fields(display_name: &str, role: &str) -> bool {
         && display_name.len() <= 256
         && !role.trim().is_empty()
         && role.len() <= 64
-}
-
-fn apply_addition(
-    members: &mut BTreeMap<String, Member>,
-    counters: &mut BTreeMap<String, u64>,
-    operation: &SignedMembershipOperation,
-) {
-    let MembershipOperationBody::AddMember {
-        public_identity,
-        display_name,
-        role,
-        added_at,
-    } = &operation.operation.body;
-    let author = public_identity_text(&operation.operation.author);
-    members.insert(
-        public_identity_text(public_identity),
-        Member::new(
-            PublicIdentity::from_bytes(*public_identity),
-            display_name.clone(),
-            role.clone(),
-            PublicIdentity::from_bytes(operation.operation.author),
-            *added_at,
-        ),
-    );
-    counters.insert(author, operation.operation.author_counter);
 }
 
 fn mark_pending_operations(
@@ -408,10 +819,6 @@ fn valid_operation_id(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn public_identity_text(public_identity: &[u8; 32]) -> String {
-    PublicIdentity::from_bytes(*public_identity).to_string()
 }
 
 #[cfg(test)]

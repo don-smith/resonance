@@ -5,8 +5,13 @@ use std::{
 };
 
 use resonance_runtime::{
+    conversations::testing::{
+        authority::ConversationAuthority,
+        wire::{ConversationRecordV1, ExactRecordV1},
+    },
     identity::{InMemoryKeyCustody, InstallationIdentity},
     invite::Invite,
+    membership_log::{MembershipOperationBody, SignedMembershipOperation},
     protocol::{Envelope, EnvelopeBody},
     workspace_catalog::WorkspaceCatalog,
     workspace_domain::{PeerConnection, WorkspaceLifecycle},
@@ -298,6 +303,18 @@ fn creates_an_invite_and_completes_a_named_inviter_join() {
         .take_outbound()
         .pop()
         .expect("join request sends");
+    let decoded_join = Envelope::decode(&join_request).expect("join envelope decodes");
+    let EnvelopeBody::JoinRequest { recipient_key, .. } = decoded_join.body else {
+        panic!("join request body");
+    };
+    let recipient_key = ExactRecordV1::decode(&recipient_key).expect("recipient record validates");
+    let ConversationRecordV1::RecipientKey(recipient_key) = recipient_key.record() else {
+        panic!("recipient-key family");
+    };
+    assert_eq!(
+        recipient_key.installation,
+        *joining_view.local_public_identity.as_bytes()
+    );
     inviter
         .receive(&join_request)
         .expect("named inviter accepts");
@@ -514,6 +531,61 @@ fn restores_pending_join_admission_after_a_session_restart() {
 }
 
 #[test]
+fn admitted_join_retry_resends_membership_without_readding_the_member() {
+    let inviter_directory = temporary_directory("admitted-retry-inviter");
+    let joiner_directory = temporary_directory("admitted-retry-joiner");
+    let mut inviter = session(&inviter_directory);
+    inviter
+        .create_workspace("Team Resonance", None)
+        .expect("workspace creates");
+    let invite = inviter.create_invite("bootstrap").expect("invite creates");
+    let mut joiner = session(&joiner_directory);
+    joiner.join_workspace(&invite, "Lin").expect("join starts");
+    let initial_request = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("initial request sends");
+    inviter
+        .receive(&initial_request)
+        .expect("inviter admits joiner");
+    let _lost_response = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("initial response sends");
+
+    assert!(joiner.retry_join("Lin").expect("join retry sends"));
+    let retry_request = joiner
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("retry request sends");
+    inviter
+        .receive(&retry_request)
+        .expect("inviter resends membership");
+    let retry_response = inviter
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("retry response sends");
+    let EnvelopeBody::MembershipSyncResponse(operations) = Envelope::decode(&retry_response)
+        .expect("response decodes")
+        .body
+    else {
+        panic!("retry response contains membership sync");
+    };
+    assert_eq!(operations.len(), 2);
+
+    joiner
+        .receive(&retry_response)
+        .expect("joiner applies retried membership");
+    assert_eq!(joiner.view().expect("view").members.len(), 2);
+    fs::remove_dir_all(inviter_directory).expect("inviter directory removes");
+    fs::remove_dir_all(joiner_directory).expect("joiner directory removes");
+}
+
+#[test]
 fn keeps_joining_retryable_and_recovers_the_full_operation_set() {
     let inviter_directory = temporary_directory("retry-inviter");
     let joiner_directory = temporary_directory("retry-joiner");
@@ -634,6 +706,255 @@ fn rejects_malformed_invites_and_invalid_relay_or_bootstrap_input() {
 }
 
 #[test]
+fn creator_processes_a_persisted_interval_bound_departure_atomically() {
+    let creator_directory = temporary_directory("departure-creator");
+    let requester_directory = temporary_directory("departure-requester");
+    let creator_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![81; 32]))
+            .expect("creator identity");
+    let requester_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![82; 32]))
+            .expect("requester identity");
+    let creator_catalog = WorkspaceCatalog::open(&creator_directory).expect("creator catalog");
+    let requester_catalog =
+        WorkspaceCatalog::open(&requester_directory).expect("requester catalog");
+    let mut creator = WorkspaceSession::new(
+        creator_identity.clone(),
+        creator_catalog,
+        FakeDeliveryPort::default(),
+    );
+    let created = creator
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let invite = creator.create_invite("bootstrap").expect("invite");
+    let mut requester = WorkspaceSession::new(
+        requester_identity.clone(),
+        requester_catalog,
+        FakeDeliveryPort::default(),
+    );
+    requester
+        .join_workspace(&invite, "Lin")
+        .expect("join starts");
+    let join = requester
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("join request");
+    creator.receive(&join).expect("creator admits");
+    let admission = creator
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("admission");
+    requester.receive(&admission).expect("requester admitted");
+
+    assert!(!requester
+        .local_conversation_authoring_blocked()
+        .expect("authoring starts enabled"));
+    let request = requester.request_departure(3).expect("request persists");
+    assert_eq!(
+        requester
+            .request_departure(99)
+            .expect("duplicate action reuses exact request")
+            .request_id()
+            .expect("duplicate ID"),
+        request.request_id().expect("request ID")
+    );
+    assert!(requester
+        .local_conversation_authoring_blocked()
+        .expect("pending departure blocks local authoring"));
+    assert_eq!(requester.view().expect("pending view").members.len(), 2);
+    let prepared = creator
+        .prepare_requested_departure(request, 4)
+        .expect("creator automatically prepares valid request");
+    assert_eq!(creator.view().expect("old view").members.len(), 2);
+    let store = WorkspaceCatalog::open(&creator_directory)
+        .expect("creator catalog reopens")
+        .open_workspace(&created.workspace.id)
+        .expect("creator store");
+    let mut authority = ConversationAuthority::open(
+        creator_identity.clone(),
+        created.workspace.id.as_str(),
+        store.clone(),
+    )
+    .expect("authority opens");
+    let committed = authority
+        .commit_transition(&prepared)
+        .expect("membership and epoch commit");
+    let ConversationRecordV1::Epoch(epoch) = committed.epoch.record() else {
+        panic!("epoch record");
+    };
+    assert!(epoch
+        .recipients
+        .iter()
+        .all(|recipient| recipient.member != *requester_identity.public_identity().as_bytes()));
+    assert_eq!(
+        creator
+            .view()
+            .expect("still old until finalize")
+            .members
+            .len(),
+        2
+    );
+    let mut rebuilt = WorkspaceSession::new(
+        creator_identity.clone(),
+        WorkspaceCatalog::open(&creator_directory).expect("recovery catalog"),
+        FakeDeliveryPort::default(),
+    );
+    assert_eq!(
+        rebuilt
+            .activate_active_workspace()
+            .expect("post-commit restart rebuilds")
+            .expect("active workspace")
+            .members
+            .len(),
+        1
+    );
+    creator
+        .finalize_prepared_transition(&prepared)
+        .expect("projection finalizes after commit");
+    let final_view = creator.view().expect("final view");
+    assert_eq!(final_view.members.len(), 1);
+    assert_eq!(
+        final_view.members[0].public_identity,
+        final_view.local_public_identity
+    );
+    assert_eq!(store.lookup_peer_set_version().expect("version"), 3);
+
+    fs::remove_dir_all(creator_directory).expect("creator directory removes");
+    fs::remove_dir_all(requester_directory).expect("requester directory removes");
+}
+
+#[test]
+fn durable_iroh_departure_control_survives_both_restarts_and_creates_one_epoch() {
+    let creator_directory = temporary_directory("departure-control-creator");
+    let requester_directory = temporary_directory("departure-control-requester");
+    let creator_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![91; 32]))
+            .expect("creator identity");
+    let requester_identity =
+        InstallationIdentity::load_or_create(&InMemoryKeyCustody::with_secret(vec![92; 32]))
+            .expect("requester identity");
+    let mut creator = WorkspaceSession::new(
+        creator_identity.clone(),
+        WorkspaceCatalog::open(&creator_directory).expect("creator catalog"),
+        FakeDeliveryPort::default(),
+    );
+    let created = creator
+        .create_workspace_with_creator("Team Resonance", "Ada", None)
+        .expect("workspace creates");
+    let invite = creator.create_invite("bootstrap").expect("invite");
+    let mut requester = WorkspaceSession::new(
+        requester_identity.clone(),
+        WorkspaceCatalog::open(&requester_directory).expect("requester catalog"),
+        FakeDeliveryPort::default(),
+    );
+    requester
+        .join_workspace(&invite, "Lin")
+        .expect("join starts");
+    let join = requester
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("join request");
+    creator.receive(&join).expect("creator admits");
+    let admission = creator
+        .delivery_mut()
+        .take_outbound()
+        .pop()
+        .expect("admission");
+    requester.receive(&admission).expect("requester admitted");
+    let request_id = requester
+        .request_departure(3)
+        .expect("request persists")
+        .request_id()
+        .expect("request ID");
+    drop(requester);
+
+    let mut requester = WorkspaceSession::new(
+        requester_identity.clone(),
+        WorkspaceCatalog::open(&requester_directory).expect("requester restart catalog"),
+        FakeDeliveryPort::default(),
+    );
+    requester
+        .activate_active_workspace()
+        .expect("requester restarts");
+    requester
+        .queue_iroh_publication_duties()
+        .expect("durable request queues");
+    let request_envelope = requester
+        .delivery_mut()
+        .take_outbound()
+        .into_iter()
+        .find(|bytes| {
+            Envelope::decode(bytes)
+                .is_ok_and(|envelope| matches!(envelope.body, EnvelopeBody::DepartureRequest(_)))
+        })
+        .expect("departure control queues after restart");
+    drop(creator);
+
+    let mut creator = WorkspaceSession::new(
+        creator_identity.clone(),
+        WorkspaceCatalog::open(&creator_directory).expect("creator restart catalog"),
+        FakeDeliveryPort::default(),
+    );
+    creator
+        .activate_active_workspace()
+        .expect("creator restarts before control");
+    creator
+        .receive(&request_envelope)
+        .expect("creator automatically commits request and epoch");
+    assert_eq!(creator.view().expect("creator view").members.len(), 1);
+    creator
+        .receive(&request_envelope)
+        .expect_err("removed requester cannot replay control as a member");
+
+    let creator_store = WorkspaceCatalog::open(&creator_directory)
+        .expect("creator inspection catalog")
+        .open_workspace(&created.workspace.id)
+        .expect("creator store");
+    let duties = creator_store
+        .durable_publication_duties()
+        .expect("duties remain durable");
+    let removal_duties = duties
+        .iter()
+        .filter(|duty| duty.transport == "iroh-membership")
+        .filter(|duty| {
+            SignedMembershipOperation::decode(&duty.exact_bytes).is_ok_and(|operation| {
+                matches!(
+                    operation.operation.body,
+                    MembershipOperationBody::RemoveMember { .. }
+                )
+            })
+        })
+        .count();
+    let next_epoch_duties = duties
+        .iter()
+        .filter(|duty| duty.transport == "commonware-record")
+        .filter(|duty| {
+            ExactRecordV1::decode(&duty.exact_bytes)
+                .is_ok_and(|record| matches!(record.record(), ConversationRecordV1::Epoch(_)))
+        })
+        .count();
+    assert_eq!(removal_duties, 1);
+    assert_eq!(
+        next_epoch_duties, 3,
+        "genesis, admission, and removal each have one epoch"
+    );
+    assert_eq!(
+        requester
+            .request_departure(99)
+            .expect("pending request remains exact until removal arrives")
+            .request_id()
+            .expect("request ID remains"),
+        request_id
+    );
+
+    fs::remove_dir_all(creator_directory).expect("creator directory removes");
+    fs::remove_dir_all(requester_directory).expect("requester directory removes");
+}
+
+#[test]
 fn rejects_a_join_request_not_addressed_to_the_canonical_inviter() {
     let directory = temporary_directory("wrong-inviter");
     let mut inviter = session(&directory);
@@ -648,6 +969,7 @@ fn rejects_a_join_request_not_addressed_to_the_canonical_inviter() {
         EnvelopeBody::JoinRequest {
             inviter: [7; 32],
             display_name: "Lin".to_owned(),
+            recipient_key: Vec::new(),
         },
     )
     .expect("envelope signs")

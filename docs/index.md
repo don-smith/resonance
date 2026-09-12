@@ -16,6 +16,15 @@ Use [Workspace files](workspace-files.md) to:
 - understand synchronization and conflict handling;
 - check current limits before moving existing work into a workspace.
 
+### Use public conversations
+
+Use [Conversations](conversations.md) to:
+
+- start in the workspace `#general` channel;
+- create, rename, and archive public channels;
+- exchange attributed Markdown with directly reachable authorized members;
+- understand local unread counts and finite synchronization labels.
+
 ## The basic model
 
 Every member chooses a new or empty local folder outside Git management. Resonance materializes the shared workspace tree into that folder, beginning with `plans`. Members can use different paths and folder names on their own computers while sharing the same logical tree and file bytes.
@@ -32,6 +41,8 @@ Resonance keeps its keys, database, operation history, and blob store outside th
 - Merge disjoint Markdown edits automatically.
 - Review and resolve Markdown, binary, deletion, creation, and move conflicts without silently discarding a competing change.
 - Repair, replace, or unbind a private workspace folder.
+- Use `#general` and creator-managed public channels for attributed Markdown.
+- Keep unread positions on this device while encrypted records synchronize directly with authorized peers.
 
 ## Technical references
 

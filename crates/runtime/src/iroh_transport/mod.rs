@@ -3,7 +3,7 @@
 //! This is the only runtime module that imports Iroh or Gossip types. Callers
 //! exchange signed protocol bytes and secret-free peer observations.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, net::SocketAddr};
 
 mod file_stream;
 
@@ -264,6 +264,28 @@ impl IrohTransport {
         .await?)
     }
 
+    pub async fn direct_socket_candidates(&self) -> Vec<SocketAddr> {
+        #[cfg(feature = "debug-local-profiles")]
+        return debug_local_socket_candidates();
+
+        #[cfg(not(feature = "debug-local-profiles"))]
+        self.endpoint.online().await;
+        #[cfg(not(feature = "debug-local-profiles"))]
+        canonical_direct_socket_candidates(
+            self.endpoint
+                .addr()
+                .addrs
+                .into_iter()
+                .filter_map(|address| match address {
+                    iroh::TransportAddr::Ip(address) if !address.ip().is_unspecified() => {
+                        Some(address)
+                    }
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
     /// Returns a base58, postcard-encoded Iroh node address for an invite.
     pub async fn bootstrap_hint(&self) -> Result<String, IrohTransportError> {
         self.endpoint.online().await;
@@ -469,8 +491,15 @@ impl IrohTransport {
         &self,
         session: &mut WorkspaceSession<FakeDeliveryPort>,
     ) -> Result<(), IrohSessionAdapterError> {
-        for message in session.delivery_mut().take_outbound() {
+        session.queue_iroh_publication_duties()?;
+        let mut messages = session.delivery_mut().take_outbound();
+        messages.sort();
+        messages.dedup();
+        for message in messages {
+            let envelope =
+                crate::protocol::Envelope::decode(&message).map_err(WorkspaceSessionError::from)?;
             self.broadcast(message).await?;
+            session.mark_iroh_publication_delivered(&envelope.body)?;
         }
         Ok(())
     }
@@ -548,6 +577,18 @@ impl IrohTransport {
             PeerPath::Unknown
         }
     }
+}
+
+#[cfg(feature = "debug-local-profiles")]
+fn debug_local_socket_candidates() -> Vec<SocketAddr> {
+    vec![SocketAddr::from(([127, 0, 0, 1], 0))]
+}
+
+#[cfg(any(not(feature = "debug-local-profiles"), test))]
+fn canonical_direct_socket_candidates(mut candidates: Vec<SocketAddr>) -> Vec<SocketAddr> {
+    candidates.sort_unstable();
+    candidates.dedup();
+    candidates
 }
 
 fn decode_endpoint_addr(encoded: &str) -> Result<EndpointAddr, IrohTransportError> {

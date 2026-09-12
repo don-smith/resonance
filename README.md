@@ -4,11 +4,12 @@ Resonance is a local-first, peer-to-peer team workspace built on Tauri and
 Iroh. Workspace content uses signed file-tree operations and verified immutable
 blobs; each member may bind the shared logical tree to a separate private local
 root. The desktop can choose or repair that root, browse the workspace tree,
-create and edit rendered Markdown files, and resolve file conflicts. The runtime
-owns filesystem polling, authorized file-history recovery, and verified private
-blob storage. The workspace-files and reference views load as reviewed bundled
-TypeScript packages. Conversations, repository loading, member packages, and
-agent execution do not ship yet.
+create and edit rendered Markdown files, resolve file conflicts, and exchange
+attributed Markdown in public workspace channels. The runtime owns filesystem
+polling, authorized file-history recovery, encrypted conversation recovery, and
+verified private blob storage. The conversations, workspace-files, and reference
+views load as reviewed bundled TypeScript packages. Repository loading, member
+packages, and agent execution do not ship yet.
 
 ## Prerequisites
 
@@ -62,6 +63,18 @@ pnpm desktop:profiles -- alice bob
 pnpm desktop:profiles -- --reset alice
 ```
 
+For an offline/reconnect check where one profile must remain running, start each
+profile from a separate terminal with its stable port:
+
+```sh
+pnpm desktop:profile -- alice 1421
+pnpm desktop:profile -- bob 1422
+```
+
+Closing Bob now leaves Alice running. Restart `bob` with the same command to
+exercise durable offline authorship and direct recovery. Keep the two profile
+names and ports distinct.
+
 This command builds debug-only profile peers with separate signed app bundles.
 It stores their ignored state under `.resonance/debug-profiles/` and needs the
 same Apple Development signing setup. `pnpm desktop:dev` remains the ordinary
@@ -80,7 +93,9 @@ Start with the [HTML user documentation](./docs/html/index.html) or its
 [equivalent Markdown index](./docs/index.md). The
 [workspace files guide](./docs/workspace-files.md) covers root selection,
 rendered and external editing, offline synchronization, conflict resolution,
-recovery, and current limits.
+recovery, and current limits. The [conversations guide](./docs/conversations.md)
+explains public channels, attributed Markdown, local unread state, direct-network
+synchronization, and current exclusions.
 
 ## Validate and build
 
@@ -101,7 +116,8 @@ checks live under [`packages/contracts/`](./packages/contracts/) and
 [`packages/sdk/`](./packages/sdk/). Start with the
 [package authoring guide](./docs/package-authoring.md), the small
 [`reference package`](./packages/reference-package/), and the complete
-[`workspace-files package`](./packages/workspace-files/). `pnpm packages:check`
+[`workspace-files package`](./packages/workspace-files/), and the
+[`conversations package`](./packages/conversations/). `pnpm packages:check`
 checks catalogs, imports, capabilities, dependencies, and CSS scope. Bundled
 packages are reviewed code in one webview; member packages remain deferred to
 separately labelled webviews. Development workspace storage and recovery are

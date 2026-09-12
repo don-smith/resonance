@@ -15,7 +15,7 @@ The following foundations are complete:
 - Signed workspace-file authority, immutable blobs, private local-root projection, conflict handling, and P2P recovery.
 - A generated bundled-package catalog, package lifecycle, semantic capability model, workspace-files package, and reference package.
 
-The codebase now has one complete capability-backed content domain. The next work should make the architecture explicit before a second collaborative domain copies or extends the current patterns.
+The codebase now has one complete capability-backed content domain. The P2P channel-chat workstream has accepted its RFC and standalone design, which make its second domain boundary explicit before implementation.
 
 ## Expected sequence
 
@@ -23,7 +23,7 @@ The codebase now has one complete capability-backed content domain. The next wor
 |---|---|---|---|
 | 1 | Architecture assessment | Next | Describe and assess the current architecture, intended architecture, seams, dependencies, data flows, responsibilities, extensibility points, and trade-offs. |
 | 2 | Architecture alignment | Planned | Triage the assessment, accept or reject each recommendation, and implement only the preparatory changes needed to make the architecture consistent and ready for another collaborative domain. |
-| 3 | Conversations | Planned | Add the conversation domain as the second capability-backed content package, using signed append-only messages, local persistence, Iroh replication, and bounded history recovery. |
+| 3 | Conversations | In progress | Add the conversation domain as the second capability-backed content package, using encrypted signed append-only messages, local SQLite persistence, direct Commonware delivery, interval-authorized history, and bounded sparse recovery. |
 | 4 | Repository registration and packages | Later | Register local Git clones and load repository-backed views without adding Resonance replication for repository content. |
 
 These are separate workstreams. In particular, the assessment does not silently become a refactor, and assessment findings are not accepted until the developer triages them.
@@ -67,7 +67,7 @@ Any accepted architectural change must update the relevant requirements, specifi
 
 Conversations are the next major capability after architecture alignment. They should prove that the package and runtime architecture supports a second data domain with different authority and replication semantics from workspace files.
 
-The first useful conversation release should center on a conversation package, a versioned semantic capability, a default `#general` channel, signed Markdown messages, local SQLite persistence, live gossip, restart and reconnect behavior, history catch-up, and local unread state. Detailed scope remains for the conversations workstream.
+The first useful conversation release centers on a conversation package, `conversations:v1`, a default `#general` channel, encrypted signed Markdown messages, local SQLite persistence, Commonware delivery over validated directly reachable LAN, VPN, Tailscale, or equivalent routes, restart and reconnect behavior, forward-only interval access with eligible historical recovery, and local unread state. RFC 0011 and the P2P channel-chat design settle the scope.
 
 ## Repository direction
 

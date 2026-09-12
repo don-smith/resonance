@@ -11,7 +11,7 @@ pub use manifest_generated::{
     AgentConfiguration, AgentPermission, ContentEntry, EventDeclarations, ManifestRole, Navigation,
     PackageManifest, PackageSourceValue, SemanticCapability, MANIFEST_SCHEMA_SHA256,
 };
-const STANDARD_EVENTS: [&str; 9] = [
+const STANDARD_EVENTS: [&str; 10] = [
     "repo:changed",
     "doc:updated",
     "doc:opened",
@@ -21,6 +21,7 @@ const STANDARD_EVENTS: [&str; 9] = [
     "peer:connection",
     "workspace:member-added",
     "workspace:member-removed",
+    "conversations:changed",
 ];
 
 #[derive(Debug, PartialEq, Eq)]

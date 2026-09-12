@@ -1,0 +1,461 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resonance.local/schema/conversations.v1.json",
+  "title": "Resonance conversations v1 semantic contract",
+  "oneOf": [
+    { "$ref": "#/$defs/requestEnvelope" },
+    { "$ref": "#/$defs/responseEnvelope" },
+    { "$ref": "#/$defs/errorEnvelope" },
+    { "$ref": "#/$defs/invalidationEnvelope" }
+  ],
+  "$defs": {
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "channelName": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 80,
+      "pattern": "^#"
+    },
+    "markdown": { "type": "string", "maxLength": 16384 },
+    "safeInteger": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "synchronization": {
+      "enum": ["offline", "waiting-to-sync", "current"]
+    },
+    "requestEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "const": "request" },
+        "value": { "$ref": "#/$defs/request" }
+      }
+    },
+    "responseEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "const": "response" },
+        "value": { "$ref": "#/$defs/response" }
+      }
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "const": "error" },
+        "value": { "$ref": "#/$defs/error" }
+      }
+    },
+    "invalidationEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": { "const": "invalidation" },
+        "value": { "$ref": "#/$defs/invalidation" }
+      }
+    },
+    "request": {
+      "oneOf": [
+        { "$ref": "#/$defs/snapshotRequest" },
+        { "$ref": "#/$defs/messagesRequest" },
+        { "$ref": "#/$defs/createChannelRequest" },
+        { "$ref": "#/$defs/renameChannelRequest" },
+        { "$ref": "#/$defs/archiveChannelRequest" },
+        { "$ref": "#/$defs/postMessageRequest" },
+        { "$ref": "#/$defs/markReadRequest" },
+        { "$ref": "#/$defs/synchronizationRequest" }
+      ]
+    },
+    "snapshotRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation"],
+      "properties": { "operation": { "const": "snapshot" } }
+    },
+    "messagesRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "channelId", "cursor", "limit"],
+      "properties": {
+        "operation": { "const": "messages" },
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "cursor": {
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
+        },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "createChannelRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "name"],
+      "properties": {
+        "operation": { "const": "create-channel" },
+        "name": { "$ref": "#/$defs/channelName" }
+      }
+    },
+    "renameChannelRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "channelId", "name"],
+      "properties": {
+        "operation": { "const": "rename-channel" },
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "name": { "$ref": "#/$defs/channelName" }
+      }
+    },
+    "archiveChannelRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "channelId"],
+      "properties": {
+        "operation": { "const": "archive-channel" },
+        "channelId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "postMessageRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "channelId", "markdown"],
+      "properties": {
+        "operation": { "const": "post-message" },
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "markdown": { "$ref": "#/$defs/markdown" }
+      }
+    },
+    "markReadRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "channelId", "messageId"],
+      "properties": {
+        "operation": { "const": "mark-read" },
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "messageId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "synchronizationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation"],
+      "properties": { "operation": { "const": "synchronization-state" } }
+    },
+    "response": {
+      "oneOf": [
+        { "$ref": "#/$defs/snapshotResponse" },
+        { "$ref": "#/$defs/messagesResponse" },
+        { "$ref": "#/$defs/createChannelResponse" },
+        { "$ref": "#/$defs/renameChannelResponse" },
+        { "$ref": "#/$defs/archiveChannelResponse" },
+        { "$ref": "#/$defs/postMessageResponse" },
+        { "$ref": "#/$defs/markReadResponse" },
+        { "$ref": "#/$defs/synchronizationResponse" }
+      ]
+    },
+    "snapshotResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "snapshot"],
+      "properties": {
+        "operation": { "const": "snapshot" },
+        "snapshot": { "$ref": "#/$defs/snapshot" }
+      }
+    },
+    "messagesResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "page"],
+      "properties": {
+        "operation": { "const": "messages" },
+        "page": { "$ref": "#/$defs/messagePage" }
+      }
+    },
+    "createChannelResponse": { "$ref": "#/$defs/channelResponseCreate" },
+    "renameChannelResponse": { "$ref": "#/$defs/channelResponseRename" },
+    "archiveChannelResponse": { "$ref": "#/$defs/channelResponseArchive" },
+    "channelResponseBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "channel"],
+      "properties": {
+        "operation": { "type": "string" },
+        "channel": { "$ref": "#/$defs/channel" }
+      }
+    },
+    "channelResponseCreate": {
+      "allOf": [
+        { "$ref": "#/$defs/channelResponseBase" },
+        {
+          "type": "object",
+          "properties": { "operation": { "const": "create-channel" } }
+        }
+      ]
+    },
+    "channelResponseRename": {
+      "allOf": [
+        { "$ref": "#/$defs/channelResponseBase" },
+        {
+          "type": "object",
+          "properties": { "operation": { "const": "rename-channel" } }
+        }
+      ]
+    },
+    "channelResponseArchive": {
+      "allOf": [
+        { "$ref": "#/$defs/channelResponseBase" },
+        {
+          "type": "object",
+          "properties": { "operation": { "const": "archive-channel" } }
+        }
+      ]
+    },
+    "postMessageResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "message"],
+      "properties": {
+        "operation": { "const": "post-message" },
+        "message": { "$ref": "#/$defs/message" }
+      }
+    },
+    "markReadResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "channelId", "unreadCount"],
+      "properties": {
+        "operation": { "const": "mark-read" },
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "unreadCount": { "$ref": "#/$defs/count" }
+      }
+    },
+    "synchronizationResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "synchronization"],
+      "properties": {
+        "operation": { "const": "synchronization-state" },
+        "synchronization": { "$ref": "#/$defs/synchronization" }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "channels", "synchronization"],
+      "properties": {
+        "workspaceId": { "$ref": "#/$defs/identifier" },
+        "channels": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/channel" }
+        },
+        "synchronization": { "$ref": "#/$defs/synchronization" }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channelId", "name", "archived", "unreadCount", "canManage"],
+      "properties": {
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "name": { "$ref": "#/$defs/channelName" },
+        "archived": { "type": "boolean" },
+        "unreadCount": { "$ref": "#/$defs/count" },
+        "canManage": { "type": "boolean" }
+      }
+    },
+    "messagePage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channelId", "messages", "nextCursor"],
+      "properties": {
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "messages": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/message" }
+        },
+        "nextCursor": {
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
+        }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["messageId", "channelId", "author", "createdAt", "markdown"],
+      "properties": {
+        "messageId": { "$ref": "#/$defs/identifier" },
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "author": { "$ref": "#/$defs/author" },
+        "createdAt": { "$ref": "#/$defs/safeInteger" },
+        "markdown": { "$ref": "#/$defs/markdown" }
+      }
+    },
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicIdentity", "displayName"],
+      "properties": {
+        "publicIdentity": { "$ref": "#/$defs/identifier" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 255 }
+      }
+    },
+    "error": {
+      "oneOf": [
+        { "$ref": "#/$defs/unavailableError" },
+        { "$ref": "#/$defs/invalidRequestError" },
+        { "$ref": "#/$defs/missingChannelError" },
+        { "$ref": "#/$defs/archivedChannelError" },
+        { "$ref": "#/$defs/unauthorizedError" },
+        { "$ref": "#/$defs/missingEpochError" },
+        { "$ref": "#/$defs/authoringBlockedError" },
+        { "$ref": "#/$defs/sizeLimitError" },
+        { "$ref": "#/$defs/internalError" }
+      ]
+    },
+    "errorBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    "unavailableError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "unavailable-capability" },
+            "message": { "const": "Conversations are unavailable." }
+          }
+        }
+      ]
+    },
+    "invalidRequestError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "invalid-request" },
+            "message": { "const": "The conversations request is invalid." }
+          }
+        }
+      ]
+    },
+    "missingChannelError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "missing-channel" },
+            "message": { "const": "That channel is unavailable." }
+          }
+        }
+      ]
+    },
+    "archivedChannelError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "archived-channel" },
+            "message": { "const": "That channel is archived." }
+          }
+        }
+      ]
+    },
+    "unauthorizedError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "unauthorized" },
+            "message": {
+              "const": "You cannot perform that conversation action."
+            }
+          }
+        }
+      ]
+    },
+    "missingEpochError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "missing-epoch" },
+            "message": { "const": "Conversation encryption is not ready yet." }
+          }
+        }
+      ]
+    },
+    "authoringBlockedError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "authoring-blocked" },
+            "message": {
+              "const": "Conversation authoring is waiting for membership to update."
+            }
+          }
+        }
+      ]
+    },
+    "sizeLimitError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "size-limit" },
+            "message": { "const": "The conversations size limit was exceeded." }
+          }
+        }
+      ]
+    },
+    "internalError": {
+      "allOf": [
+        { "$ref": "#/$defs/errorBase" },
+        {
+          "type": "object",
+          "properties": {
+            "code": { "const": "internal" },
+            "message": {
+              "const": "Conversations could not complete the request."
+            }
+          }
+        }
+      ]
+    },
+    "invalidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspaceId", "channelId"],
+      "properties": {
+        "workspaceId": { "$ref": "#/$defs/identifier" },
+        "channelId": { "$ref": "#/$defs/identifier" },
+        "messageId": { "$ref": "#/$defs/identifier" }
+      }
+    }
+  }
+}

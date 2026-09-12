@@ -6,6 +6,8 @@
 #[cfg(all(feature = "debug-local-profiles", not(debug_assertions)))]
 compile_error!("debug-local-profiles is limited to debug Rust builds");
 
+#[doc(hidden)]
+pub mod conversations;
 pub mod identity;
 pub mod invite;
 pub mod iroh_transport;

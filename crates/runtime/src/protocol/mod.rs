@@ -25,6 +25,7 @@ pub enum EnvelopeBody {
     JoinRequest {
         inviter: [u8; 32],
         display_name: String,
+        recipient_key: Vec<u8>,
     },
     MembershipSyncRequest,
     MembershipSyncResponse(Vec<Vec<u8>>),
@@ -34,6 +35,9 @@ pub enum EnvelopeBody {
     Heartbeat {
         sent_at: i64,
     },
+    DepartureRequest(Vec<u8>),
+    AddressNotice(Vec<u8>),
+    RecipientKey(Vec<u8>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -45,6 +49,7 @@ pub enum ProtocolError {
     InvalidSignature,
     InvalidJoinRequest,
     InvalidFileHistoryNotice,
+    InvalidConversationControl,
 }
 
 impl fmt::Display for ProtocolError {
@@ -64,6 +69,9 @@ impl fmt::Display for ProtocolError {
             Self::InvalidJoinRequest => formatter.write_str("workspace join request is invalid"),
             Self::InvalidFileHistoryNotice => {
                 formatter.write_str("workspace file-history notice is invalid")
+            }
+            Self::InvalidConversationControl => {
+                formatter.write_str("workspace conversation control is invalid")
             }
         }
     }
@@ -149,8 +157,13 @@ fn validate_unsigned(envelope: &UnsignedEnvelope) -> Result<(), ProtocolError> {
     }
     WorkspaceId::parse(&envelope.workspace_id).map_err(|_| ProtocolError::InvalidWorkspace)?;
     match &envelope.body {
-        EnvelopeBody::JoinRequest { display_name, .. }
-            if display_name.trim().is_empty() || display_name.len() > 256 =>
+        EnvelopeBody::JoinRequest {
+            display_name,
+            recipient_key,
+            ..
+        } if display_name.trim().is_empty()
+            || display_name.len() > 256
+            || recipient_key.len() > crate::conversations::wire::MAX_RECORD_BYTES =>
         {
             Err(ProtocolError::InvalidJoinRequest)
         }
@@ -164,6 +177,16 @@ fn validate_unsigned(envelope: &UnsignedEnvelope) -> Result<(), ProtocolError> {
                 }) =>
         {
             Err(ProtocolError::InvalidFileHistoryNotice)
+        }
+        EnvelopeBody::DepartureRequest(bytes)
+            if bytes.is_empty() || bytes.len() > crate::conversations::wire::MAX_RECORD_BYTES =>
+        {
+            Err(ProtocolError::InvalidConversationControl)
+        }
+        EnvelopeBody::AddressNotice(bytes) | EnvelopeBody::RecipientKey(bytes)
+            if bytes.is_empty() || bytes.len() > crate::conversations::wire::MAX_RECORD_BYTES =>
+        {
+            Err(ProtocolError::InvalidConversationControl)
         }
         _ => Ok(()),
     }

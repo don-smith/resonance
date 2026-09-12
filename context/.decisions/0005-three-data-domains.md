@@ -24,12 +24,12 @@ Problems:
 |--------|---------------|---------------------|
 | Repository data | Git (push/pull) | Git history |
 | Workspace files | Signed file operations and immutable blobs over Iroh | Causally ordered operation history and verified blobs |
-| Conversations | Append-only log over Iroh gossip | Local SQLite replica |
+| Conversations | Canonical encrypted records over a direct Commonware mesh | Canonical membership lineage plus local SQLite replica |
 
 Each domain uses the mechanism most natural to its data shape:
 - Repository content is already modeled as a DAG of commits. Git's model is correct; Resonance reads it, never replaces it.
 - Workspace files are collaboratively authored, may be edited offline, and must converge. Signed file operations plus immutable blobs preserve a single authority while permitting only proven-safe Markdown merges.
-- Conversations are append-only, attributed, and temporally ordered. An append-only log with gossip replication is simpler and more correct than a CRDT for this workload.
+- Conversations are append-only, encrypted, attributed, and deterministically ordered. Purpose-specific canonical records with Commonware delivery and bounded sparse-gap recovery are simpler and more correct than a CRDT for this workload.
 
 ## Evidence
 
@@ -41,5 +41,5 @@ Each domain uses the mechanism most natural to its data shape:
 
 - Package authors must understand which domain their package operates in and use the corresponding sync primitive.
 - Repo packages never write to the workspace-file or conversation layer on behalf of repository content. If a repo package wants to share repository-derived content with non-developers, it does so by creating a workspace file, not by replicating repository files.
-- The identity layer (see 02-system/01-identity/) applies to planning documents and conversations. Git repository access is governed by Git credentials; the workspace identity layer does not mediate repository access.
+- The identity layer (see 02-system/01-identity/) applies to workspace files and conversations. Canonical workspace membership is the sole conversation access authority; Commonware does not maintain a second member list. Git repository access is governed by Git credentials; the workspace identity layer does not mediate repository access.
 - A workspace file may reference repository content (e.g., link to a commit or embed a file path) without that repository content being pulled into the workspace domain.

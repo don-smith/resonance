@@ -14,11 +14,16 @@ application-data root selected at startup:
 
 `catalog.sqlite3` records the installation's workspaces and active workspace.
 A workspace database stores private configuration, the workspace token,
-membership data, signed file-operation history, the local root binding, and the
-last materialized node and revision for each local path. The runtime rebuilds
+membership data, signed file-operation history, encrypted conversation archives
+and outboxes, durable Iroh and Commonware publication duties, device-local unread
+positions, the local root binding, and the last materialized node and revision
+for each local path. Workspace databases use schema v11 for the conversation
+membership, epoch, archive, recovery, and direct-address state. The runtime rebuilds
 logical nodes, revisions, tombstones, conflicts, and active ignore rules from
 the signed operation history when it opens the workspace. `blobs/` contains
-immutable BLAKE3-addressed file bytes. These locations are private runtime
+immutable BLAKE3-addressed file bytes. Conversation archive and outbox rows keep
+exact signed ciphertext records; they do not store message Markdown or epoch
+secrets in plaintext. These locations are private runtime
 state. They are not the shared workspace root, and no package or frontend
 command receives their paths.
 
@@ -51,10 +56,17 @@ owner-only checkout-local root:
 ```text
 .resonance/debug-profiles/<name>/
 ├── identity/installation.key
+├── identity/conversation-recipient.key
+├── identity/conversation-recipient.created
 └── app-data/.resonance/
     ├── catalog.sqlite3
     └── workspaces/
 ```
+
+The installation signing key and dedicated X25519 conversation-recipient key
+use separate owner-only files in a debug profile. Ordinary installations keep
+the same separation in distinct native Keychain accounts. Missing or malformed
+recipient custody fails closed rather than silently rotating after use.
 
 Profile keys and state never share normal app data or native credentials. They
 are a development-only exception defined by RFC 0008, not a production file-key

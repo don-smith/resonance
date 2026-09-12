@@ -20,9 +20,9 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 ## Acceptable Tradeoffs
 
-- **RS-T01 NAT traversal requires relay infrastructure.** Direct peer connections via hole-punching succeed in most network environments. Corporate proxies and aggressive firewalls require a relay fallback. The relay carries encrypted traffic but holds no content authority. This is a known constraint of P2P networking, not a design failure.
+- **RS-T01 NAT traversal requires relay infrastructure.** Iroh direct peer connections use hole punching and relay fallback for workspace lifecycle, membership, presence, and workspace files. V1 conversations deliberately use Commonware only over validated directly reachable LAN, VPN, Tailscale, or equivalent private-network addresses and provide no relay or NAT traversal. This connectivity split is a known product constraint, not a membership signal.
 
-- **RS-T02 Key revocation is eventual in v1.** Removing a member from the workspace member list prevents future messages from being accepted by peers. Messages already replicated to peer stores remain. 
+- **RS-T02 Conversation revocation is forward-only in v1.** Canonical removal excludes an installation from the next conversation epoch, peer set, and future recovery. Already held records and keys remain. V1 cannot distinguish an honest offline old-epoch post from a malicious record backdated after removal, so eligible canonical historical records may still be accepted after convergence.
 
 - **RS-T03 Bundled packages share one reviewed-code trust domain.** Tauri permissions apply to the main webview, not individual JavaScript modules. Import checks, CSP, and an explicit command allowlist prevent accidental coupling but do not sandbox bundled packages from each other. Member-loaded code requires separately labelled webviews.
 
@@ -52,7 +52,7 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 - **RS-R06 Planning workspace files preserve offline work.** Planning content is a signed, causally ordered workspace file tree with immutable verified blobs. Members may edit a private materialized root or the rendered Markdown surface; only safe Markdown changes merge automatically, and every unsafe concurrent change remains losslessly resolvable.
 
-- **RS-R07 Conversations are attributed and append-only.** Every message is signed by the sender's identity keypair. The conversation log is append-only in the core protocol. `refines: RS-A02`
+- **RS-R07 Conversations are encrypted, attributed, and append-only.** Every exact encrypted message record is signed by the sender's installation identity and delivered or recovered through the authorized direct Commonware mesh. The conversation log is append-only in the core protocol. `refines: RS-A02`
 
 ### Extensibility
 
@@ -70,7 +70,7 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 ### Conversations as a primitive
 
-- **RS-R17 Conversations are a package-embeddable primitive.** The runtime provides the core conversation infrastructure — signed, append-only messages with CRDT sync. Packages embed conversations into any surface: planning documents, repo views, feature-specific scopes, or standalone channels. A package declares the conversations it hosts, just as it declares the events it emits and consumes. `refines: RS-R07, RS-R08, RS-R10`
+- **RS-R17 Conversations are a package-embeddable primitive.** The runtime provides Commonware-backed, signed, append-only conversation records and a versioned semantic capability. Packages embed conversations into any surface: planning documents, repo views, feature-specific scopes, or standalone channels. A package declares the conversations it hosts, just as it declares the events it emits and consumes. `refines: RS-R07, RS-R08, RS-R10`
 
 ### Future concerns
 
@@ -84,6 +84,6 @@ Role: owns the product-level assumptions, tradeoffs, and top-level requirements 
 
 ### Access control
 
-- **RS-R15 Member removal prevents future contribution.** A member whose public key is removed from the workspace member list cannot post messages or document updates that remaining peers will accept. `refines: RS-A02, RS-T02`
+- **RS-R15 Member removal prevents next-epoch contribution.** A removed identity cannot publish accepted workspace-file operations against the resulting membership or receive, author, decrypt, or recover accepted next-epoch conversation traffic. Eligible exact records from a canonical historical conversation epoch may still synchronize under the forward-only limit in RS-T02. `refines: RS-A02, RS-T02`
 
 - **RS-R16 Multiple repositories per workspace.** A team member may register multiple local repository clones. Repo packages load from each registered repo according to its own package manifest.

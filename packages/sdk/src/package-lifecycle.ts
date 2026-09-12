@@ -2,6 +2,7 @@ import {
   semanticCapabilityProperties,
   type SemanticCapability,
 } from "@resonance/contracts";
+import type { ConversationsV1 } from "./conversations-v1.js";
 import type { WorkspaceFilesV1 } from "./workspace-files-v1.js";
 
 export type PackageIdentity = Readonly<{
@@ -36,7 +37,11 @@ export const packageDesignTokens = Object.freeze({
 export type PackageDesignTokens = typeof packageDesignTokens;
 
 type CapabilityProvider<C extends SemanticCapability> =
-  C extends "workspace-files:v1" ? WorkspaceFilesV1 : never;
+  C extends "workspace-files:v1"
+    ? WorkspaceFilesV1
+    : C extends "conversations:v1"
+      ? ConversationsV1
+      : never;
 
 export type PackageCapabilities<
   C extends readonly SemanticCapability[] = readonly SemanticCapability[],

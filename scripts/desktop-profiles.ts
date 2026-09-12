@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  profileLaunch,
   profileLaunches,
   removeProfileConfigurations,
   removeProfileConfigurationsSync,
@@ -35,7 +36,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const profiles = profileLaunches(arguments_, root);
+  const profiles =
+    arguments_[0] === "--single"
+      ? singleProfileLaunch(arguments_.slice(1))
+      : profileLaunches(arguments_, root);
   await writeProfileConfigurations(profiles);
   let configurationsRemoved = false;
   const removeConfigurations = async () => {
@@ -83,6 +87,16 @@ async function main(): Promise<void> {
     start("pnpm", viteArguments(profile), profile);
   for (const profile of profiles)
     start("pnpm", tauriArguments(profile), profile);
+}
+
+function singleProfileLaunch(arguments_: string[]): DesktopProfile[] {
+  // pnpm preserves a forwarding separator after the static --single argument.
+  if (arguments_[0] === "--") arguments_.shift();
+  if (arguments_.length !== 2) {
+    throw new Error("Use desktop:profile -- <profile-name> <port>.");
+  }
+  const port = Number(arguments_[1]);
+  return [profileLaunch(arguments_[0], port, root)];
 }
 
 function startCleanupSupervisor(profiles: DesktopProfile[]): void {

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Conversations · Resonance</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        line-height: 1.6;
+      }
+      body {
+        max-width: 58rem;
+        margin: 0 auto;
+        padding: 2rem;
+      }
+      header,
+      section {
+        margin-bottom: 2.5rem;
+      }
+      nav {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      h1,
+      h2 {
+        line-height: 1.2;
+      }
+      .state {
+        padding: 0.15rem 0.45rem;
+        border: 1px solid currentcolor;
+        border-radius: 0.3rem;
+        white-space: nowrap;
+      }
+      code {
+        padding: 0.1rem 0.25rem;
+        border-radius: 0.2rem;
+        background: color-mix(in srgb, CanvasText 10%, Canvas);
+      }
+      a {
+        color: LinkText;
+      }
+    </style>
+  </head>
+  <body>
+    <a href="#main">Skip to main content</a>
+    <header>
+      <nav aria-label="Documentation">
+        <a href="index.html">Documentation home</a>
+        <a href="workspace-files.html">Workspace files</a>
+        <a href="../conversations.md">Markdown source</a>
+      </nav>
+    </header>
+    <main id="main">
+      <section aria-labelledby="title">
+        <p>Resonance user guide</p>
+        <h1 id="title">Conversations</h1>
+        <p>
+          Exchange encrypted, attributed Markdown in public workspace channels
+          over an already reachable direct network.
+        </p>
+      </section>
+      <section aria-labelledby="general">
+        <h2 id="general">Start in <code>#general</code></h2>
+        <p>
+          A new conversation-ready workspace starts with an empty
+          <code>#general</code>. Any current member can post or create another
+          public channel. A channel's creator can rename or archive it; archive
+          is terminal.
+        </p>
+        <p>
+          This release has no private channels, per-channel membership, direct
+          messages, replies, threads, edits, deletes, attachments, or approval
+          controls.
+        </p>
+      </section>
+      <section aria-labelledby="unread">
+        <h2 id="unread">Attributed messages and local unread state</h2>
+        <p>
+          Each message shows its author's workspace display name. Unread counts
+          and Mark read positions stay on this installation and are never
+          synchronized as read receipts.
+        </p>
+      </section>
+      <section aria-labelledby="sync">
+        <h2 id="sync">Synchronization labels</h2>
+        <ul>
+          <li>
+            <span class="state">Current</span> — no known local conversation
+            duty remains.
+          </li>
+          <li>
+            <span class="state">Waiting to sync</span> — durable work, an
+            encryption epoch, a departure, or a usable authorized peer is still
+            pending.
+          </li>
+          <li>
+            <span class="state">Offline</span> — another member exists, but no
+            valid direct address candidate is known.
+          </li>
+        </ul>
+        <p>
+          Encrypted outbox bytes survive restart and sparse recovery avoids
+          requiring a user retry.
+        </p>
+      </section>
+      <section aria-labelledby="limits">
+        <h2 id="limits">Direct-network and history limits</h2>
+        <p>
+          Conversation records use authenticated direct Commonware connections.
+          Iroh carries membership and bounded secret-free bootstrap controls
+          only. This release adds no conversation relay, rendezvous, NAT
+          traversal, hole punching, STUN, TURN, or UPnP.
+        </p>
+        <p>
+          Admission and removal are forward-only after canonical membership
+          convergence. Members need a LAN, VPN, Tailscale network, or equivalent
+          reachable route.
+        </p>
+      </section>
+      <section aria-labelledby="data">
+        <h2 id="data">Private local data</h2>
+        <p>
+          Exact ciphertext archives, durable duties, recovery state, and unread
+          positions stay in private workspace storage. Signing and
+          conversation-recipient keys use separate custody. See
+          <a href="../local-data.md">Local workspace data</a> for details.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

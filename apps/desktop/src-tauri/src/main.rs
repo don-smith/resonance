@@ -140,6 +140,7 @@ mod tests {
         let commands = [
             "workspace_view",
             "workspace_files_v1",
+            "conversations_v1",
             "create_workspace",
             "create_workspace_invite",
             "join_workspace",

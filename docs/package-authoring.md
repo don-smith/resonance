@@ -33,7 +33,7 @@ A bundled manifest has these fields:
 - `minRole`, one of `viewer`, `contributor`, or `developer`;
 - optional semantic `capabilities` and agent configuration.
 
-Manifest and capability versions are independent. For example, `workspace-files:v1` can evolve without changing manifest v2. The catalog rejects duplicate IDs, absolute entries, traversal, symlink escapes, missing entries, and unknown manifest fields.
+Manifest and capability versions are independent. For example, `workspace-files:v1` and `conversations:v1` can evolve without changing manifest v2. The catalog rejects duplicate IDs, absolute entries, traversal, symlink escapes, missing entries, and unknown manifest fields.
 
 ## Lifecycle
 
@@ -55,7 +55,9 @@ If `mount` allocates a resource and then fails, clean it before throwing or thro
 
 Import package interfaces from `@resonance/package-sdk`. `PackageContext` contains immutable package identity, declared-event access, shell design-token names, and only the capabilities declared by the validated manifest.
 
-A package may emit and consume only declared events. Privileged work uses a semantic capability such as `context.capabilities.workspaceFilesV1`; packages never receive command names, raw Tauri transport, desktop state, local paths, keys, tokens, persistence details, signed operations, blobs, watcher state, SQL details, or Iroh handles.
+A package may emit and consume only declared events. Privileged work uses a semantic capability such as `context.capabilities.workspaceFilesV1` or `context.capabilities.conversationsV1`; packages never receive command names, raw Tauri transport, desktop state, local paths, keys, tokens, persistence details, signed operations, blobs, watcher state, SQL details, Iroh handles, or Commonware handles.
+
+`conversations:v1` exposes public-channel snapshots, bounded message pages, create/rename/archive/post/mark-read operations, and `Offline`, `Waiting to sync`, or `Current` state. Its invalidations contain only workspace, channel, and optional message identifiers. It never exposes exact records, signatures, keys, addresses, membership or authority snapshots, SQLite values, workspace tokens, transport handles, or synchronized read receipts. Use `InMemoryConversationsV1` for package tests.
 
 Request a new runtime capability only when the operation needs host or Rust authority and cannot be implemented from existing SDK methods. The proposal must define one versioned semantic interface, bounded secret-free request and result shapes, finite safe errors, production and test adapters, shared TypeScript/Rust fixtures, cleanup, and authorization behavior. Do not add a generic invoke escape hatch.
 
@@ -100,4 +102,4 @@ pnpm build:desktop
 
 Bundled packages are reviewed code in the main webview. Import checks and the explicit application-command allowlist prevent accidental coupling; they do not sandbox JavaScript modules from each other. Do not ship member-loaded or otherwise unreviewed code through this host. A future member-package loader must use separately labelled webviews with separate Tauri capabilities while preserving the semantic SDK interface.
 
-See `packages/reference-package` for a small package and `packages/workspace-files` for a complete capability-backed package.
+See `packages/reference-package` for a small package, `packages/workspace-files` for the file capability, and `packages/conversations` for a bounded event-refreshing conversation capability.

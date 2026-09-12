@@ -28,9 +28,11 @@ Role: owns the package model, bundled content host, package manifest contract, e
 
 - **RS.SYS.PKG-R18 Package failures remain local to their content region.** Import, mount, activation, deactivation, and disposal failures do not replace onboarding, membership controls, peers, navigation, or other package mounts.
 
-- **RS.SYS.PKG-R19 Privileged package operations use declared semantic capabilities.** `PackageContext` exposes no generic Tauri invocation or desktop state. A capability version such as `workspace-files:v1` defines bounded request, response, invalidation, and safe-error behavior independently of manifest version. Rust remains authoritative and validates every request.
+- **RS.SYS.PKG-R19 Privileged package operations use declared semantic capabilities.** `PackageContext` exposes no generic Tauri invocation or desktop state. Capability versions such as `workspace-files:v1` and `conversations:v1` define bounded request, response, invalidation, and safe-error behavior independently of manifest version. Rust remains authoritative and validates every request.
 
 - **RS.SYS.PKG-R20 Workspace files are a capability-backed bundled package.** `resonance.workspace-files` owns the complete files content lifecycle and uses only `workspace-files:v1`. The shell owns no file tree, editor, preview, conflict, root-action, or direct file-transport state. The package receives no local path, persistence, signing, blob, watcher, or peer-transport details. `refines: RS.SYS.PKG-R01, RS.SYS.PKG-R17, RS.SYS.PKG-R19`
+
+- **RS.SYS.PKG-R21 Conversations are a capability-backed bundled package.** `resonance.conversations` owns public-channel presentation and uses only `conversations:v1`. The shell owns no channel catalog, message view, composer, unread state, or conversation synchronization logic. The package receives semantic Markdown and finite state only, never exact records, signatures, keys, recipient keys, addresses, membership snapshots, SQL values, workspace tokens, or Commonware handles. `refines: RS.SYS.PKG-R01, RS.SYS.PKG-R17, RS.SYS.PKG-R19`
 
 ### Event bus
 
@@ -38,7 +40,7 @@ Role: owns the package model, bundled content host, package manifest contract, e
 
 - **RS.SYS.PKG-R05 A package may only emit events it declares.** In development mode, the runtime rejects undeclared emits and logs a warning. In production mode, undeclared emits are silently dropped to avoid crashes. `refines: RS.SYS.PKG-R02`
 
-- **RS.SYS.PKG-R06 Standard events are defined by the runtime.** The runtime defines a vocabulary of standard events that packages use for common interactions. Packages may define additional domain-specific events, which must be declared in the manifest. Standard events include: `repo:changed`, `doc:updated`, `doc:opened`, `message:received`, `peer:joined`, `peer:left`, `peer:connection`, `workspace:member-added`, `workspace:member-removed`. Peer events carry only runtime-validated, secret-free state.
+- **RS.SYS.PKG-R06 Standard events are defined by the runtime.** The runtime defines a vocabulary of standard events that packages use for common interactions. Packages may define additional domain-specific events, which must be declared in the manifest. Standard events include: `repo:changed`, `doc:updated`, `doc:opened`, `conversations:changed`, `peer:joined`, `peer:left`, `peer:connection`, `workspace:member-added`, `workspace:member-removed`. Peer and conversation events carry only runtime-validated, secret-free invalidations or state.
 
 ### Agent panel
 

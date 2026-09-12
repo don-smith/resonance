@@ -63,6 +63,18 @@ pnpm desktop:profiles -- alice bob
 pnpm desktop:profiles -- --reset alice
 ```
 
+For an offline/reconnect check where one profile must remain running, start each
+profile from a separate terminal with its stable port:
+
+```sh
+pnpm desktop:profile -- alice 1421
+pnpm desktop:profile -- bob 1422
+```
+
+Closing Bob now leaves Alice running. Restart `bob` with the same command to
+exercise durable offline authorship and direct recovery. Keep the two profile
+names and ports distinct.
+
 This command builds debug-only profile peers with separate signed app bundles.
 It stores their ignored state under `.resonance/debug-profiles/` and needs the
 same Apple Development signing setup. `pnpm desktop:dev` remains the ordinary

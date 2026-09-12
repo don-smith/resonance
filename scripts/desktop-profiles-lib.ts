@@ -39,6 +39,34 @@ export function validateProfileName(name: unknown): string {
   return name;
 }
 
+export function profileLaunch(
+  name: string,
+  port: number,
+  root: string,
+): DesktopProfile {
+  const validatedName = validateProfileName(name);
+  if (!Number.isSafeInteger(port) || port < 1024 || port > 65_535) {
+    throw new Error("Profile ports must be integers from 1024 through 65535.");
+  }
+  return {
+    name: validatedName,
+    port,
+    devUrl: `http://127.0.0.1:${port}`,
+    identifier: `com.resonance.desktop.debug.${validatedName}`,
+    bundleName: `Resonance Debug ${validatedName}`,
+    configPath: resolve(
+      root,
+      ".resonance",
+      "desktop-profiles",
+      `${validatedName}.tauri.conf.json`,
+    ),
+    runner:
+      process.platform === "darwin"
+        ? resolve(root, "scripts", "macos-tauri-runner.sh")
+        : undefined,
+  };
+}
+
 export function profileLaunches(
   names: string[],
   root: string,
@@ -50,26 +78,9 @@ export function profileLaunches(
   if (new Set(validated).size !== validated.length) {
     throw new Error("desktop:profiles needs two distinct profile names.");
   }
-  return validated.map((name, index) => {
-    const port = PORTS[index];
-    return {
-      name,
-      port,
-      devUrl: `http://127.0.0.1:${port}`,
-      identifier: `com.resonance.desktop.debug.${name}`,
-      bundleName: `Resonance Debug ${name}`,
-      configPath: resolve(
-        root,
-        ".resonance",
-        "desktop-profiles",
-        `${name}.tauri.conf.json`,
-      ),
-      runner:
-        process.platform === "darwin"
-          ? resolve(root, "scripts", "macos-tauri-runner.sh")
-          : undefined,
-    };
-  });
+  return validated.map((name, index) =>
+    profileLaunch(name, PORTS[index], root),
+  );
 }
 
 export function tauriArguments(profile: DesktopProfile): string[] {

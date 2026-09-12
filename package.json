@@ -10,6 +10,7 @@
   "scripts": {
     "desktop:dev": "node --experimental-strip-types --no-warnings scripts/desktop-dev.ts",
     "desktop:profiles": "node --experimental-strip-types --no-warnings scripts/desktop-profiles.ts",
+    "desktop:profile": "node --experimental-strip-types --no-warnings scripts/desktop-profiles.ts --single",
     "packages:generate": "node --experimental-strip-types --no-warnings scripts/bundled-package-catalog.ts write",
     "packages:boundaries": "node --experimental-strip-types --no-warnings scripts/bundled-package-boundaries.ts",
     "packages:check": "node --experimental-strip-types --no-warnings scripts/bundled-package-catalog.ts check && node --experimental-strip-types --no-warnings scripts/bundled-package-boundaries.ts",
